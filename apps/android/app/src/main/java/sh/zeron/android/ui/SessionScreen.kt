@@ -48,12 +48,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -65,7 +67,9 @@ import androidx.activity.result.contract.ActivityResultContracts
 import kotlinx.coroutines.launch
 import sh.zeron.android.core.ZeronModel
 import sh.zeron.android.design.ArrowUpMark
+import sh.zeron.android.design.BackChevron
 import sh.zeron.android.design.BrandMark
+import sh.zeron.android.design.EllipsisMark
 import sh.zeron.android.design.LocalZeronColors
 import sh.zeron.android.design.PlusMark
 import sh.zeron.android.design.ProjectTile
@@ -134,6 +138,7 @@ fun SessionScreen(model: ZeronModel, chatId: String) {
     var lightbox by remember { mutableStateOf<Bitmap?>(null) }
     var detail by remember { mutableStateOf<Pair<String, String>?>(null) }
     var composerHeight by remember { mutableIntStateOf(0) }
+    var headerPx by remember { mutableIntStateOf(0) }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
         val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: return@rememberLauncherForActivityResult
@@ -186,6 +191,7 @@ fun SessionScreen(model: ZeronModel, chatId: String) {
                 host.onImage = { bmp -> lightbox = bmp }
                 host.onDetail = { title, body -> detail = title to body }
                 host.bottomInsetPx = composerHeight
+                host.topInsetPx = headerPx
                 host.imageFor = { images[it] }
                 host.requestImage = req@{ ref ->
                     if (images.containsKey(ref) || ref.startsWith("pending:")) return@req
@@ -200,24 +206,66 @@ fun SessionScreen(model: ZeronModel, chatId: String) {
                 relay.onReady = { host.post { host.onFrame() } }
             },
         )
-        Column(Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(horizontal = 8.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().height(48.dp)) {
-                Text(
-                    "Back",
-                    color = colors.text,
-                    fontFamily = ZeronType.Sans,
-                    fontWeight = FontWeight.Medium,
-                    fontSize = 16.sp,
-                    modifier = Modifier.clickable { model.back() }.padding(12.dp),
-                )
-                Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(chrome.title.ifBlank { row?.title ?: "Session" }, color = colors.text, fontFamily = ZeronType.Sans, fontWeight = FontWeight.SemiBold, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    val project = row?.project?.name ?: "No project"
-                    val host = chrome.host.name
-                    Text(if (host != null) "$project @ $host" else project, color = colors.secondary, fontFamily = ZeronType.Sans, fontSize = 12.sp, maxLines = 1)
+        val density = LocalDensity.current
+        val fadeHeight = with(density) { (headerPx + 28).coerceAtLeast(1).toDp() }
+        Box(
+            Modifier
+                .align(Alignment.TopCenter)
+                .fillMaxWidth()
+                .height(fadeHeight)
+                .background(
+                    Brush.verticalGradient(
+                        0f to colors.background,
+                        0.62f to colors.background,
+                        1f to colors.background.copy(alpha = 0f),
+                    ),
+                ),
+        )
+        Column(
+            Modifier
+                .align(Alignment.TopCenter)
+                .onSizeChanged {
+                    headerPx = it.height
+                    view?.topInsetPx = it.height
+                }
+                .statusBarsPadding()
+                .padding(horizontal = 12.dp, vertical = 4.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().height(52.dp)) {
+                Box(
+                    Modifier.size(44.dp).glassSurface(colors, 22.dp).clickable { model.back() },
+                    contentAlignment = Alignment.Center,
+                ) { BackChevron(colors.text, Modifier.size(18.dp)) }
+                Row(Modifier.weight(1f), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+                    BrandMark(row?.harness, colors, 18.dp)
+                    Spacer(Modifier.width(8.dp))
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.widthIn(max = 230.dp)) {
+                        Text(
+                            chrome.title.ifBlank { row?.title ?: "Session" },
+                            color = colors.text,
+                            fontFamily = ZeronType.Sans,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 16.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        val project = row?.project?.name ?: "No project"
+                        val hostName = chrome.host.name
+                        Text(
+                            if (hostName != null) "$project @ $hostName" else project,
+                            color = colors.secondary,
+                            fontFamily = ZeronType.Sans,
+                            fontSize = 12.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                 }
                 Box {
-                    Text("•••", color = colors.text, modifier = Modifier.clickable { menu = true }.padding(12.dp), fontSize = 18.sp)
+                    Box(
+                        Modifier.size(44.dp).glassSurface(colors, 22.dp).clickable { menu = true },
+                        contentAlignment = Alignment.Center,
+                    ) { EllipsisMark(colors.text, Modifier.size(18.dp)) }
                     DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                         DropdownMenuItem(text = { Text(if (row?.pinned == true) "Unpin" else "Pin") }, onClick = { menu = false; model.pin(chatId, row?.pinned != true) })
                         DropdownMenuItem(text = { Text("Rename") }, onClick = { menu = false; renameText = chrome.title; renaming = true })
@@ -227,7 +275,7 @@ fun SessionScreen(model: ZeronModel, chatId: String) {
             }
         }
         Column(
-            Modifier.align(Alignment.BottomCenter).widthIn(max = 768.dp).fillMaxWidth().padding(horizontal = 12.dp).navigationBarsPadding().imePadding().padding(bottom = 8.dp).onSizeChanged { composerHeight = it.height },
+            Modifier.align(Alignment.BottomCenter).widthIn(max = 768.dp).fillMaxWidth().padding(horizontal = 16.dp).navigationBarsPadding().imePadding().padding(bottom = 6.dp).onSizeChanged { composerHeight = it.height },
         ) {
             if (distance > 140f) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
@@ -257,7 +305,7 @@ fun SessionScreen(model: ZeronModel, chatId: String) {
                     colors = colors,
                     text = draft,
                     onText = { draft = it },
-                    placeholder = "Message ${row?.harnessLabel ?: harnessLabel(row?.harness ?: "claude-code")}",
+                    placeholder = "Message",
                     running = running,
                     canSteer = chrome.host.capabilities.midTurnSteering == true,
                     focused = focused,
@@ -476,13 +524,21 @@ private fun ComposerBar(
     mentionSearch: suspend (String) -> List<uniffi.zeron_core.FileMatch>,
     onMention: (String, Boolean) -> Unit,
 ) {
-    val card = focused || text.isNotEmpty() || images.isNotEmpty() || chips.isNotEmpty() && focused
+    val resting = !focused && text.isEmpty() && images.isEmpty()
     val has = text.isNotBlank() || images.isNotEmpty()
     val stop = running && !has
     var deliveryMenu by remember { mutableStateOf(false) }
     var mentions by remember { mutableStateOf(listOf<uniffi.zeron_core.FileMatch>()) }
     val scope = rememberCoroutineScope()
-    Column(Modifier.fillMaxWidth().glassSurface(colors, if (card) 26.dp else 25.dp).padding(horizontal = 8.dp, vertical = 6.dp)) {
+    val card = !resting
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .glassSurface(colors, if (resting) 25.dp else 26.dp)
+            .then(if (resting) Modifier.height(50.dp) else Modifier)
+            .padding(horizontal = if (resting) 14.dp else 8.dp, vertical = if (resting) 0.dp else 6.dp),
+        verticalArrangement = if (resting) Arrangement.Center else Arrangement.Top,
+    ) {
         if (mentions.isNotEmpty()) {
             Column(Modifier.heightIn(max = 180.dp).verticalScroll(rememberScrollState())) {
                 mentions.forEach { match ->
@@ -518,11 +574,13 @@ private fun ComposerBar(
             }
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                Modifier.size(34.dp).clip(RoundedCornerShape(17.dp)).background(colors.controlFill).clickable(onClick = onAttach),
-                contentAlignment = Alignment.Center,
-            ) {
-                PlusMark(colors.text, Modifier.size(16.dp))
+            if (!resting) {
+                Box(
+                    Modifier.size(34.dp).clip(RoundedCornerShape(17.dp)).background(colors.controlFill).clickable(onClick = onAttach),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    PlusMark(colors.text, Modifier.size(16.dp))
+                }
             }
             BasicTextField(
                 value = text,
@@ -549,7 +607,7 @@ private fun ComposerBar(
                     Modifier
                         .size(34.dp)
                         .clip(RoundedCornerShape(17.dp))
-                        .background(if (stop) colors.text else if (has) colors.accent else colors.controlFill)
+                        .background(if (stop) colors.text else if (has) colors.accent else colors.text.copy(alpha = 0.10f))
                         .combinedClickable(
                             onClick = { onSend(if (stop) Delivery.Send else if (running && canSteer) Delivery.Steer else Delivery.Queue) },
                             onLongClick = { if (running && has) deliveryMenu = true },

@@ -81,6 +81,8 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
     var showNewSession by mutableStateOf(false)
     var showSignIn by mutableStateOf(false)
     var searchQuery by mutableStateOf("")
+    /** Set by the `spaces` launch route so a screenshot can open the filter. */
+    var pendingSpaceMenu by mutableStateOf(false)
     var wallpaper by mutableStateOf<Bitmap?>(null)
     var wallpaperOpacity by mutableStateOf(0.42f)
     var wallpaperEffect by mutableStateOf(WallpaperEffect.NONE)
@@ -102,7 +104,7 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
     val faces: Map<FaceRole, Typeface> = loadFaces(app)
 
     init {
-        appearance = prefs.getInt("appearance", 0)
+        appearance = if (prefs.contains("appearance")) prefs.getInt("appearance", 2) else 2
         applyNight(appearance, recreate = false)
         wallpaperEffect = effectFrom(prefs.getString("wallpaperEffect", "none"))
         loadWallpaper()
@@ -553,6 +555,7 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
                 signOut()
             }
             "new" -> showNewSession = true
+            "spaces", "menu" -> pendingSpaceMenu = true
             "session" -> if (!chat.isNullOrEmpty()) openSession(chat)
         }
     }

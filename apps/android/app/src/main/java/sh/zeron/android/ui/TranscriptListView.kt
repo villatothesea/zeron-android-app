@@ -55,6 +55,8 @@ class TranscriptListView(context: Context) : View(context) {
     var onScroll: (Float) -> Unit = {}
     /** Composer / chrome covering the bottom, in pixels. Last row can scroll above it. */
     var bottomInsetPx: Int = 0
+    /** Header covering the top, in pixels. Resting content starts below it and can scroll under the fade. */
+    var topInsetPx: Int = 0
 
     private val scroller = OverScroller(context)
     private val density get() = resources.displayMetrics.density
@@ -101,7 +103,7 @@ class TranscriptListView(context: Context) : View(context) {
         }
         syncStyles(next)
         val content = next.totalHeight() * density
-        val viewport = (height - bottomInsetPx).coerceAtLeast(1)
+        val viewport = (height - bottomInsetPx - topInsetPx).coerceAtLeast(1)
         val maxScroll = max(0f, content - viewport)
         if (following) scroll = maxScroll
         scroll = scroll.coerceIn(0f, maxScroll)
@@ -114,7 +116,7 @@ class TranscriptListView(context: Context) : View(context) {
     fun jumpToBottom() {
         following = true
         val content = (frame?.totalHeight() ?: 0f) * density
-        val viewport = (height - bottomInsetPx).coerceAtLeast(1)
+        val viewport = (height - bottomInsetPx - topInsetPx).coerceAtLeast(1)
         scroll = max(0f, content - viewport)
         invalidate()
         onDistanceFromBottom(0f)
@@ -130,12 +132,12 @@ class TranscriptListView(context: Context) : View(context) {
         val colors = colors ?: return
         val frame = frame ?: return
         val d = density
-        val y0 = scroll / d
-        val y1 = (scroll + height) / d + 40f
+        val y0 = (scroll - topInsetPx) / d
+        val y1 = (scroll - topInsetPx + height) / d + 40f
         val rows = frame.rowsIn(y0 - 80f, y1)
         var animate = false
         canvas.save()
-        canvas.translate(0f, -scroll)
+        canvas.translate(0f, topInsetPx - scroll)
         canvas.scale(d, d)
         for (row in rows) {
             val display = displayFor(row) ?: continue
@@ -516,13 +518,13 @@ class TranscriptListView(context: Context) : View(context) {
 
     private fun maxScrollPx(): Int {
         val content = (frame?.totalHeight() ?: 0f) * density
-        val viewport = (height - bottomInsetPx).coerceAtLeast(1)
+        val viewport = (height - bottomInsetPx - topInsetPx).coerceAtLeast(1)
         return max(0f, content - viewport).toInt()
     }
 
     private fun rowAt(yPx: Float): uniffi.zeron_core.RowPlacement? {
         val frame = frame ?: return null
-        val y = (scroll + yPx) / density
+        val y = (scroll + yPx - topInsetPx) / density
         return frame.rowsIn(y, y + 1f).firstOrNull()
     }
 
@@ -530,7 +532,7 @@ class TranscriptListView(context: Context) : View(context) {
         val row = rowAt(yPx) ?: return
         val display = displayFor(row) ?: return
         val x = xPx / density
-        val y = (scroll + yPx) / density - row.y
+        val y = (scroll + yPx - topInsetPx) / density - row.y
         for (w in display.widgets.asReversed()) {
             val rect = widgetRect(display, w)
             if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) {
@@ -590,7 +592,7 @@ class TranscriptListView(context: Context) : View(context) {
         val row = rowAt(yPx) ?: return null
         val display = displayFor(row) ?: return null
         val x = xPx / density
-        val y = (scroll + yPx) / density - row.y
+        val y = (scroll + yPx - topInsetPx) / density - row.y
         display.scrollers.forEachIndexed { i, s ->
             if (s.contentWidth > s.w + 2 && x >= s.x && x <= s.x + s.w && y >= s.y && y <= s.y + s.h) {
                 return "${display.key}:$i"

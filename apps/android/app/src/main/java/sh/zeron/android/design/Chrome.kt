@@ -14,7 +14,6 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.ui.Alignment
@@ -24,7 +23,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -42,23 +40,6 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.caverock.androidsvg.SVG
 import kotlin.math.abs
-
-/**
- * Frosted stand-in for iOS `UIGlassEffect`. Android has no system glass material,
- * so capsules are a translucent elevated fill, a hairline, and a soft shadow.
- * API 31+ blur of the composable's own pixels is intentionally not used: that
- * blurs the content, not the backdrop the way Liquid Glass does.
- */
-fun Modifier.glassSurface(colors: ZeronColors, radius: Dp): Modifier {
-    val shape = RoundedCornerShape(radius)
-    val fill = if (colors.dark) Color(0xFF161618).copy(alpha = 0.82f) else Color.White.copy(alpha = 0.78f)
-    val line = if (colors.dark) Color.White.copy(alpha = 0.14f) else Color.White.copy(alpha = 0.92f)
-    return this
-        .shadow(10.dp, shape, ambientColor = Color.Black.copy(alpha = 0.18f), spotColor = Color.Black.copy(alpha = 0.12f))
-        .clip(shape)
-        .background(fill)
-        .border(0.6.dp, line, shape)
-}
 
 @Composable
 fun StatusMark(kind: MarkKind, colors: ZeronColors, modifier: Modifier = Modifier.size(12.dp)) {
@@ -292,6 +273,34 @@ fun StopMark(color: Color, modifier: Modifier = Modifier) {
     Canvas(modifier) {
         val inset = size.minDimension * 0.30f
         drawRoundRect(color, topLeft = Offset(inset, inset), size = Size(size.width - inset * 2, size.height - inset * 2), cornerRadius = CornerRadius(size.minDimension * 0.08f))
+    }
+}
+
+@Composable
+fun BackChevron(color: Color, modifier: Modifier = Modifier) {
+    Canvas(modifier) {
+        val p = Path()
+        p.moveTo(size.width * 0.62f, size.height * 0.22f)
+        p.lineTo(size.width * 0.34f, size.height * 0.5f)
+        p.lineTo(size.width * 0.62f, size.height * 0.78f)
+        drawPath(p, color, style = Stroke(width = size.minDimension * 0.11f, cap = androidx.compose.ui.graphics.StrokeCap.Round, join = androidx.compose.ui.graphics.StrokeJoin.Round))
+    }
+}
+
+@Composable
+fun ProfileMark(color: Color, modifier: Modifier = Modifier) {
+    Canvas(modifier) {
+        drawCircle(color.copy(alpha = 0.16f))
+        drawCircle(color, radius = size.minDimension * 0.16f, center = Offset(center.x, center.y - size.minDimension * 0.10f))
+        drawArc(
+            color = color,
+            startAngle = 200f,
+            sweepAngle = 140f,
+            useCenter = false,
+            topLeft = Offset(size.width * 0.18f, size.height * 0.42f),
+            size = Size(size.width * 0.64f, size.height * 0.64f),
+            style = Stroke(width = size.minDimension * 0.08f, cap = androidx.compose.ui.graphics.StrokeCap.Round),
+        )
     }
 }
 

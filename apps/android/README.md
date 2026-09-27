@@ -61,10 +61,10 @@ adb shell am start -n sh.zeron.android/.MainActivity \
   --es route settings --es theme dark
 ```
 
-`route` is `settings`, `search`, `new`, `session` (with `--es chat <id>`), or `signin`. `theme` is `light`, `dark`, or `system`.
+`route` is `settings`, `search`, `new`, `spaces` (space-filter menu), `session` (with `--es chat <id>`), or `signin`. `theme` is `light`, `dark`, or `system`. A fresh install defaults to dark.
 
 ## Approximations
 
-iOS uses system Liquid Glass. Android draws a translucent elevated fill, a hairline, and a soft shadow (`Modifier.glassSurface`). It does not blur the backdrop the way `UIGlassEffect` does.
+iOS uses system Liquid Glass. On API 31+ the Android capsules sample a `RenderEffect` blur of the content behind them (`GlassFrameLayout`), then add a tint and a hairline. Older devices get a translucent fill. The sessions list in demo mode sits on the same near-black backdrop as the iOS reference (`#0D0D0D`) until a wallpaper is chosen.
 
-The tab bar is a Compose row using the iOS tab SVGs, not the iOS 26 system tab bar, so there is no search-tab morph. System back pops the session stack, the new-session sheet, and sign-in. The composer moves with the IME (`adjustResize` plus `imePadding`).
+The front page matches the iOS sessions chrome: an “All” space filter, new-session and profile capsules, and no tab bar. Profile opens Settings; Search is a row in Settings. System back pops the session stack, the new-session sheet, sign-in, and Settings. The composer moves with the IME (`adjustResize` plus `imePadding`).

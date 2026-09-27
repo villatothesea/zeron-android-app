@@ -2,11 +2,16 @@ package sh.zeron.android
 
 import android.content.Intent
 import android.os.Bundle
+import android.widget.FrameLayout
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.platform.ViewCompositionStrategy
 import sh.zeron.android.core.ZeronModel
+import sh.zeron.android.design.GlassFrameLayout
+import sh.zeron.android.design.LocalGlassFrame
 import sh.zeron.android.ui.ZeronApp
 
 class MainActivity : ComponentActivity() {
@@ -16,7 +21,17 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         handleIntent(intent)
-        setContent { ZeronApp(model) }
+        val frame = GlassFrameLayout(this)
+        val compose = ComposeView(this).apply {
+            setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
+            setContent {
+                CompositionLocalProvider(LocalGlassFrame provides frame) {
+                    ZeronApp(model)
+                }
+            }
+        }
+        frame.addView(compose, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
+        setContentView(frame)
     }
 
     override fun onNewIntent(intent: Intent) {
