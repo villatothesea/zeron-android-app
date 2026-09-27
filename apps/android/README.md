@@ -65,6 +65,6 @@ adb shell am start -n sh.zeron.android/.MainActivity \
 
 ## Approximations
 
-iOS uses system Liquid Glass. On API 31+ the Android capsules sample a `RenderEffect` blur of the content behind them (`GlassFrameLayout`), then add a tint and a hairline. Older devices get a translucent fill. The sessions list in demo mode sits on the same near-black backdrop as the iOS reference (`#0D0D0D`) until a wallpaper is chosen.
+iOS uses system Liquid Glass. Recording the Compose hierarchy into a `RenderNode` to blur it crashes the emulator GPU, so capsules use a frosted `#1E1E1E` fill, a hairline, and a soft shadow matched to the glass tone in the iOS shots. A chosen wallpaper is drawn behind the list; the capsule fill stays translucent enough to read as glass on that backdrop.
 
 The front page matches the iOS sessions chrome: an “All” space filter, new-session and profile capsules, and no tab bar. Profile opens Settings; Search is a row in Settings. System back pops the session stack, the new-session sheet, sign-in, and Settings. The composer moves with the IME (`adjustResize` plus `imePadding`).

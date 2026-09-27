@@ -1,29 +1,33 @@
 # Android / iOS parity
 
-Android shots are from the debug build in demo mode on an Android 15 x86_64 emulator (1080×2400). iOS shots are the existing iPhone 17 Pro references in this repo. They are not the same device, the same moment in the demo stream, or the same crop, so the pairs are structural rather than pixel diffs.
+Both sides are 1206×2622. The iOS frames are the iPhone 17 Pro references already in this repo (dark). The Android frames are the debug demo build on an Android 15 emulator with the display overridden to the same pixel size and 480 dpi, in dark mode, on the same demo workspace.
 
-| Pair | iOS reference | Android |
+| Pair | iOS | Android state |
 | --- | --- | --- |
-| Sessions list | `mobile-polish/home-glass.png` | demo front page: pinned, sections, recent, New session accessory, tab bar |
-| Transcript | `mobile-polish/tool-activity.png` | “Streaming veil on transcript rows”: tool groups, code block, composer |
-| New session | `mobile-polish/project-menu.png` | new-session sheet with the prompt and project list |
+| `sessions-list.png` | `mobile-polish/home-glass.png` | Sessions front page |
+| `space-filter.png` | `mobile-polish/project-menu.png` | “All” space-filter menu open |
+| `tool-activity.png` | `mobile-polish/tool-activity.png` | “Tool group header colors” |
+| `multiline-keyboard.png` | `mobile-polish/multiline-keyboard.png` | Composer focused, keyboard up, draft in the field |
+| `send-runway.png` | `mobile-polish/send-runway.png` | Keyboard open on that session (not a separate runway animation) |
+| `ios-portrait.png` | `appshots/appshots-ios-portrait.png` | Same tool-group session |
+
+Raw Android frames: `android-sessions.png`, `android-space-filter.png`, `android-transcript.png`, `android-keyboard.png`, `android-multiline.png`, `android-settings.png`.
 
 ## What matches
 
-- Light palette (cool gray page, violet status, Claude mark, project letter tiles).
-- Session rows: title, project tile, branch, PR number, Working / Input / Failed / Done / time.
-- Foldable Pinned, user sections, and Recent, with counts.
-- “New session” capsule above the tab bar with a live “1 working · 1 needs you” summary.
-- Transcript painted from the Rust `LayoutFrame`: tool rows, a fenced code block with a copy control, user text, and the glass composer capsule (“Message Claude Code”).
-- Settings: account (Demo), devices, appearance, wallpaper, archived sessions, sign out.
-- Search field over the same rows.
-- Offline demo is the debug default.
+- Demo backdrop is `#0D0D0D`, the same near-black as `home-glass` (no large “Sessions” title, no tab bar, no “New session” accessory).
+- Header is a glass “All” capsule and a glass capsule with new-session and profile. Profile opens Settings.
+- Rows are three lines: `project @ machine` with status on the right, title, then branch and a colored `#PR` chip. Swipe labels are not drawn while the row is at rest.
+- Archived sessions sit under an “Archived” divider (below the first screen; the demo front page is taller than the iOS crop).
+- Space filter lists All, each project with `@ machine` and offline when the host is down, and “New space…”.
+- Transcript header is a round back chevron, the agent mark, the title, and `project @ machine`, with the list starting under an edge fade. Resting composer placeholder is “Message” in a full-width capsule with a circular send button. The tool-group summary and the red Failed row come from the Rust layout.
 
 ## Remaining differences
 
-- **Glass.** Android uses a translucent fill, hairline, and shadow. It does not sample the wallpaper or transcript the way iOS Liquid Glass does, so capsules look flatter.
-- **Tab bar.** Icons and labels are a Compose row. There is no iOS 26 tab-bar minimize or search morph. Search is a magnifying-glass stand-in, not an SF Symbol.
-- **New session.** The hero and composer match the canvas. Project, harness, and model choices are a list under the composer rather than the iOS chip menus, and the sheet is a full-screen cover rather than a page sheet with a grabber.
-- **Composer.** Send / stop / long-press queue-steer-interrupt, attachments, and `@` mentions are implemented. Context chips are labels; they do not open the iOS model, effort, and branch menus.
-- **Transcript chrome.** The top bar is a custom Back / title / overflow row, not a UIKit navigation bar. Streaming veil and tool rails are drawn, but motion and spacing will not match the simulator frame for frame because the demo stream is live.
-- **Wallpaper.** The Rust shader path runs when a photo is chosen. The demo has no default wallpaper, so these shots are the flat page color. iOS `home-glass` shows a wallpaper behind the list.
+- **Glass.** A `RenderNode` capture of the Compose tree (so capsules could blur the pixels behind them) segfaults the emulator GPU. Capsules are a frosted `#1E1E1E` fill, hairline, and shadow. On this flat backdrop that fill measures about `(29,29,29)`, next to the iOS capsule at about `(30,30,30)`. They do not blur scrolling transcript text.
+- **Space-filter order.** Projects follow workspace order (blog, zeron, edge, Zeron iOS). The iOS crop leads with zeron, then edge.
+- **Archived placement.** The divider is on the list, under the active rows, so it is not in the first-screen pair.
+- **Profile** is a drawn person glyph, not a photo.
+- **Composer extras.** The plus button appears once the field is focused. Model and PR chips show on the expanded card; they do not open the iOS menus. The multiline frame’s draft was entered with `adb input text`, so the wording is not the iOS sentence.
+- **Transcript type.** Rails, icons, and wrapping are the Rust display list painted with Geist. They are close, not a pixel match to the UIKit text system (line breaks, the exact tool-icon set, the summary chevron).
+- **Not recaptured.** `appshots-ios-landscape`, `appshots-ios-queue-actions`, `appshots-ios-queue-gallery`, `appshots-ios-lightbox`, and `appshots-ios-first-capture` need rotation, an in-flight queue, or an attachment. Those states were not reproduced.
