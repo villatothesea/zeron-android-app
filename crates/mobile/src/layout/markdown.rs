@@ -89,7 +89,8 @@ pub(crate) fn prepare_runs(ctx: &mut Ctx, runs: &[InlineRun], kind: TextKind, mu
     let base_weight = if heading { Weight::Semibold } else { Weight::Regular };
     let body = ctx.typo.style(Family::Sans, base_weight, false, size);
     let code = ctx.typo.style(Family::Mono, Weight::Regular, false, size * TYPE.inline_code / TYPE.body.0);
-    let pad = ctx.typo.px(4.0);
+    // Tight chip: a couple of points, not a gap between the word and its neighbors.
+    let pad = ctx.typo.px(2.0);
     let chip_h = code.ascent + code.descent + ctx.typo.px(4.0);
     let lh = ctx.typo.px(lh);
 

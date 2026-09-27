@@ -17,8 +17,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -26,6 +31,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -56,6 +62,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -275,7 +282,7 @@ fun SessionScreen(model: ZeronModel, chatId: String) {
             }
         }
         Column(
-            Modifier.align(Alignment.BottomCenter).widthIn(max = 768.dp).fillMaxWidth().padding(horizontal = 16.dp).navigationBarsPadding().imePadding().padding(bottom = 6.dp).onSizeChanged { composerHeight = it.height },
+            Modifier.align(Alignment.BottomCenter).widthIn(max = 768.dp).fillMaxWidth().padding(horizontal = 16.dp).windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars)).padding(bottom = 6.dp).onSizeChanged { composerHeight = it.height },
         ) {
             if (distance > 140f) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
@@ -530,7 +537,15 @@ private fun ComposerBar(
     var deliveryMenu by remember { mutableStateOf(false) }
     var mentions by remember { mutableStateOf(listOf<uniffi.zeron_core.FileMatch>()) }
     val scope = rememberCoroutineScope()
+    val keyboard = LocalSoftwareKeyboardController.current
     val card = !resting
+    fun onTextChange(value: String) {
+        onText(value)
+        val query = Regex("@([^\\s]*)$").find(value)?.groupValues?.getOrNull(1)
+        if (query != null) {
+            scope.launch { mentions = mentionSearch(query).take(8) }
+        } else mentions = emptyList()
+    }
     Column(
         Modifier
             .fillMaxWidth()
@@ -573,70 +588,102 @@ private fun ComposerBar(
                 }
             }
         }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            if (!resting) {
-                Box(
-                    Modifier.size(34.dp).clip(RoundedCornerShape(17.dp)).background(colors.controlFill).clickable(onClick = onAttach),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    PlusMark(colors.text, Modifier.size(16.dp))
-                }
-            }
+        // One field for both states. Swapping two fields on focus dropped the
+        // IME, because the focused instance left the composition.
+        Box(Modifier.fillMaxWidth()) {
             BasicTextField(
                 value = text,
-                onValueChange = {
-                    onText(it)
-                    val query = Regex("@([^\\s]*)$").find(it)?.groupValues?.getOrNull(1)
-                    if (query != null) {
-                        scope.launch { mentions = mentionSearch(query).take(8) }
-                    } else mentions = emptyList()
-                },
+                onValueChange = { onTextChange(it) },
                 textStyle = TextStyle(color = colors.text, fontFamily = ZeronType.Sans, fontSize = 16.5.sp),
                 cursorBrush = SolidColor(colors.accent),
-                modifier = Modifier.weight(1f).padding(horizontal = 8.dp).onFocusChanged { onFocus(it.isFocused) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(
+                        start = 8.dp,
+                        end = if (card) 8.dp else 42.dp,
+                        top = if (card) 6.dp else 0.dp,
+                        bottom = if (card) 48.dp else 0.dp,
+                    )
+                    .onFocusChanged {
+                        onFocus(it.isFocused)
+                        if (it.isFocused) keyboard?.show()
+                    },
                 decorationBox = { inner ->
                     Box {
                         if (text.isEmpty()) Text(placeholder, color = colors.tertiary, fontFamily = ZeronType.Sans, fontSize = 16.5.sp)
                         inner()
                     }
                 },
-                maxLines = if (card) 8 else 2,
+                maxLines = if (card) 8 else 1,
             )
-            Box {
-                Box(
-                    Modifier
-                        .size(34.dp)
-                        .clip(RoundedCornerShape(17.dp))
-                        .background(if (stop) colors.text else if (has) colors.accent else colors.text.copy(alpha = 0.10f))
-                        .combinedClickable(
-                            onClick = { onSend(if (stop) Delivery.Send else if (running && canSteer) Delivery.Steer else Delivery.Queue) },
-                            onLongClick = { if (running && has) deliveryMenu = true },
-                        ),
-                    contentAlignment = Alignment.Center,
+            if (card) {
+                Row(
+                    Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(44.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    if (stop) StopMark(colors.background, Modifier.size(16.dp)) else ArrowUpMark(if (has) androidx.compose.ui.graphics.Color.White else colors.tertiary, Modifier.size(16.dp))
-                }
-                if (running && has) {
-                    DropdownMenu(expanded = deliveryMenu, onDismissRequest = { deliveryMenu = false }) {
-                        DropdownMenuItem(text = { Text("Queue for next turn") }, onClick = { deliveryMenu = false; onSend(Delivery.Queue) })
-                        if (canSteer) DropdownMenuItem(text = { Text("Steer now") }, onClick = { deliveryMenu = false; onSend(Delivery.Steer) })
-                        DropdownMenuItem(text = { Text("Stop and send") }, onClick = { deliveryMenu = false; onSend(Delivery.Interrupt) })
+                    Box(
+                        Modifier.size(34.dp).clip(RoundedCornerShape(17.dp)).background(colors.controlFill).clickable(onClick = onAttach),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        PlusMark(colors.text, Modifier.size(16.dp))
                     }
+                    Row(
+                        Modifier.weight(1f).padding(horizontal = 8.dp).horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        chips.forEach { chip ->
+                            Text(
+                                chip,
+                                color = colors.secondary,
+                                fontFamily = ZeronType.Sans,
+                                fontSize = 13.sp,
+                                maxLines = 1,
+                                modifier = Modifier.clip(RoundedCornerShape(12.dp)).background(colors.controlFill).padding(horizontal = 8.dp, vertical = 4.dp),
+                            )
+                        }
+                    }
+                    SendButton(colors, stop, has, running, canSteer, deliveryMenu, { deliveryMenu = it }, onSend)
+                }
+            } else {
+                Box(Modifier.align(Alignment.CenterEnd)) {
+                    SendButton(colors, stop, has, running, canSteer, deliveryMenu, { deliveryMenu = it }, onSend)
                 }
             }
         }
-        if (card && chips.isNotEmpty()) {
-            Row(Modifier.padding(top = 6.dp, start = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                chips.forEach { chip ->
-                    Text(
-                        chip,
-                        color = colors.secondary,
-                        fontFamily = ZeronType.Sans,
-                        fontSize = 13.sp,
-                        maxLines = 1,
-                        modifier = Modifier.clip(RoundedCornerShape(12.dp)).background(colors.controlFill).padding(horizontal = 8.dp, vertical = 4.dp),
-                    )
-                }
+    }
+}
+
+@Composable
+private fun SendButton(
+    colors: ZeronColors,
+    stop: Boolean,
+    has: Boolean,
+    running: Boolean,
+    canSteer: Boolean,
+    deliveryMenu: Boolean,
+    onMenu: (Boolean) -> Unit,
+    onSend: (Delivery) -> Unit,
+) {
+    Box {
+        Box(
+            Modifier
+                .size(34.dp)
+                .clip(RoundedCornerShape(17.dp))
+                .background(if (stop) colors.text else if (has) colors.accent else colors.text.copy(alpha = 0.10f))
+                .combinedClickable(
+                    onClick = { onSend(if (stop) Delivery.Send else if (running && canSteer) Delivery.Steer else Delivery.Queue) },
+                    onLongClick = { if (running && has) onMenu(true) },
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (stop) StopMark(colors.background, Modifier.size(16.dp)) else ArrowUpMark(if (has) Color.White else colors.tertiary, Modifier.size(16.dp))
+        }
+        if (running && has) {
+            DropdownMenu(expanded = deliveryMenu, onDismissRequest = { onMenu(false) }) {
+                DropdownMenuItem(text = { Text("Queue for next turn") }, onClick = { onMenu(false); onSend(Delivery.Queue) })
+                if (canSteer) DropdownMenuItem(text = { Text("Steer now") }, onClick = { onMenu(false); onSend(Delivery.Steer) })
+                DropdownMenuItem(text = { Text("Stop and send") }, onClick = { onMenu(false); onSend(Delivery.Interrupt) })
             }
         }
     }
@@ -655,7 +702,7 @@ fun NewSessionSheet(model: ZeronModel, onDismiss: () -> Unit) {
     var focused by remember { mutableStateOf(true) }
     val projects = client.projects()
     val project = projects.firstOrNull { it.id == projectId }
-    Column(Modifier.fillMaxSize().background(colors.background).padding(horizontal = 16.dp).navigationBarsPadding().imePadding()) {
+    Column(Modifier.fillMaxSize().background(colors.background).padding(horizontal = 16.dp).windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars))) {
         Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.SpaceBetween) {
             Text("Close", color = colors.text, modifier = Modifier.clickable(onClick = onDismiss).padding(8.dp), fontFamily = ZeronType.Sans)
             Text("New Session", color = colors.text, fontFamily = ZeronType.Sans, fontWeight = FontWeight.SemiBold, fontSize = 17.sp, modifier = Modifier.padding(8.dp))

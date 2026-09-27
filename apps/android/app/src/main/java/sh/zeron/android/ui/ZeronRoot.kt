@@ -10,8 +10,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.ui.input.pointer.changedToUp
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -74,9 +73,12 @@ import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 import kotlinx.coroutines.launch
 import sh.zeron.android.core.ZeronModel
+import androidx.compose.material3.HorizontalDivider
+import sh.zeron.android.design.AssetIcon
 import sh.zeron.android.design.BackChevron
 import sh.zeron.android.design.BrandMark
 import sh.zeron.android.design.ChevronMark
+import sh.zeron.android.design.FolderPlusMark
 import sh.zeron.android.design.LocalZeronColors
 import sh.zeron.android.design.MarkKind
 import sh.zeron.android.design.PlusMark
@@ -247,6 +249,9 @@ private fun SessionsScreen(model: ZeronModel, colors: ZeronColors, onNewSpace: (
         }
     }
     val projects = workspace?.projects.orEmpty()
+    val menuProjects = remember(projects, model.epoch) {
+        projects.sortedByDescending { project -> project.sessions.maxOfOrNull { it.lastActivityMs } ?: 0L }
+    }
     val space = projects.firstOrNull { it.id == spaceId }
     val rows = remember(model.epoch, front, spaceId, projects) {
         val seen = LinkedHashSet<String>()
@@ -338,36 +343,37 @@ private fun SessionsScreen(model: ZeronModel, colors: ZeronColors, onNewSpace: (
             }
         }
         if (spaceMenu) {
-            Box(Modifier.fillMaxSize().clickable { spaceMenu = false }) {
+            Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = if (colors.dark) 0.45f else 0.18f)).clickable { spaceMenu = false }) {
                 Column(
                     Modifier
                         .statusBarsPadding()
-                        .padding(start = 12.dp, top = 56.dp)
-                        .width(268.dp)
-                        .glassSurface(colors, 22.dp)
+                        .padding(start = 8.dp, top = 52.dp)
+                        .width(250.dp)
+                        .glassSurface(colors, 14.dp)
                         .padding(vertical = 6.dp),
                 ) {
                     SpaceChoice(colors, "All", null, selected = spaceId == null) {
                         spaceId = null
                         spaceMenu = false
                     }
-                    projects.forEach { project ->
-                        SpaceChoice(colors, project.name, projectSubtitle(project), selected = spaceId == project.id, indicator = project.indicator) {
+                    menuProjects.forEach { project ->
+                        SpaceChoice(colors, project.name, projectSubtitle(project), selected = spaceId == project.id) {
                             spaceId = project.id
                             spaceMenu = false
                         }
                     }
-                    Text(
-                        "New space…",
-                        color = colors.text,
-                        fontFamily = ZeronType.Sans,
-                        fontWeight = FontWeight.Medium,
-                        fontSize = 16.sp,
-                        modifier = Modifier.fillMaxWidth().clickable {
+                    HorizontalDivider(Modifier.padding(horizontal = 12.dp, vertical = 4.dp), color = colors.hairline)
+                    Row(
+                        Modifier.fillMaxWidth().height(44.dp).clickable {
                             spaceMenu = false
                             onNewSpace()
-                        }.padding(horizontal = 16.dp, vertical = 14.dp),
-                    )
+                        }.padding(horizontal = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        FolderPlusMark(colors.text, Modifier.size(18.dp))
+                        Spacer(Modifier.width(10.dp))
+                        Text("New space…", color = colors.text, fontFamily = ZeronType.Sans, fontWeight = FontWeight.Medium, fontSize = 16.sp)
+                    }
                 }
             }
         }
@@ -380,26 +386,21 @@ private fun SpaceChoice(
     title: String,
     subtitle: String?,
     selected: Boolean,
-    indicator: ChatIndicator? = null,
     onClick: () -> Unit,
 ) {
+    val twoLine = !subtitle.isNullOrBlank()
     Row(
-        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 10.dp),
+        Modifier.fillMaxWidth().height(if (twoLine) 56.dp else 44.dp).clickable(onClick = onClick).padding(horizontal = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        Box(Modifier.width(22.dp), contentAlignment = Alignment.CenterStart) {
+            if (selected) Text("✓", color = colors.text, fontSize = 15.sp, fontFamily = ZeronType.Sans)
+        }
         Column(Modifier.weight(1f)) {
             Text(title, color = colors.text, fontFamily = ZeronType.Sans, fontWeight = FontWeight.Medium, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            if (!subtitle.isNullOrBlank()) {
+            if (twoLine) {
                 Text(subtitle, color = colors.secondary, fontFamily = ZeronType.Sans, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-        }
-        val corner = indicator?.let { statusCorner(null, it, colors) }
-        if (corner != null) {
-            StatusMark(corner.mark, colors, Modifier.size(12.dp))
-            Spacer(Modifier.width(4.dp))
-            Text(corner.word, color = corner.color, fontFamily = ZeronType.Sans, fontSize = 13.sp)
-        } else if (selected) {
-            Text("✓", color = colors.text, fontSize = 14.sp)
         }
     }
 }
@@ -418,7 +419,7 @@ private fun SessionRowView(row: SessionRow, colors: ZeronColors, archived: Boole
     val corner = cornerOf(row, colors)
     val backdrop = if (colors.dark) SessionsBackdrop else colors.background
     val revealed = abs(offset) > 1f
-    Box(Modifier.fillMaxWidth().height(if (archived) 48.dp else 76.dp)) {
+    Box(Modifier.fillMaxWidth().height(if (archived) 46.dp else 74.dp)) {
         if (revealed) {
             Row(
                 Modifier.matchParentSize().background(backdrop).padding(horizontal = 20.dp),
@@ -434,59 +435,46 @@ private fun SessionRowView(row: SessionRow, colors: ZeronColors, archived: Boole
                 .fillMaxSize()
                 .offset { IntOffset(offset.roundToInt(), 0) }
                 .background(if (revealed) backdrop else Color.Transparent)
+                .combinedClickable(
+                    onClick = { model.openSession(row.id) },
+                    onLongClick = { menu = true },
+                )
                 .pointerInput(row.id, archived) {
-                    awaitEachGesture {
-                        val down = awaitFirstDown()
-                        var drag = 0f
-                        var moved = false
-                        while (true) {
-                            val event = awaitPointerEvent()
-                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                            if (change.changedToUp()) {
-                                if (!moved) model.openSession(row.id)
-                                else {
-                                    if (drag > 96f) {
-                                        if (archived) model.unarchive(row.id) else model.pin(row.id, !row.pinned)
-                                    }
-                                    if (drag < -96f && !archived) model.archive(row.id)
-                                }
-                                offset = 0f
-                                break
-                            }
-                            if (!moved && change.uptimeMillis - down.uptimeMillis > 450) {
-                                menu = true
-                                offset = 0f
-                                break
-                            }
-                            val dx = change.position.x - change.previousPosition.x
+                    var drag = 0f
+                    detectHorizontalDragGestures(
+                        onDragStart = { drag = 0f },
+                        onHorizontalDrag = { change, dx ->
                             drag += dx
-                            if (abs(drag) > 24f) moved = true
-                            if (moved) {
-                                change.consume()
-                                offset = drag.coerceIn(if (archived) 0f else -150f, 150f)
+                            change.consume()
+                            offset = drag.coerceIn(if (archived) 0f else -150f, 150f)
+                        },
+                        onDragEnd = {
+                            if (drag > 96f) {
+                                if (archived) model.unarchive(row.id) else model.pin(row.id, !row.pinned)
                             }
-                        }
-                    }
+                            if (drag < -96f && !archived) model.archive(row.id)
+                            offset = 0f
+                        },
+                        onDragCancel = { offset = 0f },
+                    )
                 }
-                .padding(horizontal = 16.dp),
+                .padding(horizontal = 20.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (archived) {
                 Text(
                     row.title,
-                    color = colors.text.copy(alpha = 0.8f),
+                    color = colors.text.copy(alpha = 0.88f),
                     fontFamily = ZeronType.Sans,
-                    fontWeight = FontWeight.Medium,
-                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Normal,
+                    fontSize = 16.5.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
                 Text(row.timeLabel, color = colors.time, fontFamily = ZeronType.Sans, fontSize = 13.sp)
             } else {
-                BrandMark(row.harness, colors, 20.dp)
-                Spacer(Modifier.width(10.dp))
-                Column(Modifier.weight(1f)) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         val project = row.project?.name ?: "No project"
                         val host = row.deviceName
@@ -494,7 +482,7 @@ private fun SessionRowView(row: SessionRow, colors: ZeronColors, archived: Boole
                             if (host.isNullOrBlank()) project else "$project @ $host",
                             color = colors.secondary,
                             fontFamily = ZeronType.Sans,
-                            fontSize = 13.sp,
+                            fontSize = 13.5.sp,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f),
@@ -504,25 +492,40 @@ private fun SessionRowView(row: SessionRow, colors: ZeronColors, archived: Boole
                             Spacer(Modifier.width(4.dp))
                             Text(corner.word, color = corner.color, fontFamily = ZeronType.Sans, fontWeight = FontWeight.Medium, fontSize = 13.sp)
                         } else {
-                            Text(row.timeLabel, color = colors.time, fontFamily = ZeronType.Sans, fontSize = 13.sp)
+                            Text(row.timeLabel, color = colors.time, fontFamily = ZeronType.Sans, fontWeight = FontWeight.Medium, fontSize = 13.sp)
                         }
                     }
                     Text(
                         row.title,
-                        color = colors.text.copy(alpha = if (row.unseen || corner != null) 1f else 0.92f),
+                        color = colors.text.copy(alpha = if (row.unseen || corner != null) 1f else 0.88f),
                         fontFamily = ZeronType.Sans,
-                        fontWeight = if (row.unseen) FontWeight.SemiBold else FontWeight.Medium,
+                        fontWeight = FontWeight.Normal,
                         fontSize = 16.5.sp,
+                        lineHeight = 20.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                     Row(verticalAlignment = Alignment.CenterVertically) {
+                        BrandMark(row.harness, colors, 14.dp)
                         val branch = row.branch?.takeIf { it.isNotEmpty() }
                         if (branch != null) {
-                            Text(branch, color = colors.tertiary, fontFamily = ZeronType.Sans, fontSize = 12.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Spacer(Modifier.width(6.dp))
+                            AssetIcon("tool-git-branch", 12.dp, colors.subline)
+                            Spacer(Modifier.width(4.dp))
+                            Text(
+                                branch,
+                                color = colors.subline,
+                                fontFamily = ZeronType.Sans,
+                                fontSize = 12.5.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f),
+                            )
+                        } else {
+                            Spacer(Modifier.weight(1f))
                         }
                         row.pullRequest?.let { pr ->
-                            if (branch != null) Spacer(Modifier.width(8.dp))
+                            Spacer(Modifier.width(8.dp))
                             val tone = when (pr.state) {
                                 PullRequestState.MERGED -> colors.accent
                                 PullRequestState.CLOSED -> colors.danger
@@ -564,15 +567,15 @@ private fun SessionRowView(row: SessionRow, colors: ZeronColors, archived: Boole
 
 private data class Corner(val word: String, val color: Color, val mark: MarkKind)
 
-private fun cornerOf(row: SessionRow, colors: ZeronColors): Corner? = statusCorner(row.sendState, row.indicator, colors)
+private fun cornerOf(row: SessionRow, colors: ZeronColors): Corner? = statusCorner(row.sendState, row.indicator, colors, unseen = row.unseen)
 
-private fun statusCorner(sendState: SendState?, indicator: ChatIndicator, colors: ZeronColors): Corner? {
+private fun statusCorner(sendState: SendState?, indicator: ChatIndicator, colors: ZeronColors, unseen: Boolean = false): Corner? {
     if (sendState == SendState.FAILED) return Corner("Failed", colors.danger, MarkKind.Dot(colors.danger))
     return when (indicator) {
         ChatIndicator.WORKING -> Corner("Working", colors.working, MarkKind.Spinner)
         ChatIndicator.AWAITING_INPUT -> Corner("Input", colors.input, MarkKind.Dot(colors.input))
         ChatIndicator.ERRORED -> Corner("Failed", colors.failed, MarkKind.Dot(colors.failed))
-        ChatIndicator.COMPLETED -> Corner("Done", colors.done, MarkKind.Check(colors.done))
+        ChatIndicator.COMPLETED -> if (unseen) Corner("Done", colors.done, MarkKind.Check(colors.done)) else null
         ChatIndicator.IDLE -> null
     }
 }

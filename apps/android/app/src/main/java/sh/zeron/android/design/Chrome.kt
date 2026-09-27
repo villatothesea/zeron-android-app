@@ -227,6 +227,27 @@ fun AssetIcon(name: String, size: Dp, tint: Color? = null, modifier: Modifier = 
 }
 
 @Composable
+fun FolderPlusMark(color: Color, modifier: Modifier = Modifier) {
+    Canvas(modifier) {
+        val s = size.minDimension
+        val stroke = Stroke(width = s * 0.08f, cap = androidx.compose.ui.graphics.StrokeCap.Round, join = androidx.compose.ui.graphics.StrokeJoin.Round)
+        val p = Path().apply {
+            moveTo(s * 0.08f, s * 0.32f)
+            lineTo(s * 0.08f, s * 0.86f)
+            lineTo(s * 0.62f, s * 0.86f)
+            lineTo(s * 0.62f, s * 0.42f)
+            lineTo(s * 0.40f, s * 0.42f)
+            lineTo(s * 0.32f, s * 0.28f)
+            lineTo(s * 0.08f, s * 0.28f)
+            close()
+        }
+        drawPath(p, color, style = stroke)
+        drawLine(color, Offset(s * 0.74f, s * 0.62f), Offset(s * 0.96f, s * 0.62f), stroke.width, androidx.compose.ui.graphics.StrokeCap.Round)
+        drawLine(color, Offset(s * 0.85f, s * 0.51f), Offset(s * 0.85f, s * 0.73f), stroke.width, androidx.compose.ui.graphics.StrokeCap.Round)
+    }
+}
+
+@Composable
 fun PlusMark(color: Color, modifier: Modifier = Modifier) {
     Canvas(modifier) {
         val stroke = size.minDimension * 0.12f

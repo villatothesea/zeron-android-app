@@ -78,6 +78,7 @@ class TranscriptListView(context: Context) : View(context) {
     private var dragScroller: String? = null
     private var velocity: VelocityTracker? = null
     private val tap = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
+        override fun onDown(e: MotionEvent): Boolean = true
         override fun onSingleTapUp(e: MotionEvent): Boolean {
             hit(e.x, e.y)
             return true
@@ -231,7 +232,7 @@ class TranscriptListView(context: Context) : View(context) {
             }
         }
         val faded = HashSet<Int>()
-        display.fades.forEachIndexed { fi, fade ->
+        display.fades.forEachIndexed { _, fade ->
             if (fade.scroller != scroller) return@forEachIndexed
             val runs = display.runs.mapIndexedNotNull { i, run ->
                 if (run.scroller != scroller || faded.contains(i)) return@mapIndexedNotNull null
@@ -240,7 +241,14 @@ class TranscriptListView(context: Context) : View(context) {
             faded.addAll(runs)
             if (runs.isEmpty()) return@forEachIndexed
             val rect = RectF(fade.x, fade.y, fade.x + fade.w, fade.y + fade.h)
-            val layer = canvas.saveLayer(rect.left - 8f, rect.top - 20f, rect.right + 8f, rect.bottom + 20f, null)
+            // Match the iOS painter: the run is drawn in full up to the fade's
+            // far edge, and only the fade strip itself is erased. A layer
+            // bounded to the strip clips the rest of the line away.
+            val layer = if (fade.edge == FadeEdge.TRAILING) {
+                canvas.saveLayer(-100_000f, rect.top - 40f, rect.right, rect.bottom + 40f, null)
+            } else {
+                canvas.saveLayer(rect.left - 40f, rect.top - 40f, rect.right + 40f, rect.bottom + 40f, null)
+            }
             for (i in runs) drawRun(canvas, display, i, colors, hair)
             val erase = Paint(Paint.ANTI_ALIAS_FLAG).apply { xfermode = PorterDuffXfermode(PorterDuff.Mode.DST_IN) }
             erase.shader = if (fade.edge == FadeEdge.TRAILING) {
@@ -296,16 +304,16 @@ class TranscriptListView(context: Context) : View(context) {
             }
             is WidgetKind.Disclosure -> Unit
             is WidgetKind.Chevron -> {
-                val paint = stroke(colors.tertiary.toArgb(), 1.6f)
-                val path = Path()
-                val cx = w.x + w.w * 0.55f
-                val cy = w.y + w.h / 2f
-                if (kind.expanded) {
-                    path.moveTo(cx - 4f, cy - 2f); path.lineTo(cx, cy + 2.5f); path.lineTo(cx + 4f, cy - 2f)
-                } else {
-                    path.moveTo(cx - 2f, cy - 4f); path.lineTo(cx + 2.5f, cy); path.lineTo(cx - 2f, cy + 4f)
+                val px = max(w.w, w.h) * density
+                val bmp = sh.zeron.android.design.IconAssets.bitmap(context, "tool-alt-arrow-down", px.toInt().coerceAtLeast(1), colors.secondary.toArgb())
+                if (bmp != null) {
+                    canvas.save()
+                    canvas.translate(w.x + w.w / 2f, w.y + w.h / 2f)
+                    if (!kind.expanded) canvas.rotate(-90f)
+                    val dst = RectF(-w.w / 2f, -w.h / 2f, w.w / 2f, w.h / 2f)
+                    canvas.drawBitmap(bmp, null, dst, Paint(Paint.ANTI_ALIAS_FLAG))
+                    canvas.restore()
                 }
-                canvas.drawPath(path, paint)
             }
             is WidgetKind.ToolStatus -> {
                 if (kind.running) {

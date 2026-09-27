@@ -49,6 +49,8 @@ pub(crate) struct ToolLine {
     /// File calls show a badge: (file-icon asset, basename).
     pub badge: Option<(String, PText)>,
     pub failed: bool,
+    /// "Failed" beside the verb when the call errored. The command stays secondary.
+    pub status: Option<PText>,
     pub running: bool,
     pub key: u64,
     pub open: bool,
@@ -375,8 +377,17 @@ impl RowBuilder {
                         } else {
                             file_path(call).map(|p| (file_icon_asset(p), prepare_plain(ctx, basename(p), st.label, st.lh, if *is_error { ColorRole::Danger } else { ColorRole::TextSoft }, WhiteSpace::Pre)))
                         };
-                        let detail_color = if agents && !*is_error { ColorRole::TextSoft } else { color };
+                        // The verb and a "Failed" chip carry the error. The command
+                        // stays secondary so a long invocation doesn't turn the row red.
+                        let detail_color = if agents && !*is_error {
+                            ColorRole::TextSoft
+                        } else if *is_error && !agents {
+                            ColorRole::TextSecondary
+                        } else {
+                            color
+                        };
                         let detail = (badge.is_none() && !detail.is_empty()).then(|| prepare_plain(ctx, &detail, st.label, st.lh, detail_color, WhiteSpace::Pre));
+                        let status = (*is_error && !agents).then(|| prepare_plain(ctx, "Failed", st.label, st.lh, ColorRole::Danger, WhiteSpace::Pre));
                         let open = !agents && self.detail_open.get(&dkey).copied().unwrap_or(false);
                         let mut body = Vec::new();
                         if open {
@@ -389,6 +400,7 @@ impl RowBuilder {
                             detail,
                             badge,
                             failed: *is_error,
+                            status,
                             running,
                             key: dkey,
                             open,
@@ -409,6 +421,7 @@ impl RowBuilder {
                             detail: None,
                             badge: None,
                             failed: false,
+                            status: None,
                             running: false,
                             key: dkey,
                             open,
@@ -493,7 +506,12 @@ fn place_line_header(line: &ToolLine, px: Px, x: f32, ry: f32, cw: f32, o: &mut 
     let tx = x + d(px, TEXT_X);
     let lw = line.label.p.max_content_width();
     place_text(&line.label, tx, ry + (row_h - line.label.lh) / 2.0, lw + 1.0, Some(o));
-    let dx = tx + lw + d(px, 8.0);
+    let mut dx = tx + lw + d(px, 8.0);
+    if let Some(status) = &line.status {
+        let sw = status.p.max_content_width();
+        place_text(status, dx, ry + (row_h - status.lh) / 2.0, sw + 1.0, Some(o));
+        dx += sw + d(px, 8.0);
+    }
     let avail = (x + cw - dx).max(0.0);
     if let Some((asset, name)) = &line.badge {
         let bh = d(px, 22.0);
@@ -682,6 +700,7 @@ pub(crate) fn heap_bytes(t: &ToolGroup) -> usize {
             .iter()
             .map(|l| {
                 l.label.p.heap_bytes()
+                    + l.status.as_ref().map_or(0, |s| s.p.heap_bytes())
                     + l.detail.as_ref().map_or(0, |d| d.p.heap_bytes())
                     + l.badge.as_ref().map_or(0, |b| b.1.p.heap_bytes())
                     + l.body

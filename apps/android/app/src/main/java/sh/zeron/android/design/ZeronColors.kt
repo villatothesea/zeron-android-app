@@ -45,8 +45,8 @@ data class ZeronColors(
         ColorRole.DANGER -> danger
         ColorRole.SUCCESS -> success
         ColorRole.WARNING -> warning
-        ColorRole.INLINE_CODE_TEXT -> if (dark) Color(0xFFDCDCE0) else Color(0xFF3F3F46)
-        ColorRole.INLINE_CODE_BACKGROUND -> if (dark) Color(0xFF1A1A1E) else Color(0xFFE9E9ED)
+        ColorRole.INLINE_CODE_TEXT -> if (dark) Color(0xFFC4B5FD) else Color(0xFF5B43E8)
+        ColorRole.INLINE_CODE_BACKGROUND -> if (dark) Color(0xFF8B7CF6).copy(alpha = 0.16f) else Color(0xFF5B43E8).copy(alpha = 0.10f)
         ColorRole.CODE_TEXT -> if (dark) Color(0xFFE8E8EA) else Color(0xFF303035)
         ColorRole.CODE_BACKGROUND -> codeBackground
         ColorRole.CODE_BORDER -> codeBorder

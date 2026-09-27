@@ -677,14 +677,18 @@ fn place_user(u: &UserBubble, px: Px, x: f32, y: f32, cw: f32, out: Option<&mut 
     use geom::*;
     let pad_x = px.v(BUBBLE_PAD_X);
     let pad_y = px.v(BUBBLE_PAD_Y);
-    let max_w = (cw * 0.86).max(cw - px.v(56.0)).min(cw);
+    // Phone bubbles sit on the left of the column and, once they wrap, use
+    // nearly the whole column (the iOS transcript frame). A one-line note
+    // still shrinks to its text.
+    let max_w = cw;
     let text_w = (max_w - pad_x * 2.0).max(20.0);
     let stats = u.text.p.stats(text_w);
     let folds = stats.line_count > BUBBLE_FOLD_LINES;
     let shown = if folds && !u.expanded { BUBBLE_FOLD_SHOW } else { stats.line_count };
     let text_h = shown as f32 * u.text.lh;
     let more_h = if folds { u.more.lh + px.v(4.0) } else { 0.0 };
-    let bubble_w = if folds { max_w } else { stats.max_line_width.ceil() + pad_x * 2.0 };
+    let natural = stats.max_line_width.ceil() + pad_x * 2.0;
+    let bubble_w = if folds || stats.line_count > 1 { max_w } else { natural.min(max_w) };
     let bubble_h = if stats.line_count == 0 { 0.0 } else { text_h + more_h + pad_y * 2.0 };
     let thumbs_h = if u.images.is_empty() { 0.0 } else { px.v(THUMB) + if bubble_h > 0.0 { px.v(8.0) } else { 0.0 } };
     let h = thumbs_h + bubble_h;
@@ -699,7 +703,7 @@ fn place_user(u: &UserBubble, px: Px, x: f32, y: f32, cw: f32, out: Option<&mut 
         tx -= side + gap;
     }
     if bubble_h > 0.0 {
-        let bx = x + cw - bubble_w;
+        let bx = x;
         let by = y + thumbs_h;
         out.fill(bx, by, bubble_w, bubble_h, px.v(BUBBLE_RADIUS).min(bubble_h / 2.0), ColorRole::UserBubble);
         place_text_lines(&u.text, bx + pad_x, by + pad_y, text_w, shown, px, out);
