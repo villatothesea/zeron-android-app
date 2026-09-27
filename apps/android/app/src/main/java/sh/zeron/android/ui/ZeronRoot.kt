@@ -1,0 +1,755 @@
+@file:OptIn(
+    androidx.compose.foundation.ExperimentalFoundationApi::class,
+    androidx.compose.material3.ExperimentalMaterial3Api::class,
+)
+
+package sh.zeron.android.ui
+
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.ui.input.pointer.changedToUp
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.input.pointer.pointerInput
+import kotlin.math.abs
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.isSystemInDarkTheme
+import kotlinx.coroutines.launch
+import sh.zeron.android.core.ZeronModel
+import sh.zeron.android.design.AssetIcon
+import sh.zeron.android.design.BrandMark
+import sh.zeron.android.design.ChevronMark
+import sh.zeron.android.design.EllipsisMark
+import sh.zeron.android.design.LocalZeronColors
+import sh.zeron.android.design.MarkKind
+import sh.zeron.android.design.PlusMark
+import sh.zeron.android.design.ProjectTile
+import sh.zeron.android.design.StatusMark
+import sh.zeron.android.design.ZeronColors
+import sh.zeron.android.design.ZeronDark
+import sh.zeron.android.design.ZeronLight
+import sh.zeron.android.design.ZeronType
+import sh.zeron.android.design.glassSurface
+import uniffi.zeron_core.ChatIndicator
+import uniffi.zeron_core.FolderEntry
+import uniffi.zeron_core.FolderListing
+import uniffi.zeron_core.PullRequestState
+import uniffi.zeron_core.SectionView
+import uniffi.zeron_core.SendState
+import uniffi.zeron_core.SessionRow
+import uniffi.zeron_core.WallpaperEffect
+import kotlin.math.roundToInt
+
+@Composable
+fun ZeronApp(model: ZeronModel) {
+    val systemDark = isSystemInDarkTheme()
+    val dark = when (model.appearance) {
+        1 -> false
+        2 -> true
+        else -> systemDark
+    }
+    val colors = if (dark) ZeronDark else ZeronLight
+    androidx.compose.runtime.CompositionLocalProvider(LocalZeronColors provides colors) {
+        val phase = model.phase
+        when {
+            phase is ZeronModel.Phase.Loading -> CenterMessage(colors, "Opening the workspace…")
+            phase is ZeronModel.Phase.Failed -> Column(
+                Modifier.fillMaxSize().background(colors.background).padding(24.dp),
+                verticalArrangement = Arrangement.Center,
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text(phase.message, color = colors.danger, fontFamily = ZeronType.Sans)
+                Spacer(Modifier.height(16.dp))
+                Text("Try the demo", color = colors.background, modifier = Modifier.clip(RoundedCornerShape(20.dp)).background(colors.text).clickable { model.enterDemo() }.padding(horizontal = 18.dp, vertical = 12.dp))
+            }
+            phase is ZeronModel.Phase.SignedOut || model.showSignIn -> SignInScreen(model)
+            else -> Shell(model, colors)
+        }
+        model.toast?.let { message ->
+            Box(Modifier.fillMaxSize().padding(bottom = 120.dp), contentAlignment = Alignment.BottomCenter) {
+                Text(
+                    message,
+                    color = colors.background,
+                    fontFamily = ZeronType.Sans,
+                    fontSize = 14.sp,
+                    modifier = Modifier.clip(RoundedCornerShape(20.dp)).background(colors.text).padding(horizontal = 16.dp, vertical = 10.dp),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CenterMessage(colors: ZeronColors, text: String) {
+    Box(Modifier.fillMaxSize().background(colors.background), contentAlignment = Alignment.Center) {
+        Text(text, color = colors.secondary, fontFamily = ZeronType.Sans, fontSize = 16.sp)
+    }
+}
+
+@Composable
+private fun Shell(model: ZeronModel, colors: ZeronColors) {
+    val stack = if (model.tab == ZeronModel.Tab.Settings) model.settingsStack else model.sessionStack
+    val top = stack.lastOrNull()
+    val inSession = top is ZeronModel.Route.Session && model.tab == ZeronModel.Tab.Sessions
+    BackHandler(enabled = model.showNewSession || model.showSignIn || stack.isNotEmpty()) { model.back() }
+    var prompt by remember { mutableStateOf<Prompt?>(null) }
+    Box(Modifier.fillMaxSize().background(colors.background)) {
+        model.wallpaper?.let { bmp ->
+            Image(
+                bmp.asImageBitmap(),
+                contentDescription = null,
+                modifier = Modifier.fillMaxWidth().height(420.dp),
+                contentScale = ContentScale.Crop,
+                alpha = model.wallpaperOpacity,
+            )
+        }
+        Column(Modifier.fillMaxSize()) {
+            Box(Modifier.weight(1f)) {
+                when {
+                    inSession -> SessionScreen(model, (top as ZeronModel.Route.Session).id)
+                    top is ZeronModel.Route.Folder -> FolderScreen(model, colors, top)
+                    model.tab == ZeronModel.Tab.Settings -> SettingsScreen(model, colors)
+                    model.tab == ZeronModel.Tab.Search -> SearchScreen(model, colors)
+                    else -> SessionsScreen(model, colors) { prompt = it }
+                }
+            }
+            if (!inSession) {
+                AskAccessory(model, colors)
+                TabBar(model, colors)
+            }
+        }
+        if (model.showNewSession) {
+            Box(Modifier.fillMaxSize().background(colors.background.copy(alpha = 0.35f))) {
+                Column(Modifier.fillMaxSize().statusBarsPadding()) {
+                    NewSessionSheet(model, onDismiss = { model.showNewSession = false })
+                }
+            }
+        }
+    }
+    prompt?.let { current ->
+        NameDialog(colors, current, onDismiss = { prompt = null }) { value ->
+            current.onSubmit(value)
+            prompt = null
+        }
+    }
+}
+
+private data class Prompt(val title: String, val initial: String, val confirm: String, val onSubmit: (String) -> Unit)
+
+@Composable
+private fun NameDialog(colors: ZeronColors, prompt: Prompt, onDismiss: () -> Unit, onConfirm: (String) -> Unit) {
+    var text by remember(prompt) { mutableStateOf(prompt.initial) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(prompt.title, fontFamily = ZeronType.Sans) },
+        text = {
+            BasicTextField(
+                value = text,
+                onValueChange = { text = it },
+                textStyle = TextStyle(color = colors.text, fontFamily = ZeronType.Sans, fontSize = 16.sp),
+                cursorBrush = SolidColor(colors.accent),
+                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+            )
+        },
+        confirmButton = { TextButton(onClick = { onConfirm(text.trim()) }) { Text(prompt.confirm) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+@Composable
+private fun SessionsScreen(model: ZeronModel, colors: ZeronColors, prompt: (Prompt) -> Unit) {
+    val front = model.workspace?.front
+    val sections = remember(model.epoch, front) {
+        buildList {
+            val pinned = front?.pinned.orEmpty()
+            if (pinned.isNotEmpty()) add(Group("pinned", "Pinned", pinned.size, pinned))
+            front?.sections.orEmpty().forEach { add(Group(it.id, it.name, it.sessions.size, it.sessions)) }
+            val recent = front?.recent.orEmpty()
+            if (isNotEmpty() || recent.isNotEmpty()) add(Group("recent", if (isEmpty()) null else "Recent", recent.size, recent))
+        }
+    }
+    var menu by remember { mutableStateOf(false) }
+    var headerMenu by remember { mutableStateOf<String?>(null) }
+    var refreshing by remember { mutableStateOf(false) }
+    Column(Modifier.fillMaxSize().statusBarsPadding()) {
+        Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("Sessions", color = colors.text, fontFamily = ZeronType.Sans, fontWeight = FontWeight.SemiBold, fontSize = 30.sp, modifier = Modifier.weight(1f))
+            Box {
+                EllipsisMark(colors.text, Modifier.size(22.dp).clickable { menu = true }.padding(4.dp))
+                DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                    DropdownMenuItem(text = { Text("New Section…") }, onClick = {
+                        menu = false
+                        prompt(Prompt("New Section", "", "Create") { if (it.isNotEmpty()) model.createSection(it) })
+                    })
+                    DropdownMenuItem(text = { Text("Collapse All") }, onClick = { menu = false; model.collapseAll() })
+                    DropdownMenuItem(text = { Text("Archived") }, onClick = { menu = false; model.openFolder("archived", "Archived") })
+                }
+            }
+        }
+        PullToRefreshBox(isRefreshing = refreshing, onRefresh = {
+            refreshing = true
+            model.refreshPull()
+            refreshing = false
+        }, modifier = Modifier.weight(1f)) {
+            if (sections.isEmpty() || sections.all { it.rows.isEmpty() && it.id == "recent" }) {
+                Box(Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
+                    Text("No sessions yet.\nTap New session to start one.", color = colors.secondary, fontFamily = ZeronType.Sans, fontSize = 16.sp)
+                }
+            } else {
+                LazyColumn(state = rememberLazyListState(), modifier = Modifier.fillMaxSize()) {
+                    sections.forEach { group ->
+                        val collapsed = model.isCollapsed(group.id) && group.title != null
+                        if (group.title != null) {
+                            item(key = "h-${group.id}") {
+                                SectionHeader(colors, group, collapsed, model) { headerMenu = group.id }
+                                DropdownMenu(expanded = headerMenu == group.id, onDismissRequest = { headerMenu = null }) {
+                                    DropdownMenuItem(text = { Text("Open") }, onClick = { headerMenu = null; model.openFolder(group.id, group.title) })
+                                    if (group.id != "pinned" && group.id != "recent") {
+                                        DropdownMenuItem(text = { Text("Rename Section…") }, onClick = {
+                                            headerMenu = null
+                                            prompt(Prompt("Rename Section", group.title, "Rename") { if (it.isNotEmpty()) model.renameSection(group.id, it) })
+                                        })
+                                        DropdownMenuItem(text = { Text("Delete Section") }, onClick = { headerMenu = null; model.deleteSection(group.id) })
+                                    }
+                                }
+                            }
+                        }
+                        if (!collapsed) {
+                            items(group.rows, key = { "${group.id}-${it.id}" }) { row ->
+                                SessionRowView(row, colors, archived = false, sections = model.workspace?.front?.sections.orEmpty(), model = model)
+                            }
+                        }
+                    }
+                    item { Spacer(Modifier.height(24.dp)) }
+                }
+            }
+        }
+    }
+}
+
+private data class Group(val id: String, val title: String?, val count: Int, val rows: List<SessionRow>)
+
+@Composable
+private fun SectionHeader(colors: ZeronColors, group: Group, collapsed: Boolean, model: ZeronModel, onMenu: () -> Unit) {
+    val live = group.rows.any { it.indicator == ChatIndicator.WORKING }
+    val waiting = group.rows.any { it.indicator == ChatIndicator.AWAITING_INPUT }
+    Row(
+        Modifier.fillMaxWidth().combinedClickable(onClick = { model.toggleCollapsed(group.id) }, onLongClick = onMenu).padding(start = 20.dp, end = 16.dp, top = 16.dp, bottom = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(group.title ?: "", color = colors.secondary, fontFamily = ZeronType.Sans, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+        Text("  ${group.count}", color = colors.tertiary, fontFamily = ZeronType.Sans, fontSize = 13.sp)
+        if (live || waiting) {
+            Spacer(Modifier.width(8.dp))
+            StatusMark(if (live) MarkKind.Spinner else MarkKind.Dot(colors.input), colors, Modifier.size(12.dp))
+        }
+        Spacer(Modifier.weight(1f))
+        ChevronMark(colors.tertiary, Modifier.size(12.dp), expanded = !collapsed)
+    }
+}
+
+@Composable
+private fun FolderScreen(model: ZeronModel, colors: ZeronColors, folder: ZeronModel.Route.Folder) {
+    val rows = model.sessionsIn(folder.id)
+    val archived = folder.id == "archived"
+    Column(Modifier.fillMaxSize().statusBarsPadding()) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 8.dp)) {
+            Text("Back", color = colors.text, fontFamily = ZeronType.Sans, fontWeight = FontWeight.Medium, modifier = Modifier.clickable { model.back() }.padding(12.dp))
+            Text(folder.title, color = colors.text, fontFamily = ZeronType.Sans, fontWeight = FontWeight.SemiBold, fontSize = 20.sp)
+        }
+        if (rows.isEmpty()) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text("Nothing here", color = colors.secondary, fontFamily = ZeronType.Sans)
+            }
+        } else {
+            LazyColumn(Modifier.weight(1f)) {
+                items(rows, key = { it.id }) { row ->
+                    SessionRowView(row, colors, archived, model.workspace?.front?.sections.orEmpty(), model)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SearchScreen(model: ZeronModel, colors: ZeronColors) {
+    val results = model.search(model.searchQuery)
+    Column(Modifier.fillMaxSize().statusBarsPadding().padding(horizontal = 16.dp)) {
+        Text("Search", color = colors.text, fontFamily = ZeronType.Sans, fontWeight = FontWeight.SemiBold, fontSize = 30.sp, modifier = Modifier.padding(top = 8.dp, bottom = 12.dp))
+        BasicTextField(
+            value = model.searchQuery,
+            onValueChange = { model.searchQuery = it },
+            textStyle = TextStyle(color = colors.text, fontFamily = ZeronType.Sans, fontSize = 16.sp),
+            cursorBrush = SolidColor(colors.accent),
+            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(colors.controlFill).padding(horizontal = 14.dp, vertical = 12.dp),
+            decorationBox = { inner ->
+                Box {
+                    if (model.searchQuery.isEmpty()) Text("Sessions, projects, messages", color = colors.tertiary, fontFamily = ZeronType.Sans, fontSize = 16.sp)
+                    inner()
+                }
+            },
+        )
+        if (model.searchQuery.isNotBlank() && results.isEmpty()) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text("No matches", color = colors.secondary, fontFamily = ZeronType.Sans)
+            }
+        } else {
+            LazyColumn(Modifier.weight(1f).padding(top = 8.dp)) {
+                items(results, key = { it.id }) { row ->
+                    SessionRowView(row, colors, archived = row.archived, sections = model.workspace?.front?.sections.orEmpty(), model = model)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SessionRowView(row: SessionRow, colors: ZeronColors, archived: Boolean, sections: List<SectionView>, model: ZeronModel) {
+    var offset by remember(row.id) { mutableFloatStateOf(0f) }
+    var menu by remember { mutableStateOf(false) }
+    var renaming by remember { mutableStateOf(false) }
+    var name by remember { mutableStateOf(row.title) }
+    val corner = cornerOf(row, colors)
+    Box(Modifier.fillMaxWidth().height(62.dp).padding(horizontal = 8.dp)) {
+        Row(Modifier.matchParentSize().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Text(if (archived) "Restore" else if (row.pinned) "Unpin" else "Pin", color = colors.accent, fontFamily = ZeronType.Sans, fontSize = 13.sp)
+            Text(if (archived) "" else "Archive", color = colors.danger, fontFamily = ZeronType.Sans, fontSize = 13.sp)
+        }
+        Row(
+            Modifier
+                .fillMaxSize()
+                .offset { IntOffset(offset.roundToInt(), 0) }
+                .clip(RoundedCornerShape(16.dp))
+                .background(colors.background.copy(alpha = 0.001f))
+                .pointerInput(row.id, archived) {
+                    awaitEachGesture {
+                        val down = awaitFirstDown()
+                        var drag = 0f
+                        var moved = false
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                            if (change.changedToUp()) {
+                                if (!moved) model.openSession(row.id)
+                                else {
+                                    if (drag > 96f) {
+                                        if (archived) model.unarchive(row.id) else model.pin(row.id, !row.pinned)
+                                    }
+                                    if (drag < -96f && !archived) model.archive(row.id)
+                                }
+                                offset = 0f
+                                break
+                            }
+                            if (!moved && change.uptimeMillis - down.uptimeMillis > 450) {
+                                menu = true
+                                offset = 0f
+                                break
+                            }
+                            val dx = change.position.x - change.previousPosition.x
+                            drag += dx
+                            if (abs(drag) > 24f) moved = true
+                            if (moved) {
+                                change.consume()
+                                offset = drag.coerceIn(if (archived) 0f else -150f, 150f)
+                            }
+                        }
+                    }
+                }
+                .padding(horizontal = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            BrandMark(row.harness, colors, 20.dp)
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    row.title,
+                    color = colors.text.copy(alpha = if (row.unseen || corner != null) 1f else 0.88f),
+                    fontFamily = ZeronType.Sans,
+                    fontWeight = if (row.unseen) FontWeight.SemiBold else FontWeight.Medium,
+                    fontSize = 16.5.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    ProjectTile(row.project?.name ?: "Home", row.project?.colorIndex?.toInt() ?: model.homeColorIndex(), colors, 13.dp)
+                    Spacer(Modifier.width(6.dp))
+                    Text(row.project?.name ?: "No project", color = colors.secondary, fontFamily = ZeronType.Sans, fontSize = 13.5.sp, maxLines = 1)
+                    row.branch?.takeIf { it.isNotEmpty() }?.let {
+                        Text("  $it", color = colors.subline, fontFamily = ZeronType.Sans, fontSize = 12.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+            }
+            row.pullRequest?.let { pr ->
+                Text(
+                    "#${pr.number}",
+                    color = when (pr.state) {
+                        PullRequestState.MERGED -> colors.done
+                        PullRequestState.CLOSED -> colors.danger
+                        else -> colors.secondary
+                    },
+                    fontFamily = ZeronType.Sans,
+                    fontSize = 11.sp,
+                    modifier = Modifier.padding(end = 6.dp),
+                )
+            }
+            Column(horizontalAlignment = Alignment.End) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (corner != null) StatusMark(corner.mark, colors, Modifier.size(12.dp).padding(end = 0.dp))
+                    if (corner != null) Spacer(Modifier.width(4.dp))
+                    Text(corner?.word ?: row.timeLabel, color = corner?.color ?: colors.time, fontFamily = ZeronType.Sans, fontWeight = FontWeight.Medium, fontSize = 13.sp)
+                }
+            }
+            DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                if (archived) {
+                    DropdownMenuItem(text = { Text("Unarchive") }, onClick = { menu = false; model.unarchive(row.id) })
+                } else {
+                    DropdownMenuItem(text = { Text(if (row.pinned) "Unpin" else "Pin") }, onClick = { menu = false; model.pin(row.id, !row.pinned) })
+                    DropdownMenuItem(text = { Text("Rename") }, onClick = { menu = false; name = row.title; renaming = true })
+                    sections.forEach { section ->
+                        DropdownMenuItem(text = { Text("Move to ${section.name}") }, onClick = { menu = false; model.move(row.id, section.id) })
+                    }
+                    if (row.sectionId != null) DropdownMenuItem(text = { Text("Move to Recent") }, onClick = { menu = false; model.move(row.id, null) })
+                    DropdownMenuItem(text = { Text("Archive") }, onClick = { menu = false; model.archive(row.id) })
+                }
+            }
+        }
+    }
+    if (renaming) {
+        NameDialog(colors, Prompt("Rename", name, "Rename") {}, onDismiss = { renaming = false }) { value ->
+            if (value.isNotEmpty()) model.rename(row.id, value)
+            renaming = false
+        }
+    }
+}
+
+private data class Corner(val word: String, val color: Color, val mark: MarkKind)
+
+private fun cornerOf(row: SessionRow, colors: ZeronColors): Corner? {
+    if (row.sendState == SendState.FAILED) return Corner("Failed", colors.danger, MarkKind.Dot(colors.danger))
+    return when (row.indicator) {
+        ChatIndicator.WORKING -> Corner("Working", colors.working, MarkKind.Spinner)
+        ChatIndicator.AWAITING_INPUT -> Corner("Input", colors.input, MarkKind.Dot(colors.input))
+        ChatIndicator.ERRORED -> Corner("Failed", colors.failed, MarkKind.Dot(colors.failed))
+        ChatIndicator.COMPLETED -> if (row.unseen) Corner("Done", colors.done, MarkKind.Check(colors.done)) else null
+        ChatIndicator.IDLE -> null
+    }
+}
+
+@Composable
+private fun SettingsScreen(model: ZeronModel, colors: ZeronColors) {
+    val context = LocalContext.current
+    val picker = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.GetContent()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: return@rememberLauncherForActivityResult
+        model.setWallpaper(bytes, uri.lastPathSegment ?: "Wallpaper")
+    }
+    var effects by remember { mutableStateOf(false) }
+    var confirmOut by remember { mutableStateOf(false) }
+    var newProject by remember { mutableStateOf(false) }
+    LazyColumn(Modifier.fillMaxSize().statusBarsPadding().padding(horizontal = 16.dp)) {
+        item {
+            Text("Settings", color = colors.text, fontFamily = ZeronType.Sans, fontWeight = FontWeight.SemiBold, fontSize = 30.sp, modifier = Modifier.padding(top = 8.dp, bottom = 16.dp))
+        }
+        item { GroupLabel(colors, "Account") }
+        item {
+            SettingRow(colors, if (model.client?.isDemo() == true) "Demo" else "Signed in", if (model.client?.isDemo() == true) "Offline workspace" else model.client?.orgId())
+        }
+        item { GroupLabel(colors, "Devices") }
+        val devices = model.workspace?.devices.orEmpty()
+        if (devices.isEmpty()) {
+            item { SettingRow(colors, "This device", "No other hosts in the demo") }
+        } else {
+            items(devices, key = { it.id }) { device ->
+                SettingRow(colors, device.name, if (device.online) "Online" else "Offline", trailing = {
+                    Box(Modifier.size(8.dp).clip(CircleShape).background(if (device.online) colors.success else colors.tertiary))
+                })
+            }
+        }
+        item { GroupLabel(colors, "Appearance") }
+        item {
+            listOf(0 to "System", 1 to "Light", 2 to "Dark").forEach { (mode, label) ->
+                SettingRow(colors, label, null, onClick = { model.applyAppearance(mode) }, trailing = {
+                    if (model.appearance == mode) Text("✓", color = colors.accent, fontSize = 16.sp)
+                })
+            }
+        }
+        item { GroupLabel(colors, "Wallpaper") }
+        item {
+            SettingRow(colors, if (model.wallpaper != null) "Change Wallpaper…" else "Choose Wallpaper…", if (model.wallpaper != null) model.wallpaperName() else "Shown behind new chats and the sessions list", onClick = { picker.launch("image/*") })
+        }
+        if (model.wallpaper != null) {
+            item { SettingRow(colors, "Effect", ZeronModel.effectLabel(model.wallpaperEffect), onClick = { effects = true }) }
+            item { SettingRow(colors, "Remove Wallpaper", null, destructive = true, onClick = { model.clearWallpaper() }) }
+        }
+        item { GroupLabel(colors, "Sessions") }
+        item { SettingRow(colors, "Archived Sessions", null, onClick = { model.tab = ZeronModel.Tab.Sessions; model.openFolder("archived", "Archived") }) }
+        item { SettingRow(colors, "New Project", "Browse a host folder", onClick = { newProject = true }) }
+        item { Spacer(Modifier.height(18.dp)) }
+        item { SettingRow(colors, "Sign Out", "Local drafts stay on this device.", destructive = true, onClick = { confirmOut = true }) }
+        item { Spacer(Modifier.height(32.dp)) }
+    }
+    if (effects) {
+        AlertDialog(
+            onDismissRequest = { effects = false },
+            title = { Text("Wallpaper Effect") },
+            text = {
+                Column {
+                    WallpaperEffect.entries.forEach { effect ->
+                        Text(
+                            ZeronModel.effectLabel(effect),
+                            color = if (effect == model.wallpaperEffect) colors.accent else colors.text,
+                            modifier = Modifier.fillMaxWidth().clickable {
+                                model.applyWallpaperEffect(effect)
+                                effects = false
+                            }.padding(vertical = 10.dp),
+                            fontFamily = ZeronType.Sans,
+                        )
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { effects = false }) { Text("Close") } },
+        )
+    }
+    if (confirmOut) {
+        AlertDialog(
+            onDismissRequest = { confirmOut = false },
+            title = { Text("Sign out?") },
+            text = { Text("Local drafts stay on this device.") },
+            confirmButton = { TextButton(onClick = { confirmOut = false; model.signOut() }) { Text("Sign Out") } },
+            dismissButton = { TextButton(onClick = { confirmOut = false }) { Text("Cancel") } },
+        )
+    }
+    if (newProject) {
+        Box(Modifier.fillMaxSize().background(colors.background)) {
+            NewProjectScreen(model, onClose = { newProject = false }, onCreated = {
+                newProject = false
+                model.showToast("Project created")
+                model.showNewSession = true
+            })
+        }
+    }
+}
+
+@Composable
+private fun GroupLabel(colors: ZeronColors, text: String) {
+    Text(text, color = colors.secondary, fontFamily = ZeronType.Sans, fontWeight = FontWeight.Medium, fontSize = 13.sp, modifier = Modifier.padding(top = 18.dp, bottom = 6.dp, start = 4.dp))
+}
+
+@Composable
+private fun SettingRow(
+    colors: ZeronColors,
+    title: String,
+    subtitle: String?,
+    destructive: Boolean = false,
+    onClick: (() -> Unit)? = null,
+    trailing: @Composable () -> Unit = {},
+) {
+    Row(
+        Modifier.fillMaxWidth().padding(vertical = 3.dp).clip(RoundedCornerShape(14.dp)).background(colors.elevated).then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier).padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(title, color = if (destructive) colors.danger else colors.text, fontFamily = ZeronType.Sans, fontWeight = FontWeight.Medium, fontSize = 16.sp)
+            if (!subtitle.isNullOrBlank()) Text(subtitle, color = colors.secondary, fontFamily = ZeronType.Sans, fontSize = 13.sp)
+        }
+        trailing()
+    }
+}
+
+@Composable
+private fun NewProjectScreen(model: ZeronModel, onClose: () -> Unit, onCreated: (String) -> Unit) {
+    val colors = LocalZeronColors.current
+    val client = model.client ?: return
+    val devices = client.executionDevices().ifEmpty { client.devices() }
+    var deviceId by remember { mutableStateOf(devices.firstOrNull()?.id ?: client.deviceId()) }
+    var path by remember { mutableStateOf<String?>(null) }
+    var listing by remember { mutableStateOf<FolderListing?>(null) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var busy by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    LaunchedEffect(deviceId, path, model.epoch) {
+        busy = true
+        error = null
+        try {
+            listing = client.listFolders(deviceId, path)
+        } catch (t: Throwable) {
+            error = t.message ?: "Couldn't read that folder"
+            listing = null
+        } finally {
+            busy = false
+        }
+    }
+    Column(Modifier.fillMaxSize().statusBarsPadding().padding(horizontal = 16.dp).navigationBarsPadding()) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Text("Close", color = colors.text, modifier = Modifier.clickable(onClick = onClose).padding(8.dp))
+            Text("New Project", color = colors.text, fontFamily = ZeronType.Sans, fontWeight = FontWeight.SemiBold, fontSize = 17.sp)
+            Spacer(Modifier.width(48.dp))
+        }
+        if (devices.size > 1) {
+            Row(Modifier.padding(vertical = 8.dp)) {
+                devices.forEach { device ->
+                    Text(
+                        device.name,
+                        color = if (device.id == deviceId) colors.background else colors.text,
+                        modifier = Modifier.padding(end = 8.dp).clip(RoundedCornerShape(12.dp)).background(if (device.id == deviceId) colors.text else colors.controlFill).clickable { deviceId = device.id; path = null }.padding(horizontal = 10.dp, vertical = 6.dp),
+                        fontSize = 13.sp,
+                    )
+                }
+            }
+        }
+        Text(listing?.path ?: path ?: "Home", color = colors.secondary, fontFamily = ZeronType.Sans, fontSize = 13.sp, maxLines = 2)
+        if (busy) Text("Reading folders…", color = colors.tertiary, modifier = Modifier.padding(top = 8.dp))
+        error?.let { Text(it, color = colors.danger, modifier = Modifier.padding(top = 8.dp)) }
+        LazyColumn(Modifier.weight(1f).padding(top = 8.dp)) {
+            if (path != null) {
+                item {
+                    Text("Parent Folder", color = colors.text, modifier = Modifier.fillMaxWidth().clickable {
+                        val current = path ?: return@clickable
+                        val cut = current.trimEnd('/').lastIndexOf('/')
+                        path = if (cut <= 0) null else current.substring(0, cut)
+                    }.padding(vertical = 12.dp), fontFamily = ZeronType.Sans, fontWeight = FontWeight.Medium)
+                }
+            }
+            items(listing?.entries.orEmpty(), key = { it.name }) { entry ->
+                FolderRow(colors, entry) {
+                    if (entry.isDir) {
+                        val base = listing?.path?.trimEnd('/') ?: path
+                        path = if (base.isNullOrEmpty()) entry.name else "$base/${entry.name}"
+                    }
+                }
+            }
+        }
+        Text(
+            "Use this folder",
+            color = colors.background,
+            fontFamily = ZeronType.Sans,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp).clip(RoundedCornerShape(24.dp)).background(colors.text).clickable {
+                scope.launch {
+                    try {
+                        val folder = listing?.path ?: path ?: ""
+                        val git = listing?.entries?.any { it.name == ".git" } == true
+                        val id = client.createProject(deviceId, folder, git)
+                        onCreated(id)
+                    } catch (t: Throwable) {
+                        model.showToast(t.message ?: "Couldn't create the project")
+                    }
+                }
+            }.padding(vertical = 14.dp),
+        )
+    }
+}
+
+@Composable
+private fun FolderRow(colors: ZeronColors, entry: FolderEntry, onClick: () -> Unit) {
+    Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(entry.name, color = if (entry.isRepo) colors.accent else colors.text, fontFamily = ZeronType.Sans, fontWeight = FontWeight.Medium, fontSize = 16.sp, modifier = Modifier.weight(1f))
+        if (entry.isRepo) Text("repo", color = colors.accent, fontSize = 12.sp)
+        else if (entry.isDir) Text("›", color = colors.tertiary, fontSize = 18.sp)
+    }
+}
+
+@Composable
+private fun AskAccessory(model: ZeronModel, colors: ZeronColors) {
+    val (working, awaiting) = model.liveCounts()
+    Row(
+        Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth().glassSurface(colors, 28.dp).clickable { model.showNewSession = true }.padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        PlusMark(colors.text, Modifier.size(18.dp))
+        Spacer(Modifier.width(10.dp))
+        Column(Modifier.weight(1f)) {
+            Text("New session", color = colors.text, fontFamily = ZeronType.Sans, fontWeight = FontWeight.Medium, fontSize = 16.sp)
+            val summary = when {
+                working > 0 && awaiting > 0 -> "$working working · $awaiting needs you"
+                working > 0 -> if (working == 1) "1 working" else "$working working"
+                awaiting > 0 -> if (awaiting == 1) "1 needs you" else "$awaiting need you"
+                else -> null
+            }
+            if (summary != null) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    StatusMark(if (working > 0) MarkKind.Spinner else MarkKind.Dot(colors.input), colors, Modifier.size(12.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(summary, color = colors.secondary, fontFamily = ZeronType.Sans, fontSize = 13.sp)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TabBar(model: ZeronModel, colors: ZeronColors) {
+    Row(Modifier.fillMaxWidth().navigationBarsPadding().padding(bottom = 6.dp, top = 2.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
+        TabButton(colors, "Sessions", "tab-chat", model.tab == ZeronModel.Tab.Sessions) { model.tab = ZeronModel.Tab.Sessions }
+        TabButton(colors, "Settings", "tab-settings", model.tab == ZeronModel.Tab.Settings) { model.tab = ZeronModel.Tab.Settings }
+        TabButton(colors, "Search", null, model.tab == ZeronModel.Tab.Search) { model.tab = ZeronModel.Tab.Search }
+    }
+}
+
+@Composable
+private fun TabButton(colors: ZeronColors, label: String, icon: String?, selected: Boolean, onClick: () -> Unit) {
+    val tint = if (selected) colors.text else colors.tertiary
+    Column(
+        Modifier.clickable(onClick = onClick).padding(horizontal = 22.dp, vertical = 6.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        if (icon != null) AssetIcon(icon, 22.dp, tint) else Text("⌕", color = tint, fontSize = 18.sp)
+        Text(
+            label,
+            color = tint,
+            fontFamily = ZeronType.Sans,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+            fontSize = 11.sp,
+        )
+    }
+}
