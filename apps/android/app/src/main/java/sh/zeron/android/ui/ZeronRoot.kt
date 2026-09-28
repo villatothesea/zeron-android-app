@@ -363,8 +363,12 @@ private fun SessionsScreen(model: ZeronModel, colors: ZeronColors, onNewSpace: (
                     Modifier
                         .statusBarsPadding()
                         .padding(start = 9.dp, top = 6.dp)
-                        .width(243.dp)
+                        .width(283.dp)
                         .glassSurface(colors, 26.dp)
+                        // Measured from mobile-polish/project-menu.png (@3x): 283pt
+                        // wide, check column at 32pt, titles at 59pt. Denser wash
+                        // stands in for UIMenu's heavy blur.
+                        .background(if (colors.dark) Color(0xFF232325).copy(alpha = 0.86f) else Color(0xFFF7F7F8).copy(alpha = 0.86f))
                         .padding(vertical = 8.dp),
                 ) {
                     SpaceChoice(colors, "All", null, selected = spaceId == null) {
@@ -377,16 +381,16 @@ private fun SessionsScreen(model: ZeronModel, colors: ZeronColors, onNewSpace: (
                             spaceMenu = false
                         }
                     }
-                    HorizontalDivider(Modifier.padding(horizontal = 12.dp, vertical = 4.dp), color = colors.hairline)
+                    HorizontalDivider(Modifier.padding(start = 27.dp, end = 24.dp, top = 4.dp, bottom = 4.dp), color = colors.text.copy(alpha = 0.14f))
                     Row(
-                        Modifier.fillMaxWidth().height(44.dp).clickable {
+                        Modifier.fillMaxWidth().height(52.dp).clickable {
                             spaceMenu = false
                             onNewSpace()
-                        }.padding(horizontal = 14.dp),
+                        }.padding(start = 30.dp, end = 14.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        FolderPlusMark(colors.text, Modifier.size(18.dp))
-                        Spacer(Modifier.width(10.dp))
+                        FolderPlusMark(colors.text, Modifier.size(24.dp))
+                        Spacer(Modifier.width(5.dp))
                         Text("New space…", color = colors.text, fontFamily = ZeronType.Sans, fontSize = 17.sp)
                     }
                 }
@@ -405,11 +409,11 @@ private fun SpaceChoice(
 ) {
     val twoLine = !subtitle.isNullOrBlank()
     Row(
-        Modifier.fillMaxWidth().height(if (twoLine) 56.dp else 44.dp).clickable(onClick = onClick).padding(horizontal = 14.dp),
+        Modifier.fillMaxWidth().height(if (twoLine) 66.dp else 50.dp).clickable(onClick = onClick).padding(start = 30.dp, end = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(Modifier.width(22.dp), contentAlignment = Alignment.CenterStart) {
-            if (selected) Text("✓", color = colors.text, fontSize = 15.sp, fontFamily = ZeronType.Sans)
+        Box(Modifier.width(29.dp), contentAlignment = Alignment.CenterStart) {
+            if (selected) sh.zeron.android.design.CheckGlyph(colors.text, Modifier.size(17.dp))
         }
         Column(Modifier.weight(1f)) {
             Text(title, color = colors.text, fontFamily = ZeronType.Sans, fontSize = 17.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
