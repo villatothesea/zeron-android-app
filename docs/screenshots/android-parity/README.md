@@ -1,42 +1,50 @@
 # Android / iOS parity
 
-Both sides are 1206×2622. The iOS frames are the iPhone 17 Pro references already in this repo (dark). The Android frames are the debug demo build on an Android 15 emulator with the display overridden to the same pixel size and 480 dpi, in dark mode, on the same demo workspace.
+Both sides are 1206×2622 (3×). The iOS frames are the iPhone references already in this repo (dark). The Android frames are the debug demo build on an Android 15 (API 35, google_apis x86_64) emulator with the display at 1206×2622 and 480 dpi, in dark mode, on the demo workspace. Round 4 frames came from a software-rendered (TCG, no KVM) emulator.
 
 | Pair | iOS | Android state |
 | --- | --- | --- |
-| `sessions-list.png` | `mobile-polish/home-glass.png` | Sessions front page |
-| `space-filter.png` | `mobile-polish/project-menu.png` | “All” space-filter menu open |
-| `tool-activity.png` | `mobile-polish/tool-activity.png` | “Tool group header colors”, group expanded |
-| `multiline-keyboard.png` | `mobile-polish/multiline-keyboard.png` | Composer focused, Gboard up, wrapping draft |
-| `send-runway.png` | `mobile-polish/send-runway.png` | Same session, Gboard up, one-line draft |
+| `tool-activity.png` | `mobile-polish/tool-activity.png` | “Tool group header colors”, group expanded (two-line rows) |
+| `cjk-tool-rows.png` | `mobile-polish/tool-activity.png` | Chinese demo session `chat-zh`, group expanded: CJK arguments in Geist Mono at two cells |
+| `cjk-transcript.png` | `mobile-polish/tool-activity.png` | `chat-zh` collapsed: CJK prose via Noto Sans CJK, gray inline code, aligned CJK `text` table and Rust block |
 | `ios-portrait.png` | `appshots/appshots-ios-portrait.png` | Same expanded tool-group session |
+| `sessions-list.png` | `mobile-polish/home-glass.png` | Sessions front page (with the 中文 and 日本語 rows) |
+| `space-filter.png` | `mobile-polish/project-menu.png` | “All” space-filter menu open |
+| `chinese-ime-composing.png` | `mobile-polish/multiline-keyboard.png` | fcitx5-android Pinyin, one-line draft, composing “hang” with candidates |
+| `chinese-ime-multiline.png` | `mobile-polish/multiline-keyboard.png` | fcitx5 Pinyin, two-line draft, composing “zhe dang” |
+| `chip-menu.png` | `mobile-polish/send-runway.png` | Reasoning-effort chip menu open (the repo has no iOS chip-menu frame; the pair shows the chip row) |
+| `landscape.png` | `appshots/appshots-ios-landscape.png` (rotated upright) | Same session in landscape, no queue |
+| `multiline-keyboard.png`, `send-runway.png` | `mobile-polish/…` | Round 3 (Gboard); not recaptured |
 
-Raw Android frames: `android-sessions.png`, `android-space-filter.png`, `android-transcript.png`, `android-keyboard.png`, `android-multiline.png`, `android-settings.png`, `android-archived.png` (list scrolled to the Archived divider).
+Raw Android frames: `android-transcript.png`, `android-sessions.png`, `android-space-filter.png`, `android-cjk-tools.png`, `android-cjk-transcript.png`, `android-ime-pinyin.png`, `android-ime-pinyin-multiline.png`, `android-ime-pinyin-committed.png`, `android-chip-effort.png`, `android-chip-model.png`, `android-landscape.png`. From round 3 and not retaken: `android-keyboard.png`, `android-multiline.png`, `android-settings.png`, `android-archived.png`.
 
 ## What matches
 
-- Demo backdrop is `#0D0D0D`. Header is a glass “All” capsule and a glass capsule with new-session and profile. No large “Sessions” title and no tab bar.
-- Rows are three lines with no leading icon column. Line 1 is `project @ machine` and the status. Line 2 is the title at regular weight, 16.5sp. Line 3 is a small agent mark, the branch icon, the branch name, and a right-aligned `#PR` chip. “Done” is only shown for an unseen completed session.
-- The Archived divider is the same treatment as the iOS frame: “Archived” with a chevron, then single-line titles and a relative time (`3d`, `6d`). It is reachable by scrolling. See `android-archived.png`.
-- The space menu has the checkmark on the left of “All”, then projects in recent-activity order (zeron, edge, Zeron iOS, blog), a divider, and a folder-plus “New space…”. Session status words are not drawn in the menu. A dim scrim sits behind it.
-- The tool group starts collapsed, matching the iOS default for a finished group. Expanded, the header reads the Rust summary, with a down chevron, a rail, and the rows: Search `group_header_color`, red terminal “Run” + red “Failed” + the command, pencil “Edit” `shell/transcript.rs`, then the successful re-run. The user bubble is left-aligned and nearly the full column. Inline code is purple-tinted text on a faint accent wash, with 2pt of side padding.
-- The focused composer is one field: full-width text, then a row with plus, model / effort / PR chips, and send. Chips do not open menus. The resting capsule is “Message” and send.
-- The system IME is Gboard. The composer and transcript sit on `WindowInsets.ime` (unioned with the navigation bar). Checked at two heights: Gboard’s inset top was y=1614 (1008px tall) and the voice IME’s was y=1736 (886px tall). In both cases the field stayed above the inset. Gboard’s suggestion strip was visible and did not cover the field.
-
-## Glass
-
-A full-tree `RenderNode` + `RenderEffect` blur segfaults this emulator’s GPU (round 2). A software `View.draw` into a bitmap was not kept: the first attempt crashed the activity by writing a sentinel under `/tmp`, which the app cannot access. The path that shipped is a downscaled `PixelCopy` of the window, box-blurred on the CPU (radius 2 at 1/8 resolution), sampled inside the capsule with a 0.72 `#1E1E1E` wash. The success file is `cache/glass-blur-ok`. On this flat backdrop the capsule still measures about `(29,29,29)`, next to the iOS capsule at about `(30,30,30)`.
+- **CJK fallback.** Geist has no CJK glyphs. `FontChain` puts the system Noto Sans CJK SC after Geist / Geist Mono in one `CustomFallbackBuilder` chain per face. The Rust measurer, the transcript canvas, and Compose labels all use those same typefaces, so wraps and row heights agree with the drawing. The session list, header title, bubble, prose, and tool rows render Chinese and Japanese with real glyphs.
+- **Double-width CJK in mono.** In mono runs each wide cluster measures and draws as exactly 2× the `0` advance. In `cjk-transcript.png` the `| 名称 | 状态 |` table columns line up with the ASCII rows, and `rg -n "中文标题" docs/排版` keeps its grid.
+- **Tool rows** follow the iOS frame at 3×. The icon sits on the trunk. Line 1 is the verb in the secondary color, with a red “Failed” on failure. Line 2 is the argument or command in Geist Mono 13 (`TextSoft`), on one line with a trailing fade. File calls show `parent/name` (for example `shell/transcript.rs`). Short 1pt rail segments join the icons. The group summary wraps instead of truncating, and it only breaks between “·” segments, so “1 failed” stays together.
+- **Inline code** is the iOS `Palette` gray: `#DCDCE0` on `#1A1A1E` in dark, `#3F3F46` on `#E9E9ED` in light. The user bubble hugs its text, is right-aligned, and ends 7/3 pt short of the column. That puts it at x≈77–1145, like iOS.
+- **Chips** follow `CoreSessionSource`: model (brand mark), effort (gauge), then the PR, or the branch if there is no PR. Tapping one opens an anchored, undimmed glass menu above it, left-aligned with the chip and kept below the status bar:
+  - Model: live `listModels` catalog, check on the current model; applies with `setSessionConfig`.
+  - Reasoning effort: the model's levels, check on the current one.
+  - PR: Open Pull Request and Copy Link.
+- **Space filter.** There is no dim scrim, as in the iOS frame. The panel covers the “All” capsule: 247pt wide, radius 26, check column at 27pt, titles at 59pt, a visible divider, and a folder-plus “New space…”. It lists only spaces that have active (non-archived) sessions, most recent first, plus the selected space.
+- **Chinese IME.** fcitx5-android 0.1.3 (Pinyin, from GitHub releases) was the system IME, with no custom keyboard. Measured at 3× px:
+  - The IME top, including the candidate bar, is at y=1572. The composer card bottom is at y=1509, so the field stays above the inset.
+  - A one-line draft card starts at y=1328. The two-line draft starts at y=1256, so the field grew upward by one line (72px) and its bottom did not move.
+  - Candidates sit in fcitx's own bar inside the inset and never cover the field. fcitx draws its preedit label (“zhe dang”) in the 21dp gap just above that bar, so it touches the card's bottom edge but not the text.
+  - Committed text (`我们在测试中文输入法，这个输入框会自动换行，候选栏不会遮挡。`) wraps to two lines in the field.
 
 ## Remaining differences
 
-- **Front page length.** The iOS `home-glass` frame shows four active rows and then Archived, with empty backdrop below. The current demo fixture has ten active sessions (pinned, P0, Mobile, and Recent), so Archived starts below the first screen. Row pitch is 74dp, the measured iOS pitch. The divider itself matches; the list is longer.
-- **Picker status.** The fixture marks “Model picker catalog sync” as awaiting input, so the row says “Input”. The iOS frame shows “Done”.
-- **Tool summary wording.** The shared layout string is “Ran 2 commands · edited 1 file · searched 1 time · 1 failed”, because the transcript has two execs, one edit, and one search. The iOS PNG says “Ran 1 command · edited 1 file · 1 search · 1 failed”. The expanded body also includes the successful second `cargo test` row.
-- **User bubble inset.** The bubble’s left edge is the 18pt column margin (about x=54). The iOS frame’s bubble starts nearer x=77.
-- **Inline code color.** Android paints accent-tinted text (`#C4B5FD` on a 16% accent wash). The iOS PNG’s bubble and assistant text do not contain purple pixels; that build’s inline code is the gray palette.
-- **Menu contents.** The menu lists every project. The iOS PNG’s popover shows All, zeron, and edge before “New space…”. The scrim is a 45% black dim; the iOS PNG’s already-black backdrop does not read as dimmed outside the panel. There is no live backdrop blur behind the menu.
+- **Old iOS frames.** The iOS PNGs predate the current Swift code:
+  - The PNG's inline code is purple, but `Palette.swift` specifies gray, which Android follows.
+  - The PNG's chip row is `#77 · main · GPT-5.6-Terra`. `CoreSessionSource` builds model, effort, then PR or branch, which Android follows.
+  - The PNG's tool summary says “Ran 1 command · edited 1 file · 1 search · 1 failed”. The shared Rust summary for this fixture is “Ran 2 commands · edited 1 file · searched 1 time · 1 failed”, which wraps to two lines on the phone width. The expanded body has the second `cargo test` row.
+- **Space-menu contents.** The iOS source in this repo has no space-filter menu, so the rule was inferred from the frame. That frame shows All, zeron, and edge from an older, smaller fixture. With the current fixture all four spaces (zeron, edge, Zeron iOS, blog) have active sessions, so all four are listed.
+- **Branch chip menu** (Copy Branch Name) is an Android addition. iOS has no menu on the branch chip.
+- **Compose mono** (branch or PR chip text, menu titles) uses the same font chain, but double-width CJK alignment is only enforced in the Rust-laid-out transcript.
+- **Menus** have no live backdrop blur. They use a denser `#232325` wash at 86% instead of UIMenu's material.
+- **fcitx preedit** is drawn by fcitx in its own label above the candidate bar, not inline in the field. Only fcitx's Quick Phrase mode showed an inline underlined preedit. That is IME behavior; the field accepts `setComposingText`.
+- **Landscape** is full-bleed (1206px tall with the status bar). The iOS landscape frame is the queued state (two queued rows with an attachment strip), which was not reproduced. The queue, gallery, lightbox, and first-capture appshots were not recaptured.
 - **Profile** is a drawn person glyph, not a photo.
-- **Composer chips** are labels only. They do not open the model, effort, or PR menus.
-- **CJK.** No CJK keyboard is installed (Gboard and the voice IME only). Composing text and candidate windows were not exercised. Gboard’s Latin suggestion strip was not clipped. The CJK session title is drawn with Geist, which does not cover those glyphs, so that row’s title does not match the system-font iOS rendering.
-- **IME animation.** Inset padding follows `WindowInsets.ime`. Captures were taken with animator duration scale 0, so the move is immediate in the stills. With scale 1, both keyboard heights left the composer on the inset.
-- **Not recaptured.** `appshots-ios-landscape`, `appshots-ios-queue-actions`, `appshots-ios-queue-gallery`, `appshots-ios-lightbox`, and `appshots-ios-first-capture` need rotation, an in-flight queue, or an attachment.
