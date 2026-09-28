@@ -43,7 +43,7 @@ for abi in arm64-v8a x86_64; do
   mkdir -p "$APP_JNI/$abi"
   cp "$src" "$APP_JNI/$abi/libzeron_mobile.so"
   if [[ -n "$STRIP" ]]; then
-    "$STRIP" --strip-debug "$APP_JNI/$abi/libzeron_mobile.so" || true
+    "$STRIP" --strip-all "$APP_JNI/$abi/libzeron_mobile.so" || true
   fi
 done
 
