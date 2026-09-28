@@ -100,6 +100,16 @@ impl CoreClient {
         self.client.is_direct()
     }
 
+    /// Direct mode: link phase, errors and stream counters (`None` otherwise).
+    pub fn direct_status(&self) -> Option<direct::DirectStatus> {
+        self.client.direct_status().map(Into::into)
+    }
+
+    /// Direct mode: drop the current link, even a stalled one, and redial.
+    pub fn reconnect_direct(&self) {
+        self.client.reconnect_direct();
+    }
+
     pub fn device_id(&self) -> String {
         self.client.device_id().to_owned()
     }

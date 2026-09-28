@@ -125,7 +125,87 @@ pub struct ProbeResult {
     pub host_key_fingerprint: String,
     pub host_key_algorithm: String,
     pub engine_device_id: String,
+    pub engine_version: Option<String>,
     pub latency_ms: u64,
+}
+
+/// Where the direct link stands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum DirectPhase {
+    Connecting,
+    Syncing,
+    Live,
+    Failed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct DirectStreamStat {
+    pub name: String,
+    pub frames: u64,
+    pub rows: u32,
+    pub skipped_rows: u32,
+    pub last_frame_ms: Option<i64>,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct DirectLogLine {
+    pub at_ms: i64,
+    pub message: String,
+}
+
+/// Link phase, last error, engine identity, per-stream counters and a short
+/// event log (the Machines diagnostics readout).
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct DirectStatus {
+    pub phase: DirectPhase,
+    pub last_error: Option<String>,
+    pub retry_at_ms: Option<i64>,
+    pub engine_version: Option<String>,
+    pub engine_device_id: Option<String>,
+    pub connected_at_ms: Option<i64>,
+    pub synced_at_ms: Option<i64>,
+    pub streams: Vec<DirectStreamStat>,
+    pub log: Vec<DirectLogLine>,
+}
+
+impl From<zd::DirectStatus> for DirectStatus {
+    fn from(s: zd::DirectStatus) -> Self {
+        Self {
+            phase: match s.phase {
+                zd::DirectPhase::Connecting => DirectPhase::Connecting,
+                zd::DirectPhase::Syncing => DirectPhase::Syncing,
+                zd::DirectPhase::Live => DirectPhase::Live,
+                zd::DirectPhase::Failed => DirectPhase::Failed,
+            },
+            last_error: s.last_error,
+            retry_at_ms: s.retry_at_ms,
+            engine_version: s.engine_version,
+            engine_device_id: s.engine_device_id,
+            connected_at_ms: s.connected_at_ms,
+            synced_at_ms: s.synced_at_ms,
+            streams: s
+                .streams
+                .into_iter()
+                .map(|t| DirectStreamStat {
+                    name: t.name,
+                    frames: t.frames,
+                    rows: t.rows,
+                    skipped_rows: t.skipped_rows,
+                    last_frame_ms: t.last_frame_ms,
+                    error: t.error,
+                })
+                .collect(),
+            log: s
+                .log
+                .into_iter()
+                .map(|l| DirectLogLine {
+                    at_ms: l.at_ms,
+                    message: l.message,
+                })
+                .collect(),
+        }
+    }
 }
 
 /// New ed25519 key (the phone's identity for SSH).
@@ -156,6 +236,7 @@ pub async fn ssh_probe(target: SshTarget) -> Result<ProbeResult, SshError> {
             host_key_fingerprint: p.host_key_fingerprint,
             host_key_algorithm: p.host_key_algorithm,
             engine_device_id: p.engine_device_id,
+            engine_version: p.engine_version,
             latency_ms: p.latency_ms,
         }),
         Ok(Err(e)) => Err(e.into()),
