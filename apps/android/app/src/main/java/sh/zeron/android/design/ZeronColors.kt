@@ -45,8 +45,9 @@ data class ZeronColors(
         ColorRole.DANGER -> danger
         ColorRole.SUCCESS -> success
         ColorRole.WARNING -> warning
-        ColorRole.INLINE_CODE_TEXT -> if (dark) Color(0xFFC4B5FD) else Color(0xFF5B43E8)
-        ColorRole.INLINE_CODE_BACKGROUND -> if (dark) Color(0xFF8B7CF6).copy(alpha = 0.16f) else Color(0xFF5B43E8).copy(alpha = 0.10f)
+        // iOS Palette: gray inline code (no accent tint).
+        ColorRole.INLINE_CODE_TEXT -> if (dark) Color(0xFFDCDCE0) else Color(0xFF3F3F46)
+        ColorRole.INLINE_CODE_BACKGROUND -> if (dark) Color(0xFF1A1A1E) else Color(0xFFE9E9ED)
         ColorRole.CODE_TEXT -> if (dark) Color(0xFFE8E8EA) else Color(0xFF303035)
         ColorRole.CODE_BACKGROUND -> codeBackground
         ColorRole.CODE_BORDER -> codeBorder
@@ -66,7 +67,7 @@ data class ZeronColors(
         ColorRole.SYNTAX_PROPERTY, ColorRole.SYNTAX_ESCAPE -> if (dark) Color(0xFF22D3EE) else Color(0xFF0E7490)
         ColorRole.SYNTAX_OPERATOR, ColorRole.SYNTAX_PUNCTUATION -> if (dark) Color(0xFFA1A1AA) else Color(0xFF52525B)
         ColorRole.SYNTAX_TAG -> if (dark) Color(0xFFF472B6) else Color(0xFFBE185D)
-        ColorRole.SYNTAX_ATTRIBUTE -> danger
+        ColorRole.SYNTAX_ATTRIBUTE -> if (dark) Color(0xFFF87171) else Color(0xFFB91C1C)
         ColorRole.TEXT_FAINT -> if (dark) Color(0xFF85858A) else Color(0xFF797981)
         ColorRole.TEXT_SOFT -> text.copy(alpha = 0.85f)
         ColorRole.TOOL_RAIL -> if (dark) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.162f)

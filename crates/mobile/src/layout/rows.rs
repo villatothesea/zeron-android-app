@@ -129,6 +129,8 @@ pub(crate) mod geom {
     pub const BUBBLE_PAD_X: f32 = 15.0;
     pub const BUBBLE_PAD_Y: f32 = 10.0;
     pub const BUBBLE_RADIUS: f32 = 20.0;
+    /// The iOS frame's bubble ends 7px (@3x) short of the column's right edge.
+    pub const BUBBLE_TRAIL: f32 = 7.0 / 3.0;
     /// Width of a trailing overflow fade.
     pub const FADE: f32 = 28.0;
     pub const BUBBLE_FOLD_LINES: usize = 8;
@@ -677,10 +679,10 @@ fn place_user(u: &UserBubble, px: Px, x: f32, y: f32, cw: f32, out: Option<&mut 
     use geom::*;
     let pad_x = px.v(BUBBLE_PAD_X);
     let pad_y = px.v(BUBBLE_PAD_Y);
-    // Phone bubbles sit on the left of the column and, once they wrap, use
-    // nearly the whole column (the iOS transcript frame). A one-line note
-    // still shrinks to its text.
-    let max_w = cw;
+    // iOS transcript frame: the bubble hugs its text (widest line + padding)
+    // and is right-aligned, ending BUBBLE_TRAIL short of the column edge.
+    // Wrapping uses nearly the whole column, so a long note starts ~26pt in.
+    let max_w = (cw - px.v(BUBBLE_TRAIL)).max(20.0);
     let text_w = (max_w - pad_x * 2.0).max(20.0);
     let stats = u.text.p.stats(text_w);
     let folds = stats.line_count > BUBBLE_FOLD_LINES;
@@ -688,7 +690,7 @@ fn place_user(u: &UserBubble, px: Px, x: f32, y: f32, cw: f32, out: Option<&mut 
     let text_h = shown as f32 * u.text.lh;
     let more_h = if folds { u.more.lh + px.v(4.0) } else { 0.0 };
     let natural = stats.max_line_width.ceil() + pad_x * 2.0;
-    let bubble_w = if folds || stats.line_count > 1 { max_w } else { natural.min(max_w) };
+    let bubble_w = if folds { max_w } else { natural.min(max_w) };
     let bubble_h = if stats.line_count == 0 { 0.0 } else { text_h + more_h + pad_y * 2.0 };
     let thumbs_h = if u.images.is_empty() { 0.0 } else { px.v(THUMB) + if bubble_h > 0.0 { px.v(8.0) } else { 0.0 } };
     let h = thumbs_h + bubble_h;
@@ -696,14 +698,14 @@ fn place_user(u: &UserBubble, px: Px, x: f32, y: f32, cw: f32, out: Option<&mut 
     // Thumbnails right-aligned above the bubble.
     let side = px.v(THUMB);
     let gap = px.v(6.0);
-    let mut tx = x + cw - side;
+    let mut tx = x + max_w - side;
     for img in u.images.iter().rev() {
         out.fill(tx, y, side, side, px.v(12.0), ColorRole::ChipBackground);
         out.widget(WidgetKind::Image { reference: img.clone() }, (tx, y, side, side), None);
         tx -= side + gap;
     }
     if bubble_h > 0.0 {
-        let bx = x;
+        let bx = x + max_w - bubble_w;
         let by = y + thumbs_h;
         out.fill(bx, by, bubble_w, bubble_h, px.v(BUBBLE_RADIUS).min(bubble_h / 2.0), ColorRole::UserBubble);
         place_text_lines(&u.text, bx + pad_x, by + pad_y, text_w, shown, px, out);
