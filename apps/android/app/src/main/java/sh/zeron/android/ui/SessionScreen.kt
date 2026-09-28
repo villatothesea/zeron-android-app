@@ -60,6 +60,9 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -73,7 +76,12 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import kotlinx.coroutines.launch
 import sh.zeron.android.core.ZeronModel
+import sh.zeron.android.design.AnchoredMenu
 import sh.zeron.android.design.ArrowUpMark
+import sh.zeron.android.design.AssetIcon
+import sh.zeron.android.design.GaugeGlyph
+import sh.zeron.android.design.MenuEntry
+import sh.zeron.android.design.PrGlyph
 import sh.zeron.android.design.BackChevron
 import sh.zeron.android.design.BrandMark
 import sh.zeron.android.design.EllipsisMark
@@ -112,6 +120,9 @@ private class FrameRelay : LayoutListener {
 
 private class Staged(val name: String, val bytes: ByteArray, val preview: Bitmap?)
 
+/** A composer context chip (iOS `ComposerChip`): model, effort, PR/branch, context. */
+private data class Chip(val id: String, val title: String, val harness: String? = null, val prState: uniffi.zeron_core.PullRequestState? = null)
+
 private enum class Delivery { Send, Queue, Steer, Interrupt }
 
 @Composable
@@ -145,6 +156,7 @@ fun SessionScreen(model: ZeronModel, chatId: String) {
     var lightbox by remember { mutableStateOf<Bitmap?>(null) }
     var detail by remember { mutableStateOf<Pair<String, String>?>(null) }
     var composerHeight by remember { mutableIntStateOf(0) }
+    var chipMenu by remember { mutableStateOf<Pair<Chip, Rect>?>(null) }
     var headerPx by remember { mutableIntStateOf(0) }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
@@ -318,6 +330,7 @@ fun SessionScreen(model: ZeronModel, chatId: String) {
                     focused = focused,
                     onFocus = { focused = it },
                     chips = chipsFor(row, chrome),
+                    onChip = { chip, rect -> if (chip.id != "context") chipMenu = chip to rect },
                     images = staged,
                     onRemoveImage = { staged = staged.filterNot { s -> s === it } },
                     onAttach = { picker.launch("image/*") },
@@ -372,6 +385,9 @@ fun SessionScreen(model: ZeronModel, chatId: String) {
                 )
             }
         }
+        chipMenu?.let { (chip, anchor) ->
+            ChipMenu(chip, anchor, row, chrome, client, chatId, colors, model) { chipMenu = null }
+        }
         lightbox?.let { bmp ->
             Box(
                 Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.92f)).clickable { lightbox = null },
@@ -411,6 +427,76 @@ fun SessionScreen(model: ZeronModel, chatId: String) {
             )
         }
     }
+}
+
+/** The chip menus the iOS session composer shows (CoreSessionSource.chipMenu). */
+@Composable
+private fun ChipMenu(
+    chip: Chip,
+    anchor: Rect,
+    row: uniffi.zeron_core.SessionRow?,
+    chrome: uniffi.zeron_core.ComposerState,
+    client: uniffi.zeron_core.CoreClient,
+    chatId: String,
+    colors: ZeronColors,
+    model: ZeronModel,
+    onDismiss: () -> Unit,
+) {
+    val context = LocalContext.current
+    val harness = row?.harness ?: "claude-code"
+    var models by remember(chip.id) { mutableStateOf<List<uniffi.zeron_core.ModelInfo>?>(null) }
+    if (chip.id == "model" || chip.id == "effort") {
+        LaunchedEffect(chip.id, harness) {
+            models = runCatching { client.listModels(chrome.host.deviceId, harness) }.getOrNull()?.takeIf { it.isNotEmpty() }
+                ?: runCatching { uniffi.zeron_core.fallbackModels(harness) }.getOrDefault(emptyList())
+        }
+    }
+    fun setConfig(change: (uniffi.zeron_core.ChatConfig) -> uniffi.zeron_core.ChatConfig) {
+        val current = runCatching { client.sessionConfig(chatId) }.getOrNull()
+            ?: uniffi.zeron_core.ChatConfig(harness = harness, model = row?.model, reasoning = row?.reasoning, modelOptions = emptyMap(), sandbox = uniffi.zeron_core.SandboxLevel.WORKSPACE_WRITE)
+        try {
+            client.setSessionConfig(chatId, change(current))
+            model.refreshPull()
+        } catch (t: Throwable) {
+            model.showToast(t.message ?: "Couldn't change the session")
+        }
+    }
+    val pr = row?.pullRequest
+    val (title, entries) = when (chip.id) {
+        "model" -> "Model" to models.orEmpty().map { m ->
+            MenuEntry(m.label, subtitle = m.description, checked = m.id == row?.model) { setConfig { it.copy(model = m.id) } }
+        }
+        "effort" -> {
+            val all = models.orEmpty()
+            val levels = all.firstOrNull { it.id == row?.model }?.reasoningLevels ?: all.firstOrNull()?.reasoningLevels ?: emptyList()
+            "Reasoning effort" to levels.map { l ->
+                MenuEntry(reasoningLabel(l), checked = l == row?.reasoning) { setConfig { it.copy(reasoning = l) } }
+            }
+        }
+        "pr" -> (pr?.title ?: "") to listOfNotNull(
+            pr?.let { p ->
+                MenuEntry("Open Pull Request", icon = { c -> AssetIcon("tool-global", 16.dp, c) }) {
+                    runCatching { context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(p.url))) }
+                }
+            },
+            pr?.let { p ->
+                MenuEntry("Copy Link", icon = { c -> AssetIcon("fileicon-files-link", 16.dp, c) }) {
+                    val cm = context.getSystemService(android.content.ClipboardManager::class.java)
+                    cm.setPrimaryClip(android.content.ClipData.newPlainText("pull request", p.url))
+                    model.showToast("Copied")
+                }
+            },
+        )
+        "branch" -> (row?.branch ?: "") to listOf(
+            MenuEntry("Copy Branch Name", icon = { c -> AssetIcon("tool-git-branch", 16.dp, c) }) {
+                val cm = context.getSystemService(android.content.ClipboardManager::class.java)
+                cm.setPrimaryClip(android.content.ClipData.newPlainText("branch", row?.branch ?: ""))
+                model.showToast("Copied")
+            },
+        )
+        else -> null to emptyList()
+    }
+    AnchoredMenu(colors, anchor, title, entries, loading = (chip.id == "model" || chip.id == "effort") && models == null, onDismiss = onDismiss)
 }
 
 @Composable
@@ -498,19 +584,63 @@ private fun QuestionCard(questions: List<UserInputQuestion>, colors: ZeronColors
 private fun finish(questions: List<UserInputQuestion>, picks: Map<String, Set<String>>) =
     questions.map { UserInputAnswer(it.id, picks[it.id]?.toList() ?: emptyList()) }
 
-private fun chipsFor(row: uniffi.zeron_core.SessionRow?, chrome: uniffi.zeron_core.ComposerState): List<String> {
-    val chips = mutableListOf<String>()
-    val model = row?.modelLabel ?: row?.model?.let { modelLabel(row.harness ?: "", it) }
-    if (model != null) chips.add(model)
-    row?.reasoning?.takeIf { it.isNotEmpty() }?.let { chips.add(reasoningLabel(it)) }
-    row?.pullRequest?.let { chips.add("#${it.number}") } ?: row?.branch?.takeIf { it.isNotEmpty() }?.let { chips.add(it) }
+private fun chipsFor(row: uniffi.zeron_core.SessionRow?, chrome: uniffi.zeron_core.ComposerState): List<Chip> {
+    val chips = mutableListOf<Chip>()
+    val model = row?.modelLabel ?: row?.model?.let { modelLabel(row.harness ?: "", it) } ?: row?.harness?.let { harnessLabel(it) }
+    if (model != null) chips.add(Chip("model", model, harness = row?.harness ?: "claude-code"))
+    row?.reasoning?.takeIf { it.isNotEmpty() }?.let { chips.add(Chip("effort", reasoningLabel(it))) }
+    val pr = row?.pullRequest
+    if (pr != null) {
+        chips.add(Chip("pr", "${pr.number}", prState = pr.state))
+    } else {
+        row?.branch?.takeIf { it.isNotEmpty() }?.let { chips.add(Chip("branch", it)) }
+    }
     val tokens = chrome.contextUsage?.tokens
     val window = chrome.contextUsage?.window
     if (tokens != null && window != null && window > 0uL) {
         val fraction = tokens.toDouble() / window.toDouble()
-        if (fraction >= 0.5) chips.add("${(fraction * 100).toInt()}% context")
+        if (fraction >= 0.5) chips.add(Chip("context", "${Math.round(fraction * 100)}% context"))
     }
     return chips
+}
+
+@Composable
+private fun ChipView(chip: Chip, colors: ZeronColors, onTap: (Rect) -> Unit) {
+    var bounds by remember { mutableStateOf(Rect.Zero) }
+    val tone = when (chip.prState) {
+        null -> null
+        uniffi.zeron_core.PullRequestState.MERGED -> colors.accent
+        uniffi.zeron_core.PullRequestState.CLOSED -> colors.danger
+        else -> colors.success
+    }
+    val mono = chip.id == "branch" || chip.id == "pr"
+    Row(
+        Modifier
+            .onGloballyPositioned { bounds = it.boundsInRoot() }
+            .clip(RoundedCornerShape(14.dp))
+            .background(tone?.copy(alpha = 0.1f) ?: colors.controlFill)
+            .clickable { onTap(bounds) }
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        val fg = tone?.copy(alpha = 0.85f) ?: colors.text
+        when (chip.id) {
+            "model" -> BrandMark(chip.harness, colors, 13.dp)
+            "effort" -> GaugeGlyph(fg, Modifier.size(13.dp))
+            "pr" -> PrGlyph(fg, Modifier.size(12.dp))
+            "branch" -> AssetIcon("tool-git-branch", 12.dp, fg)
+            else -> Unit
+        }
+        if (chip.id in setOf("model", "effort", "pr", "branch")) Spacer(Modifier.width(if (chip.id == "pr") 5.dp else 6.dp))
+        Text(
+            chip.title,
+            color = fg,
+            fontFamily = if (mono) ZeronType.Mono else ZeronType.Sans,
+            fontWeight = FontWeight.Medium,
+            fontSize = if (mono) 13.sp else 14.sp,
+            maxLines = 1,
+        )
+    }
 }
 
 @Composable
@@ -523,7 +653,8 @@ private fun ComposerBar(
     canSteer: Boolean,
     focused: Boolean,
     onFocus: (Boolean) -> Unit,
-    chips: List<String>,
+    chips: List<Chip>,
+    onChip: (Chip, Rect) -> Unit = { _, _ -> },
     images: List<Staged>,
     onRemoveImage: (Staged) -> Unit,
     onAttach: () -> Unit = {},
@@ -633,14 +764,7 @@ private fun ComposerBar(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         chips.forEach { chip ->
-                            Text(
-                                chip,
-                                color = colors.secondary,
-                                fontFamily = ZeronType.Sans,
-                                fontSize = 13.sp,
-                                maxLines = 1,
-                                modifier = Modifier.clip(RoundedCornerShape(12.dp)).background(colors.controlFill).padding(horizontal = 8.dp, vertical = 4.dp),
-                            )
+                            ChipView(chip, colors) { rect -> onChip(chip, rect) }
                         }
                     }
                     SendButton(colors, stop, has, running, canSteer, deliveryMenu, { deliveryMenu = it }, onSend)
@@ -722,7 +846,11 @@ fun NewSessionSheet(model: ZeronModel, onDismiss: () -> Unit) {
             canSteer = false,
             focused = true,
             onFocus = { focused = it },
-            chips = listOfNotNull(project?.name ?: "No project", harnessLabel(harness), modelId?.let { modelLabel(harness, it) }, effort?.let { reasoningLabel(it) }),
+            chips = listOfNotNull(
+                Chip("project", project?.name ?: "No project"),
+                Chip("model", modelId?.let { modelLabel(harness, it) } ?: harnessLabel(harness), harness = harness),
+                effort?.let { Chip("effort", reasoningLabel(it)) },
+            ),
             images = emptyList(),
             onRemoveImage = {},
             onSend = send@{
