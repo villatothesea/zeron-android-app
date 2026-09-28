@@ -1,0 +1,30 @@
+# Android release process (in-app updater contract)
+
+The app's updater (`apps/android/app/src/main/java/sh/zeron/android/core/Updater.kt`)
+reads `https://api.github.com/repos/villatothesea/zeron-android-app/releases/latest`
+without authentication (the repo is public; an optional token in
+Settings → Check for Updates → Advanced only raises the API rate limit).
+
+A release is picked up when:
+
+1. **Tag = versionName**, e.g. `round6`. Bump `apps/android/version.properties`
+   first; `versionCode` must strictly increase (`roundN` → `N*100 + patch`).
+2. **One APK asset**, named `zeron-android-<tag>.apk` from round5 on. Any `*.apk`
+   asset is accepted as a fallback (round4 shipped `zeron-android-debug.apk`).
+3. **Release notes contain a line `versionCode: <n>`**. If missing, the updater
+   falls back to `<round number> * 100` from the tag.
+4. **Signed with the stable release key.** `build-apk.sh` uses
+   `~/zeron-keys/keystore.properties` (or `$ZERON_KEYSTORE_PROPERTIES`). The key
+   never goes into the repo; without it the build falls back to the debug key and
+   the system installer will refuse to update over a release build.
+
+```bash
+scripts/android/build-apk.sh
+cp apps/android/app/build/outputs/apk/debug/app-debug.apk /tmp/zeron-android-round6.apk
+gh release create round6 /tmp/zeron-android-round6.apk \
+  --repo villatothesea/zeron-android-app --title round6 \
+  --notes $'What changed...\n\nversionCode: 600'
+```
+
+To test the updater, build a lower version and install it over nothing:
+`ZERON_VERSION_CODE=1 ZERON_VERSION_NAME=test scripts/android/build-apk.sh`.
