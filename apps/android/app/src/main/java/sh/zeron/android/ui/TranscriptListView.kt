@@ -17,6 +17,7 @@ import android.view.MotionEvent
 import android.view.VelocityTracker
 import android.view.View
 import android.widget.OverScroller
+import sh.zeron.android.design.FontChain
 import sh.zeron.android.design.ZeronColors
 import sh.zeron.android.design.glyphOpacity
 import uniffi.zeron_core.BoxStyle
@@ -69,6 +70,7 @@ class TranscriptListView(context: Context) : View(context) {
     private val styles = HashMap<UShort, StyleDesc>()
     private val paints = HashMap<UShort, Paint>()
     private val hScroll = HashMap<String, Float>()
+    private val clusterBreaks = android.icu.text.BreakIterator.getCharacterInstance()
     private val veilFrom = HashMap<ULong, Int>()
     private val veilAt = HashMap<ULong, Long>()
     private val prevText = HashMap<ULong, String>()
@@ -283,7 +285,12 @@ class TranscriptListView(context: Context) : View(context) {
         } else {
             paint.alpha = 255
         }
-        canvas.drawText(slice, run.x, run.baseline, paint)
+        val runStyle = styles[run.style]
+        if (runStyle != null && FontChain.isMono(runStyle.face) && FontChain.hasWide(slice)) {
+            drawMonoWide(canvas, slice, run.x, run.baseline, paint)
+        } else {
+            canvas.drawText(slice, run.x, run.baseline, paint)
+        }
         if (run.decoration != Decoration.NONE) {
             val y = if (run.decoration == Decoration.UNDERLINE) run.baseline + 2f else run.baseline - 5f
             val bar = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -292,6 +299,41 @@ class TranscriptListView(context: Context) : View(context) {
             }
             canvas.drawRect(run.x, y, run.x + run.width, y + max(hair, 1f / density), bar)
         }
+    }
+
+    /**
+     * Mono text with wide (CJK) characters: each wide cluster sits centered in
+     * exactly two Geist Mono cells — the width [sh.zeron.android.core.AndroidMeasurer]
+     * reported to the Rust layout — so columns stay aligned.
+     */
+    private fun drawMonoWide(canvas: Canvas, text: String, x0: Float, baseline: Float, paint: Paint) {
+        val cell = FontChain.cellWidth(paint)
+        val it = clusterBreaks
+        it.setText(text)
+        var x = x0
+        var runStart = 0
+        var start = it.first()
+        var end = it.next()
+        fun flush(upTo: Int) {
+            if (upTo > runStart) {
+                val seg = text.substring(runStart, upTo)
+                canvas.drawText(seg, x, baseline, paint)
+                x += paint.measureText(seg)
+            }
+        }
+        while (end != android.icu.text.BreakIterator.DONE) {
+            if (FontChain.isWide(text.codePointAt(start))) {
+                flush(start)
+                val cluster = text.substring(start, end)
+                val adv = paint.measureText(cluster)
+                canvas.drawText(cluster, x + (cell * 2f - adv) / 2f, baseline, paint)
+                x += cell * 2f
+                runStart = end
+            }
+            start = end
+            end = it.next()
+        }
+        flush(text.length)
     }
 
     private fun drawWidget(canvas: Canvas, display: RowDisplay, w: Widget, colors: ZeronColors, now: Long): Boolean {

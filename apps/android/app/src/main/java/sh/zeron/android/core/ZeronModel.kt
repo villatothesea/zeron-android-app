@@ -561,24 +561,9 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
     }
 
     companion object {
-        val FACE_FILES = mapOf(
-            FaceRole.SANS to "Geist.ttf",
-            FaceRole.SANS_MEDIUM to "Geist-Medium.ttf",
-            FaceRole.SANS_SEMIBOLD to "Geist-SemiBold.ttf",
-            FaceRole.SANS_BOLD to "Geist-Bold.ttf",
-            FaceRole.SANS_ITALIC to "Geist-Italic.ttf",
-            FaceRole.SANS_MEDIUM_ITALIC to "Geist-MediumItalic.ttf",
-            FaceRole.SANS_SEMIBOLD_ITALIC to "Geist-SemiBoldItalic.ttf",
-            FaceRole.SANS_BOLD_ITALIC to "Geist-BoldItalic.ttf",
-            FaceRole.MONO to "GeistMono.ttf",
-            FaceRole.MONO_MEDIUM to "GeistMono-Medium.ttf",
-            FaceRole.MONO_SEMIBOLD to "GeistMono-SemiBold.ttf",
-            FaceRole.MONO_ITALIC to "GeistMono-Italic.ttf",
-        )
+        val FACE_FILES: Map<FaceRole, String> get() = sh.zeron.android.design.FontChain.files
 
-        fun loadFaces(app: Application): Map<FaceRole, Typeface> = FACE_FILES.mapValues { (_, name) ->
-            Typeface.createFromAsset(app.assets, "fonts/$name")
-        }
+        fun loadFaces(app: Application): Map<FaceRole, Typeface> = sh.zeron.android.design.FontChain.faces(app)
 
         fun effectKey(effect: WallpaperEffect) = when (effect) {
             WallpaperEffect.NONE -> "none"
@@ -606,23 +591,55 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
     }
 }
 
-/** CoreText stand-in: widths in the same point space Rust measures with. */
-private class AndroidMeasurer(private val faces: Map<FaceRole, Typeface>) : PlatformMeasurer {
+/**
+ * CoreText stand-in: widths in the same point space Rust measures with, taken
+ * from the same [sh.zeron.android.design.FontChain] Typefaces the painter draws
+ * with. Clusters are measured in context (a cluster's width on its first
+ * scalar, zero on the rest). In mono faces a wide (CJK) cluster is exactly two
+ * Geist Mono cells, which is also how [sh.zeron.android.ui.TranscriptListView]
+ * places it.
+ */
+class AndroidMeasurer(private val faces: Map<FaceRole, Typeface>) : PlatformMeasurer {
     private val paints = ThreadLocal.withInitial { Paint(Paint.ANTI_ALIAS_FLAG or Paint.LINEAR_TEXT_FLAG) }
+    private val breaks = ThreadLocal.withInitial { android.icu.text.BreakIterator.getCharacterInstance() }
 
     override fun measure(face: FaceRole, size: Float, ligatures: Boolean, text: String): Float {
         val paint = paint(face, size, ligatures)
-        return paint.measureText(text)
+        if (!sh.zeron.android.design.FontChain.isMono(face) || !sh.zeron.android.design.FontChain.hasWide(text)) {
+            return paint.measureText(text)
+        }
+        return measureRun(face, size, ligatures, text).sum()
     }
 
     override fun measureRun(face: FaceRole, size: Float, ligatures: Boolean, text: String): List<Float> {
         val paint = paint(face, size, ligatures)
+        val mono = sh.zeron.android.design.FontChain.isMono(face)
+        val cell = if (mono) sh.zeron.android.design.FontChain.cellWidth(paint) else 0f
         val out = ArrayList<Float>(text.length)
-        var i = 0
-        while (i < text.length) {
-            val count = Character.charCount(text.codePointAt(i))
-            out.add(paint.measureText(text, i, i + count))
-            i += count
+        val chars = text.toCharArray()
+        val units = FloatArray(chars.size)
+        if (chars.isNotEmpty()) paint.getTextRunAdvances(chars, 0, chars.size, 0, chars.size, false, units, 0)
+        val it = breaks.get()!!
+        it.setText(text)
+        var start = it.first()
+        var end = it.next()
+        while (end != android.icu.text.BreakIterator.DONE) {
+            val first = text.codePointAt(start)
+            val width = if (mono && sh.zeron.android.design.FontChain.isWide(first)) {
+                cell * 2f
+            } else {
+                var w = 0f
+                for (u in start until end) w += units[u]
+                w
+            }
+            out.add(width)
+            var i = start + Character.charCount(first)
+            while (i < end) {
+                out.add(0f)
+                i += Character.charCount(text.codePointAt(i))
+            }
+            start = end
+            end = it.next()
         }
         return out
     }
