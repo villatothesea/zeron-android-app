@@ -1,62 +1,40 @@
-# Zeron
+# Zeron 安卓版
 
-在本地管理你的编码 agent（Claude Code、Codex、Cursor、Grok、Hermes、Pi、Antigravity），也可以打开多设备同步。
+[Zeron](https://github.com/zeronsh/zeron) 的非官方安卓客户端，照着官方 iOS 版逐屏复刻。
 
 *[English](README.md) | 简体中文*
 
-![Zeron 驱动一个 Claude Code 会话，侧边栏是实时的分支 diff](apps/landing/public/assets/app-screenshot.jpg)
+<p>
+  <img src="docs/screenshots/android-parity/android-sessions.png" width="200" alt="会话列表">
+  <img src="docs/screenshots/android-parity/android-transcript.png" width="200" alt="带工具调用的会话">
+  <img src="docs/screenshots/android-parity/android-cjk-transcript.png" width="200" alt="中文会话">
+  <img src="docs/screenshots/android-parity/android-chip-model.png" width="200" alt="模型选择菜单">
+</p>
 
-每台设备各跑一个小引擎，会话就存在这台设备上。装完默认是纯本地模式，不用账号，也不用联网。
+Zeron 通过电脑上的一个小引擎来管理编码 agent（Claude Code、Codex、Cursor 等）。原仓库有桌面端和 iOS 版，没有安卓版，这个仓库补上了安卓版。
 
-## 在本地安装运行（Linux）
+app 用 Jetpack Compose 编写，和 iOS 版链接同一个 Rust 移动端核心，所以排版和行为都尽量跟 iOS 一致。另外加了中文字体回退，并用中文拼音输入法测试过。
 
-```bash
-curl -fsSL https://zeron.sh/install.sh | sh
-zeron status
-```
+## 当前进度
 
-安装脚本会马上把守护进程拉起来，重启之后也会自己回来。不需要登录，也不需要配置同步。
+- 离线演示工作区：可用。
+- 通过 SSH 直连你自己的 Zeron 引擎（不需要 Cloudflare 中转）：开发中。
+- 从本仓库的 GitHub Releases 在 app 内更新：开发中。
 
-日常命令：
+## 下载
 
-```bash
-zeron status      # 查看本地/同步模式和引擎状态
-zeron update      # 更新到最新版本
-zeron daemon start|stop|restart|status
-```
+在 [Releases](https://github.com/villatothesea/zeron-android-app/releases) 下载 APK。
 
-## 可选：多设备同步
-
-只有想打开账号下的同步工作区时才需要登录。登录会换掉引擎下次启动时用的 profile，所以改之前先停掉守护进程：
+## 构建
 
 ```bash
-zeron daemon stop
-zeron login
-zeron daemon start
+scripts/android/build-apk.sh
 ```
 
-之后就可以在一台同步过的设备上起 agent，换另一台设备接着看、接着操作。一台常开的机器，比如 VPS，可以在你合上笔记本之后继续跑这些 agent。
+环境要求见 [apps/android/README.md](apps/android/README.md)。安卓相关代码在 `apps/android` 和 `crates/mobile`，其余部分是原仓库源码的副本。
 
-登录不会上传、搬走或导入已有的本地会话。本地会话和它们的附件仍然留在本地 profile 下，切回纯本地模式时会照常出现：
+## 原仓库
 
-```bash
-zeron daemon stop
-zeron logout
-zeron daemon start
-```
+桌面端、引擎和多设备同步请看原仓库：<https://github.com/zeronsh/zeron>。
 
-如果有引擎正占着数据目录，`zeron login` 和 `zeron logout` 会拒绝改动凭据。桌面应用同样遵守这条边界：profile 要等下次重启才切换。
-
-macOS 上用桌面版发行包，或者从源码构建 `zeron`，再运行 `zeron daemon install` 装上 launchd 服务。
-
-## 赞助
-
-感谢 [The Context Company](https://www.thecontextcompany.com/) 对 Zeron 的赞助。
-
-你也可以资助 Zeron 的开发。欢迎个人和公司[通过 GitHub 成为赞助者](https://github.com/sponsors/zeronsh)。
-
----
-
-想参与开发，或者好奇它怎么跑起来的？[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/zeronsh/zeron)，也可以看 [ARCHITECTURE.md](ARCHITECTURE.md)。
-
-采用 [MIT License](LICENSE)。
+本项目与 Zeron 维护者无关。采用与原仓库相同的 [MIT 协议](LICENSE)，并保留原仓库的版权声明。

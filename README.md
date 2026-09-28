@@ -1,72 +1,40 @@
-# Zeron
+# Zeron for Android
 
-Control your coding agents (Claude Code, Codex, Cursor, Devin, Grok, Hermes, Pi, Antigravity) locally by default, with optional multi-device sync.
+An unofficial Android client for [Zeron](https://github.com/zeronsh/zeron), rebuilt screen by screen from the official iOS app.
 
 *English | [简体中文](README.zh-CN.md)*
 
-![Zeron driving a Claude Code session with a live branch diff sidebar](apps/landing/public/assets/app-screenshot.jpg)
+<p>
+  <img src="docs/screenshots/android-parity/android-sessions.png" width="200" alt="Sessions list">
+  <img src="docs/screenshots/android-parity/android-transcript.png" width="200" alt="Session with tool activity">
+  <img src="docs/screenshots/android-parity/android-cjk-transcript.png" width="200" alt="Chinese transcript">
+  <img src="docs/screenshots/android-parity/android-chip-model.png" width="200" alt="Model chip menu">
+</p>
 
-Every device runs a small engine that stores sessions on that device. A new installation starts in local-only mode without an account or a network connection.
+Zeron controls coding agents (Claude Code, Codex, Cursor and others) through a small engine running on your computer. Upstream ships a desktop app and an iOS app, but no Android app. This repository adds one.
 
-## Install and run locally (Linux)
+The app is written in Jetpack Compose and links the same Rust mobile core as the iOS app, so layout and behavior follow iOS closely. It also adds Chinese font fallback and was tested with a Chinese Pinyin keyboard.
 
-```bash
-curl -fsSL https://zeron.sh/install.sh | sh
-zeron status
-```
+## Status
 
-The installer starts the daemon immediately and keeps it running across reboots. No sign-in or sync configuration is required.
+- Offline demo workspace: works.
+- Direct connection to your own Zeron engine over SSH (no Cloudflare relay needed): in progress.
+- In-app updates from this repository's GitHub Releases: in progress.
 
-The desktop sidebar browser also needs the [Linux browser runtime](docs/reference/linux-browser.md).
+## Download
 
-Day-to-day:
+Get the APK from [Releases](https://github.com/villatothesea/zeron-android-app/releases).
 
-```bash
-zeron status      # local/synced mode and engine status
-zeron update      # update to the latest release
-zeron daemon start|stop|restart|status
-```
-
-## Optional multi-device sync
-
-Sign in only when you want to open your account's synced workspace. Authentication changes the profile selected by the next engine start, so stop the daemon before changing it:
+## Build
 
 ```bash
-zeron daemon stop
-zeron login
-zeron daemon start
+scripts/android/build-apk.sh
 ```
 
-You can then start an agent on one synced device and follow or drive it from another. An always-on machine such as a VPS can keep those agents working after you close your laptop.
+See [apps/android/README.md](apps/android/README.md) for requirements. The Android code lives in `apps/android` and `crates/mobile`. The rest of the tree is a copy of the upstream source.
 
-Devices signed in to the same synced account are trusted with remote workspace access. A device controlling a workspace on another device can list, read, and write its files; enabling `Show ignored files` also makes gitignored files such as `.env` available remotely. `.git` is always excluded. Only sign in devices you trust with the full contents of your workspaces.
+## Upstream
 
-Signing in does not upload, move, or import existing local sessions. Local sessions and their attachments remain under the local profile and reappear when you return to local-only mode:
+For the desktop app, the engine, and multi-device sync, see the upstream repository: <https://github.com/zeronsh/zeron>.
 
-```bash
-zeron daemon stop
-zeron logout
-zeron daemon start
-```
-
-`zeron login` and `zeron logout` refuse to modify credentials while an engine owns the data directory. The desktop app follows the same next-restart profile boundary.
-
-On macOS: use the desktop release, or build `zeron` from source and run `zeron daemon install` to install the launchd service.
-
-On Windows: extract the portable release ZIP and run `zeron.exe`. Keep `zeron-update.json` beside it for in-app updates. See the [development notes](docs/reference/windows-development.md) for source builds.
-
-## Android
-
-`apps/android` is a Jetpack Compose client of the same Rust mobile core the iOS app links. Debug builds open the offline demo workspace. See [apps/android/README.md](apps/android/README.md).
-
-## Sponsors
-
-Thank you to [The Context Company](https://www.thecontextcompany.com/) for sponsoring Zeron.
-
-You can help fund Zeron's development too. Individuals and companies are welcome to [become a sponsor on GitHub](https://github.com/sponsors/zeronsh).
-
----
-
-Developing or curious how it works? [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/zeronsh/zeron) or check out [ARCHITECTURE.md](ARCHITECTURE.md).
-
-Licensed under the [MIT License](LICENSE).
+This project is not affiliated with the Zeron maintainers. It is released under the [MIT License](LICENSE), the same as upstream, and keeps the upstream copyright notice.
