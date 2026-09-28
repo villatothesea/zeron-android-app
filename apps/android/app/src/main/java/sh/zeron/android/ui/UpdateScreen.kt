@@ -1,0 +1,166 @@
+package sh.zeron.android.ui
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import sh.zeron.android.BuildConfig
+import sh.zeron.android.core.ZeronModel
+import sh.zeron.android.design.BackChevron
+import sh.zeron.android.design.LocalZeronColors
+import sh.zeron.android.design.ZeronType
+import sh.zeron.android.design.glassSurface
+
+/** "Software Update": latest GitHub release, notes, download + install. */
+@Composable
+fun UpdateScreen(model: ZeronModel) {
+    val colors = LocalZeronColors.current
+    val release = model.updateRelease
+    var advanced by remember { mutableStateOf(false) }
+    var token by remember { mutableStateOf("") }
+    var mirror by remember { mutableStateOf(model.updater.mirror.orEmpty()) }
+    val hasToken = remember(advanced) { !model.updater.token.isNullOrBlank() }
+    Column(Modifier.fillMaxSize().background(colors.background).statusBarsPadding().navigationBarsPadding().imePadding()) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(44.dp).glassSurface(colors, 22.dp).clickable { model.showUpdate = false }, contentAlignment = Alignment.Center) {
+                BackChevron(colors.text, Modifier.size(18.dp))
+            }
+            Spacer(Modifier.width(10.dp))
+            Text("Software Update", color = colors.text, fontFamily = ZeronType.Sans, fontWeight = FontWeight.SemiBold, fontSize = 17.sp)
+        }
+        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
+            GroupLabel(colors, "Installed")
+            SettingRow(colors, BuildConfig.VERSION_NAME, "Build ${BuildConfig.VERSION_CODE}")
+            GroupLabel(colors, "Latest on GitHub")
+            when {
+                model.updateChecking -> SettingRow(colors, "Checking…", "github.com/villatothesea/zeron-android-app")
+                release == null -> SettingRow(colors, "Not checked yet", null, onClick = { model.checkForUpdates() })
+                else -> {
+                    SettingRow(
+                        colors,
+                        release.name,
+                        if (release.newer) "Build ${release.versionCode} · newer than this one" else "Build ${release.versionCode} · you're up to date",
+                    )
+                    if (release.notes.isNotBlank()) {
+                        Text(
+                            release.notes,
+                            color = colors.text,
+                            fontFamily = ZeronType.Sans,
+                            fontSize = 14.sp,
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp).clip(RoundedCornerShape(14.dp)).background(colors.elevated).padding(14.dp),
+                        )
+                    }
+                }
+            }
+            model.updateProgress?.let { p ->
+                Spacer(Modifier.height(10.dp))
+                Box(Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)).background(colors.controlFill)) {
+                    Box(Modifier.fillMaxWidth(p.coerceIn(0f, 1f)).height(6.dp).clip(RoundedCornerShape(3.dp)).background(colors.accent))
+                }
+                Text(if (p >= 1f) "Downloaded. Opening the installer…" else "Downloading… ${(p * 100).toInt()}%", color = colors.secondary, fontFamily = ZeronType.Sans, fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp))
+            }
+            model.updateError?.let {
+                Text(it, color = colors.danger, fontFamily = ZeronType.Sans, fontSize = 14.sp, modifier = Modifier.padding(top = 10.dp))
+            }
+            Spacer(Modifier.height(14.dp))
+            val busy = model.updateChecking || (model.updateProgress != null && model.updateProgress!! < 1f)
+            if (release != null && release.newer) {
+                Button(colors, if (model.updateProgress == 1f) "Install" else "Download & Install", primary = true, enabled = !busy) {
+                    if (model.updateProgress == 1f) model.installUpdate() else model.downloadUpdate()
+                }
+                Spacer(Modifier.height(8.dp))
+            }
+            Button(colors, "Check Again", enabled = !busy) { model.checkForUpdates() }
+            Text(
+                "Android asks you to confirm every install. The first time, allow “Install unknown apps” for Zeron.",
+                color = colors.secondary, fontFamily = ZeronType.Sans, fontSize = 12.sp, modifier = Modifier.padding(top = 10.dp, start = 4.dp),
+            )
+            GroupLabel(colors, "Advanced")
+            if (!advanced) {
+                SettingRow(colors, "Download mirror & GitHub token", if (model.updater.mirror != null) "Mirror: ${model.updater.mirror}" else "Off", onClick = { advanced = true })
+            } else {
+                Text("Mirror prefix (optional), e.g. https://ghfast.top/: it is put in front of the GitHub download URL.", color = colors.secondary, fontFamily = ZeronType.Sans, fontSize = 12.sp, modifier = Modifier.padding(start = 4.dp, bottom = 4.dp))
+                Input(colors, mirror, "https://mirror.example/", password = false) { mirror = it }
+                Spacer(Modifier.height(8.dp))
+                Text("GitHub token (optional, read-only): only to avoid API rate limits.", color = colors.secondary, fontFamily = ZeronType.Sans, fontSize = 12.sp, modifier = Modifier.padding(start = 4.dp, bottom = 4.dp))
+                Input(colors, token, if (hasToken) "Saved (paste to replace)" else "github_pat_…", password = true) { token = it }
+                Spacer(Modifier.height(8.dp))
+                Row {
+                    Button(colors, "Save", primary = true, modifier = Modifier.weight(1f)) {
+                        model.updater.mirror = mirror.ifBlank { null }
+                        if (token.isNotBlank()) model.updater.token = token
+                        token = ""
+                        advanced = false
+                        model.showToast("Saved")
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    Button(colors, "Clear token", modifier = Modifier.weight(1f)) {
+                        model.updater.token = null
+                        model.showToast("Token removed")
+                    }
+                }
+            }
+            Spacer(Modifier.height(40.dp))
+        }
+    }
+}
+
+@Composable
+private fun Button(colors: sh.zeron.android.design.ZeronColors, label: String, primary: Boolean = false, enabled: Boolean = true, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    Box(
+        modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(if (primary) colors.text else colors.controlFill)
+            .then(if (enabled) Modifier.clickable(onClick = onClick) else Modifier).padding(vertical = 14.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(label, color = (if (primary) colors.background else colors.text).copy(alpha = if (enabled) 1f else 0.45f), fontFamily = ZeronType.Sans, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+    }
+}
+
+@Composable
+private fun Input(colors: sh.zeron.android.design.ZeronColors, value: String, placeholder: String, password: Boolean, onChange: (String) -> Unit) {
+    BasicTextField(
+        value = value,
+        onValueChange = onChange,
+        singleLine = true,
+        visualTransformation = if (password) PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,
+        textStyle = TextStyle(color = colors.text, fontFamily = ZeronType.Mono, fontSize = 13.sp),
+        cursorBrush = SolidColor(colors.accent),
+        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(colors.controlFill).padding(horizontal = 14.dp, vertical = 12.dp),
+        decorationBox = { inner ->
+            Box {
+                if (value.isEmpty()) Text(placeholder, color = colors.tertiary, fontFamily = ZeronType.Mono, fontSize = 13.sp)
+                inner()
+            }
+        },
+    )
+}

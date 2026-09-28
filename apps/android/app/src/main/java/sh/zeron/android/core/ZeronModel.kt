@@ -50,6 +50,11 @@ import uniffi.zeron_core.projectColorIndex
 import uniffi.zeron_core.wallpaperRender
 import uniffi.zeron_core.wallpaperSafeOpacity
 import uniffi.zeron_core.workosAuthorizeUrl
+import uniffi.zeron_core.Connectivity
+import uniffi.zeron_core.ProbeResult
+import uniffi.zeron_core.SshException
+import uniffi.zeron_core.sshProbe
+import kotlinx.coroutines.Job
 import java.io.File
 import java.util.UUID
 import android.graphics.Paint
@@ -90,6 +95,31 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
     var signInBusy by mutableStateOf(false)
     var authOrgs by mutableStateOf<List<AuthOrg>?>(null)
 
+    // ── machines (direct SSH) ─────────────────────────────────────────────
+    val machineStore = MachineStore(app)
+    var machines by mutableStateOf(machineStore.list())
+        private set
+    /** Probe results per machine id: true online, false offline, absent unknown. */
+    var machineOnline by mutableStateOf<Map<String, Boolean>>(emptyMap())
+        private set
+    /** `demo`, `cloud`, or a machine id. */
+    var activeMachine by mutableStateOf("demo")
+        private set
+    var showMachines by mutableStateOf(false)
+    var editMachine by mutableStateOf<Machine?>(null)
+    var connectivity by mutableStateOf<Connectivity?>(null)
+        private set
+    private var probeJob: Job? = null
+
+    // ── updates ───────────────────────────────────────────────────────────
+    val updater = Updater(app)
+    var updateRelease by mutableStateOf<Updater.Release?>(null)
+    var updateChecking by mutableStateOf(false)
+    var updateProgress by mutableStateOf<Float?>(null)
+    var updateError by mutableStateOf<String?>(null)
+    var showUpdate by mutableStateOf(false)
+    private var downloadedApk: File? = null
+
     var client: CoreClient? = null
         private set
     var text: TextSystem? = null
@@ -110,6 +140,7 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
         loadWallpaper()
         startDefault()
         watchNetwork()
+        quietUpdateCheck()
     }
 
     fun isCollapsed(id: String): Boolean = collapsed.contains(id)
@@ -154,6 +185,18 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun back(): Boolean {
+        if (showUpdate) {
+            showUpdate = false
+            return true
+        }
+        if (editMachine != null) {
+            editMachine = null
+            return true
+        }
+        if (showMachines && phase is Phase.Ready) {
+            showMachines = false
+            return true
+        }
         if (showNewSession) {
             showNewSession = false
             return true
@@ -185,7 +228,10 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
 
     private fun startDefault() {
         val forced = prefs.getString("boot", null)
+        val last = prefs.getString("lastMachine", null)
+        val lastMachine = machines.firstOrNull { it.id == last }
         when {
+            lastMachine != null -> connectMachine(lastMachine)
             forced == "signedout" -> {
                 phase = Phase.SignedOut
                 showSignIn = true
@@ -200,11 +246,146 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun enterDemo() {
-        prefs.edit().remove("account").putString("boot", "demo").apply()
+        prefs.edit().remove("account").putString("boot", "demo").putString("lastMachine", "demo").apply()
         shutdownClient()
+        resetNavigation()
         start(demoCredentials(), demo = true)
         showSignIn = false
+        showMachines = false
     }
+
+    /** The edge ("Zeron Cloud") account: stored sign-in, else the sign-in screen. */
+    fun useCloud() {
+        prefs.edit().putString("lastMachine", "cloud").apply()
+        shutdownClient()
+        resetNavigation()
+        showMachines = false
+        val stored = storedCredentials()
+        if (stored != null) {
+            start(stored, demo = false)
+        } else {
+            phase = Phase.SignedOut
+            showSignIn = true
+        }
+    }
+
+    fun connectMachine(machine: Machine) {
+        prefs.edit().putString("lastMachine", machine.id).apply()
+        shutdownClient()
+        resetNavigation()
+        showMachines = false
+        showSignIn = false
+        val target = runCatching { machineStore.target(machine) }.getOrElse {
+            phase = Phase.Failed(it.message ?: "Couldn't read this machine's key")
+            return
+        }
+        start(uniffi.zeron_core.Credentials.Direct(target), demo = false, dir = "direct-${machine.id}", active = machine.id)
+    }
+
+    private fun resetNavigation() {
+        sessionStack.clear()
+        settingsStack.clear()
+        tab = Tab.Sessions
+        workspace = null
+        connectivity = null
+    }
+
+    fun activeTitle(): String = when (activeMachine) {
+        "demo" -> "Demo"
+        "cloud" -> "Zeron Cloud"
+        else -> machines.firstOrNull { it.id == activeMachine }?.title() ?: "Machine"
+    }
+
+    fun saveMachine(machine: Machine, secret: String?) {
+        machineStore.save(machine, secret)
+        machines = machineStore.list()
+    }
+
+    fun deleteMachine(id: String) {
+        machineStore.delete(id)
+        machines = machineStore.list()
+        if (activeMachine == id) enterDemo()
+    }
+
+    fun phonePublicKey(): String = runCatching { machineStore.phoneKey().second }.getOrDefault("")
+
+    /** SSH + engine probe with an explicit pin (null = first contact). */
+    suspend fun testMachine(machine: Machine, secret: String?, hostKey: String?): ProbeResult {
+        val target = machineStore.target(machine, hostKey = hostKey, secretOverride = secret)
+        return sshProbe(target)
+    }
+
+    /** Refresh the online dots (pinned machines only; never auto-trusts). */
+    fun probeMachines() {
+        probeJob?.cancel()
+        probeJob = viewModelScope.launch {
+            for (m in machines) {
+                launch {
+                    val ok = if (m.hostKey == null) false else runCatching { sshProbe(machineStore.target(m)) }.isSuccess
+                    machineOnline = machineOnline + (m.id to ok)
+                }
+            }
+        }
+    }
+
+    // ── updates ───────────────────────────────────────────────────────────
+
+    private fun quietUpdateCheck() {
+        if (!updater.dueForQuietCheck()) return
+        viewModelScope.launch {
+            runCatching { updater.latest() }.onSuccess { if (it.newer) updateRelease = it }
+        }
+    }
+
+    fun checkForUpdates() {
+        showUpdate = true
+        updateChecking = true
+        updateError = null
+        viewModelScope.launch {
+            try {
+                updateRelease = updater.latest()
+            } catch (t: Throwable) {
+                updateError = t.message ?: "Couldn't reach GitHub. Check the network and try again."
+            } finally {
+                updateChecking = false
+            }
+        }
+    }
+
+    fun downloadUpdate() {
+        val release = updateRelease ?: return
+        updateError = null
+        updateProgress = 0f
+        viewModelScope.launch {
+            try {
+                val apk = updater.download(release) { done, total ->
+                    val f = if (total > 0) done.toFloat() / total else 0f
+                    main.post { updateProgress = f }
+                }
+                downloadedApk = apk
+                updateProgress = 1f
+                installUpdate()
+            } catch (t: Throwable) {
+                updateProgress = null
+                updateError = t.message ?: "Download failed. Try again."
+            }
+        }
+    }
+
+    /** Needs the "install unknown apps" grant first; resumes on return. */
+    fun installUpdate() {
+        val apk = downloadedApk ?: return
+        val app = getApplication<Application>()
+        if (!updater.canInstall()) {
+            awaitingInstallGrant = true
+            app.startActivity(updater.unknownSourcesIntent())
+            return
+        }
+        awaitingInstallGrant = false
+        app.startActivity(updater.installIntent(apk))
+    }
+
+    private var awaitingInstallGrant = false
 
     fun signOut() {
         shutdownClient()
@@ -226,12 +407,13 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
         ),
     )
 
-    private fun start(credentials: Credentials, demo: Boolean) {
+    private fun start(credentials: Credentials, demo: Boolean, dir: String? = null, active: String? = null) {
         phase = Phase.Loading
+        activeMachine = active ?: if (demo) "demo" else "cloud"
         viewModelScope.launch(Dispatchers.Default) {
             try {
                 val app = getApplication<Application>()
-                val dir = File(app.filesDir, if (demo) "demo" else "core").apply { mkdirs() }
+                val dir = File(app.filesDir, dir ?: if (demo) "demo" else "core").apply { mkdirs() }
                 if (text == null) {
                     val bytes = faces.map { (role, _) ->
                         val name = FACE_FILES.getValue(role)
@@ -256,10 +438,14 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
                     }
                 })
                 created.preloadSessions()
-                val snap = created.workspace()
                 withContext(Dispatchers.Main) {
+                    // Read state here, not before the hop: events posted while
+                    // `client` was still null were dropped (a direct machine
+                    // can finish its first sync in ~100 ms).
                     client = created
-                    workspace = snap
+                    workspace = created.workspace()
+                    connectivity = created.connectivity()
+                    epoch++
                     phase = Phase.Ready
                     showSignIn = false
                 }
@@ -275,6 +461,7 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
         val c = client ?: return
         when (event) {
             is ClientEvent.WorkspaceChanged -> workspace = c.workspace()
+            is ClientEvent.ConnectivityChanged -> connectivity = c.connectivity()
             is ClientEvent.AuthExpired -> {
                 showToast(event.reason)
                 signOut()
@@ -535,7 +722,10 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
         })
     }
 
-    fun onForeground() { client?.onForeground() }
+    fun onForeground() {
+        client?.onForeground()
+        if (awaitingInstallGrant && updater.canInstall()) installUpdate()
+    }
     fun onBackground() { client?.onBackground() }
 
     /** Screenshot / deep-link routes, analogous to the iOS `-route` argument. */
@@ -557,7 +747,20 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
             "new" -> showNewSession = true
             "spaces", "menu" -> pendingSpaceMenu = true
             "session" -> if (!chat.isNullOrEmpty()) openSession(chat)
+            "machines" -> showMachines = true
+            "updates" -> checkForUpdates()
         }
+    }
+
+    /** `addmachine` launch route: prefill the editor (screenshots/e2e). */
+    fun launchAddMachine(name: String?, host: String?, port: String?, user: String?) {
+        showMachines = true
+        editMachine = Machine(
+            name = name.orEmpty(),
+            host = host.orEmpty(),
+            port = port?.toIntOrNull() ?: 22,
+            user = user.orEmpty(),
+        )
     }
 
     companion object {

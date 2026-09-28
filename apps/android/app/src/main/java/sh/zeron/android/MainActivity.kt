@@ -54,6 +54,10 @@ class MainActivity : ComponentActivity() {
         val data = intent?.dataString
         if (data != null && data.startsWith("zeron://")) model.completeAuth(data)
         val route = intent?.getStringExtra("route") ?: return
+        if (route == "addmachine") {
+            model.launchAddMachine(intent.getStringExtra("name"), intent.getStringExtra("host"), intent.getStringExtra("port"), intent.getStringExtra("user"))
+            return
+        }
         model.applyLaunch(route, intent.getStringExtra("chat"), intent.getStringExtra("theme"), intent.getStringExtra("query"))
     }
 }

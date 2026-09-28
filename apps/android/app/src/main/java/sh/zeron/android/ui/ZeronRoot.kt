@@ -129,9 +129,23 @@ fun ZeronApp(model: ZeronModel) {
                 Text(phase.message, color = colors.danger, fontFamily = ZeronType.Sans)
                 Spacer(Modifier.height(16.dp))
                 Text("Try the demo", color = colors.background, modifier = Modifier.clip(RoundedCornerShape(20.dp)).background(colors.text).clickable { model.enterDemo() }.padding(horizontal = 18.dp, vertical = 12.dp))
+                Spacer(Modifier.height(10.dp))
+                Text("Machines…", color = colors.text, modifier = Modifier.clip(RoundedCornerShape(20.dp)).background(colors.controlFill).clickable { model.showMachines = true }.padding(horizontal = 18.dp, vertical = 12.dp))
             }
             phase is ZeronModel.Phase.SignedOut || model.showSignIn -> SignInScreen(model)
             else -> Shell(model, colors)
+        }
+        if (model.showMachines) {
+            BackHandler { if (!model.back()) model.showMachines = false }
+            MachinesScreen(model)
+        }
+        model.editMachine?.let { machine ->
+            BackHandler { model.editMachine = null }
+            androidx.compose.runtime.key(machine.id) { MachineEditScreen(model, machine) }
+        }
+        if (model.showUpdate) {
+            BackHandler { model.showUpdate = false }
+            UpdateScreen(model)
         }
         model.toast?.let { message ->
             Box(Modifier.fillMaxSize().padding(bottom = 120.dp), contentAlignment = Alignment.BottomCenter) {
@@ -351,6 +365,9 @@ private fun SessionsScreen(model: ZeronModel, colors: ZeronColors, onNewSpace: (
                 }
                 Box(Modifier.size(36.dp).clickable { model.tab = ZeronModel.Tab.Settings }, contentAlignment = Alignment.Center) {
                     ProfileMark(colors.text, Modifier.size(28.dp))
+                    if (model.updateRelease?.newer == true) {
+                        Box(Modifier.align(Alignment.TopEnd).padding(top = 3.dp, end = 2.dp).size(9.dp).clip(CircleShape).background(colors.accent))
+                    }
                 }
             }
         }
@@ -687,9 +704,22 @@ private fun SettingsScreen(model: ZeronModel, colors: ZeronColors) {
                 Text("Settings", color = colors.text, fontFamily = ZeronType.Sans, fontWeight = FontWeight.SemiBold, fontSize = 17.sp)
             }
         }
-        item { GroupLabel(colors, "Account") }
+        item { GroupLabel(colors, "Machine") }
         item {
-            SettingRow(colors, if (model.client?.isDemo() == true) "Demo" else "Signed in", if (model.client?.isDemo() == true) "Offline workspace" else model.client?.orgId())
+            val conn = model.connectivity
+            val sub = when {
+                model.client?.isDemo() == true -> "Offline workspace · tap to switch"
+                model.client?.isDirect() == true -> when {
+                    conn?.state == uniffi.zeron_core.ConnectivityState.CONNECTED -> "Connected over SSH · tap to switch"
+                    conn?.lastFailure != null -> conn.lastFailure
+                    else -> "Connecting over SSH…"
+                }
+                else -> "Signed in · ${model.client?.orgId()}"
+            }
+            SettingRow(colors, model.activeTitle(), sub, onClick = { model.showMachines = true }, trailing = {
+                val online = model.client?.isDemo() == true || conn?.state == uniffi.zeron_core.ConnectivityState.CONNECTED
+                Box(Modifier.size(8.dp).clip(CircleShape).background(if (online) colors.success else colors.tertiary))
+            })
         }
         item { GroupLabel(colors, "Devices") }
         val devices = model.workspace?.devices.orEmpty()
@@ -722,8 +752,17 @@ private fun SettingsScreen(model: ZeronModel, colors: ZeronColors) {
         item { SettingRow(colors, "Search", "Sessions, projects, messages", onClick = { model.tab = ZeronModel.Tab.Search }) }
         item { SettingRow(colors, "Archived Sessions", null, onClick = { model.tab = ZeronModel.Tab.Sessions; model.openFolder("archived", "Archived") }) }
         item { SettingRow(colors, "New Project", "Browse a host folder", onClick = { newProject = true }) }
+        item { GroupLabel(colors, "About") }
+        item {
+            val newer = model.updateRelease?.takeIf { it.newer }
+            SettingRow(colors, "Check for Updates", newer?.let { "${it.name} is available" } ?: "${sh.zeron.android.BuildConfig.VERSION_NAME} · build ${sh.zeron.android.BuildConfig.VERSION_CODE}", onClick = { model.checkForUpdates() }, trailing = {
+                if (newer != null) Box(Modifier.size(9.dp).clip(CircleShape).background(colors.accent))
+            })
+        }
         item { Spacer(Modifier.height(18.dp)) }
-        item { SettingRow(colors, "Sign Out", "Local drafts stay on this device.", destructive = true, onClick = { confirmOut = true }) }
+        if (model.activeMachine == "cloud") {
+            item { SettingRow(colors, "Sign Out", "Local drafts stay on this device.", destructive = true, onClick = { confirmOut = true }) }
+        }
         item { Spacer(Modifier.height(32.dp)) }
     }
     if (effects) {
@@ -769,12 +808,12 @@ private fun SettingsScreen(model: ZeronModel, colors: ZeronColors) {
 }
 
 @Composable
-private fun GroupLabel(colors: ZeronColors, text: String) {
+internal fun GroupLabel(colors: ZeronColors, text: String) {
     Text(text, color = colors.secondary, fontFamily = ZeronType.Sans, fontWeight = FontWeight.Medium, fontSize = 13.sp, modifier = Modifier.padding(top = 18.dp, bottom = 6.dp, start = 4.dp))
 }
 
 @Composable
-private fun SettingRow(
+internal fun SettingRow(
     colors: ZeronColors,
     title: String,
     subtitle: String?,

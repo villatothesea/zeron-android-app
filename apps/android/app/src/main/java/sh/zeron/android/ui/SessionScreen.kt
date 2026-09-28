@@ -945,6 +945,13 @@ fun SignInScreen(model: ZeronModel) {
             ) {
                 Text("Explore the demo", color = colors.text, fontFamily = ZeronType.Sans, fontWeight = FontWeight.Medium, fontSize = 17.sp)
             }
+            Spacer(Modifier.height(12.dp))
+            Box(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(28.dp)).background(colors.controlFill).clickable { model.showMachines = true }.padding(vertical = 15.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text("Connect to your computer (SSH)", color = colors.text, fontFamily = ZeronType.Sans, fontWeight = FontWeight.Medium, fontSize = 17.sp)
+            }
         }
     }
 }
