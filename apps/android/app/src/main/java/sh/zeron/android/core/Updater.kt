@@ -61,18 +61,55 @@ class Updater(private val context: Context) {
 
     suspend fun latest(): Release = withContext(Dispatchers.IO) {
         val conn = open(URL("$API/repos/$REPO/releases/latest"), json = true, auth = true)
-        try {
+        val release = try {
             val code = conn.responseCode
             if (code == 404) throw UpdateError("No release published yet.")
             if (code == 401) throw UpdateError("GitHub rejected the token (401). Clear or replace it in Settings.")
-            if (code == 403 || code == 429) throw UpdateError("GitHub rate limit reached. Try again later, or add a read-only token.")
-            if (code !in 200..299) throw UpdateError("GitHub answered HTTP $code. Try again.")
-            val body = conn.inputStream.bufferedReader().use { it.readText() }
-            lastCheckMs = System.currentTimeMillis()
-            parse(JSONObject(body))
+            if (code == 403 || code == 429) {
+                // The unauthenticated API allows 60 calls/hour per IP, and
+                // carrier NAT shares that IP widely. The web redirect has no
+                // such limit, so fall back to it before giving up.
+                if (!token.isNullOrBlank()) throw UpdateError("GitHub rate limit reached for this token. Try again later.")
+                null
+            } else {
+                if (code !in 200..299) throw UpdateError("GitHub answered HTTP $code. Try again.")
+                parse(JSONObject(conn.inputStream.bufferedReader().use { it.readText() }))
+            }
         } finally {
             conn.disconnect()
         }
+        (release ?: latestViaWeb()).also { lastCheckMs = System.currentTimeMillis() }
+    }
+
+    /**
+     * No-API fallback: `github.com/<repo>/releases/latest` redirects to the
+     * latest tag, and the asset URL is predictable from the contract. The
+     * version comes from the tag (`roundN[-P]` -> N*100 + P).
+     */
+    private fun latestViaWeb(): Release {
+        val conn = open(URL("$WEB/$REPO/releases/latest"), json = false, auth = false)
+        val location = try {
+            if (conn.responseCode !in 300..399) {
+                throw UpdateError("GitHub rate limit reached and the release page didn't redirect. Try again later, or add a read-only token.")
+            }
+            conn.getHeaderField("Location")
+        } finally {
+            conn.disconnect()
+        }
+        val tag = location?.substringAfter("/releases/tag/", "")?.substringBefore('?')?.let { Uri.decode(it) }
+        if (tag.isNullOrBlank()) throw UpdateError("No release published yet.")
+        val asset = "zeron-android-$tag.apk"
+        return Release(
+            tag = tag,
+            name = tag,
+            notes = "",
+            versionCode = versionFromTag(tag),
+            assetName = asset,
+            assetApiUrl = "",
+            downloadUrl = "$WEB/$REPO/releases/download/$tag/$asset",
+            size = 0,
+            htmlUrl = location,
+        )
     }
 
     private fun parse(o: JSONObject): Release {
@@ -88,8 +125,7 @@ class Updater(private val context: Context) {
         }
         asset ?: throw UpdateError("Release $tag has no APK attached.")
         val code = Regex("""versionCode\s*[:=]\s*(\d+)""").find(notes)?.groupValues?.get(1)?.toLongOrNull()
-            ?: Regex("""round(\d+)""").find(tag)?.groupValues?.get(1)?.toLongOrNull()?.times(100)
-            ?: 0L
+            ?: versionFromTag(tag)
         return Release(
             tag = tag,
             name = o.optString("name").ifBlank { tag },
@@ -138,7 +174,7 @@ class Updater(private val context: Context) {
         if (m != null) {
             start = URL(m + release.downloadUrl)
             useToken = false
-        } else if (!token.isNullOrBlank()) {
+        } else if (!token.isNullOrBlank() && release.assetApiUrl.isNotEmpty()) {
             start = URL(release.assetApiUrl)
             useToken = true
         } else {
@@ -232,6 +268,15 @@ class Updater(private val context: Context) {
     }
 
     companion object {
+        /** `round5` -> 500, `round5-2` / `round5.2` -> 502, else 0. */
+        fun versionFromTag(tag: String): Long {
+            val m = Regex("""round(\d+)(?:[.-](\d+))?""").find(tag) ?: return 0L
+            val round = m.groupValues[1].toLongOrNull() ?: return 0L
+            val patch = m.groupValues[2].toLongOrNull() ?: 0L
+            return round * 100 + patch
+        }
+
+        const val WEB = "https://github.com"
         const val REPO = "villatothesea/zeron-android-app"
         const val API = "https://api.github.com"
         const val DAY_MS = 24L * 60 * 60 * 1000
