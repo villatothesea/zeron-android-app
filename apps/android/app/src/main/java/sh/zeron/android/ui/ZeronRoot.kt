@@ -9,6 +9,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.ui.input.pointer.changedToUp
@@ -179,7 +180,12 @@ private fun Shell(model: ZeronModel, colors: ZeronColors) {
             }
         }
         when {
-            inSession -> SessionScreen(model, (top as ZeronModel.Route.Session).id)
+            inSession -> {
+                val id = (top as ZeronModel.Route.Session).id
+                // A launch intent can swap chats without leaving composition; key the
+                // screen so the transcript view is rebuilt on the new engine.
+                androidx.compose.runtime.key(id) { SessionScreen(model, id) }
+            }
             top is ZeronModel.Route.Folder -> FolderScreen(model, colors, top)
             model.tab == ZeronModel.Tab.Settings -> SettingsScreen(model, colors)
             model.tab == ZeronModel.Tab.Search -> SearchScreen(model, colors)
@@ -249,8 +255,14 @@ private fun SessionsScreen(model: ZeronModel, colors: ZeronColors, onNewSpace: (
         }
     }
     val projects = workspace?.projects.orEmpty()
-    val menuProjects = remember(projects, model.epoch) {
-        projects.sortedByDescending { project -> project.sessions.maxOfOrNull { it.lastActivityMs } ?: 0L }
+    // iOS space filter: only spaces that have active sessions, most recent
+    // activity first (the frame lists zeron, then edge). A space with no
+    // live sessions (all archived, or never used) is left out; the selected
+    // space always stays so the checkmark has a row.
+    val menuProjects = remember(projects, model.epoch, spaceId) {
+        projects
+            .filter { it.sessions.isNotEmpty() || it.id == spaceId }
+            .sortedByDescending { project -> project.sessions.maxOfOrNull { it.lastActivityMs } ?: 0L }
     }
     val space = projects.firstOrNull { it.id == spaceId }
     val rows = remember(model.epoch, front, spaceId, projects) {
@@ -343,14 +355,17 @@ private fun SessionsScreen(model: ZeronModel, colors: ZeronColors, onNewSpace: (
             }
         }
         if (spaceMenu) {
-            Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = if (colors.dark) 0.45f else 0.18f)).clickable { spaceMenu = false }) {
+            // iOS: no dimming scrim. The glass menu grows out of the "All"
+            // capsule and covers it (same top, slightly further left).
+            val none = remember { MutableInteractionSource() }
+            Box(Modifier.fillMaxSize().clickable(interactionSource = none, indication = null) { spaceMenu = false }) {
                 Column(
                     Modifier
                         .statusBarsPadding()
-                        .padding(start = 8.dp, top = 52.dp)
-                        .width(250.dp)
-                        .glassSurface(colors, 14.dp)
-                        .padding(vertical = 6.dp),
+                        .padding(start = 9.dp, top = 6.dp)
+                        .width(243.dp)
+                        .glassSurface(colors, 26.dp)
+                        .padding(vertical = 8.dp),
                 ) {
                     SpaceChoice(colors, "All", null, selected = spaceId == null) {
                         spaceId = null
@@ -372,7 +387,7 @@ private fun SessionsScreen(model: ZeronModel, colors: ZeronColors, onNewSpace: (
                     ) {
                         FolderPlusMark(colors.text, Modifier.size(18.dp))
                         Spacer(Modifier.width(10.dp))
-                        Text("New space…", color = colors.text, fontFamily = ZeronType.Sans, fontWeight = FontWeight.Medium, fontSize = 16.sp)
+                        Text("New space…", color = colors.text, fontFamily = ZeronType.Sans, fontSize = 17.sp)
                     }
                 }
             }
@@ -397,7 +412,7 @@ private fun SpaceChoice(
             if (selected) Text("✓", color = colors.text, fontSize = 15.sp, fontFamily = ZeronType.Sans)
         }
         Column(Modifier.weight(1f)) {
-            Text(title, color = colors.text, fontFamily = ZeronType.Sans, fontWeight = FontWeight.Medium, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(title, color = colors.text, fontFamily = ZeronType.Sans, fontSize = 17.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (twoLine) {
                 Text(subtitle, color = colors.secondary, fontFamily = ZeronType.Sans, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
