@@ -26,6 +26,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.layout
@@ -65,6 +68,9 @@ fun MenuPanel(
         modifier
             .widthIn(min = 230.dp, max = 300.dp)
             .glassSurface(colors, 22.dp)
+            // UIMenu's material is a heavy blur; without a live blur, a denser
+            // wash keeps rows legible over busy transcript text.
+            .background(if (colors.dark) Color(0xFF232325).copy(alpha = 0.86f) else Color(0xFFF7F7F8).copy(alpha = 0.86f))
             .heightIn(max = 460.dp)
             .verticalScroll(rememberScrollState())
             .padding(vertical = 6.dp),
@@ -135,6 +141,7 @@ fun AnchoredMenu(
     val density = LocalDensity.current
     val gap = with(density) { 8.dp.roundToPx() }
     val margin = with(density) { 12.dp.roundToPx() }
+    val top = WindowInsets.statusBars.getTop(density) + with(density) { 8.dp.roundToPx() }
     val none = remember { MutableInteractionSource() }
     BoxWithConstraints(
         Modifier
@@ -148,11 +155,14 @@ fun AnchoredMenu(
             loading = loading,
             onDismiss = onDismiss,
             modifier = Modifier.layout { measurable, constraints ->
-                val placeable = measurable.measure(Constraints(maxWidth = constraints.maxWidth, maxHeight = constraints.maxHeight))
+                // Above the anchor the panel gets the space down from the status
+                // bar and scrolls past that, like UIMenu.
+                val room = if (above) anchor.top.toInt() - gap - top else constraints.maxHeight - anchor.bottom.toInt() - gap - margin
+                val placeable = measurable.measure(Constraints(maxWidth = constraints.maxWidth, maxHeight = room.coerceIn(1, constraints.maxHeight)))
                 layout(constraints.maxWidth, constraints.maxHeight) {
                     val x = anchor.left.toInt().coerceIn(margin, (constraints.maxWidth - placeable.width - margin).coerceAtLeast(margin))
                     val y = if (above) anchor.top.toInt() - gap - placeable.height else anchor.bottom.toInt() + gap
-                    placeable.place(x, y.coerceIn(margin, (constraints.maxHeight - placeable.height - margin).coerceAtLeast(margin)))
+                    placeable.place(x, y.coerceIn(top, (constraints.maxHeight - placeable.height - margin).coerceAtLeast(top)))
                 }
             },
         )

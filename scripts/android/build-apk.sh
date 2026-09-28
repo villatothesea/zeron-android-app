@@ -29,7 +29,7 @@ if [[ -z "$NDK" && -d "$SDK/ndk" ]]; then
 fi
 STRIP=""
 if [[ -n "$NDK" ]]; then
-  STRIP="$(find "$NDK/toolchains/llvm/prebuilt" -name llvm-strip -type f 2>/dev/null | head -1 || true)"
+  STRIP="$(find "$NDK/toolchains/llvm/prebuilt" -name llvm-strip \( -type f -o -type l \) 2>/dev/null | head -1 || true)"
 fi
 for abi in arm64-v8a x86_64; do
   src="$ROOT/target/android-core/jniLibs/$abi/libzeron_mobile.so"
