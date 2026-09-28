@@ -814,6 +814,14 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_zeron_mobile_checksum_func_workos_authorize_url(
     ): Int
+    external fun uniffi_zeron_mobile_checksum_func_ssh_default_engine_port(
+    ): Int
+    external fun uniffi_zeron_mobile_checksum_func_ssh_generate_key(
+    ): Int
+    external fun uniffi_zeron_mobile_checksum_func_ssh_import_key(
+    ): Int
+    external fun uniffi_zeron_mobile_checksum_func_ssh_probe(
+    ): Int
     external fun uniffi_zeron_mobile_checksum_func_file_mention_link(
     ): Int
     external fun uniffi_zeron_mobile_checksum_func_debug_line_starts(
@@ -861,6 +869,8 @@ internal object IntegrityCheckingUniffiLib {
     external fun uniffi_zeron_mobile_checksum_method_coreclient_front_page(
     ): Int
     external fun uniffi_zeron_mobile_checksum_method_coreclient_is_demo(
+    ): Int
+    external fun uniffi_zeron_mobile_checksum_method_coreclient_is_direct(
     ): Int
     external fun uniffi_zeron_mobile_checksum_method_coreclient_list_folders(
     ): Int
@@ -1108,6 +1118,8 @@ internal object UniffiLib {
     ): RustBuffer.ByValue
     external fun uniffi_zeron_mobile_fn_method_coreclient_is_demo(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): Byte
+    external fun uniffi_zeron_mobile_fn_method_coreclient_is_direct(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Byte
     external fun uniffi_zeron_mobile_fn_method_coreclient_list_folders(`ptr`: Long,`deviceId`: RustBuffer.ByValue,`path`: RustBuffer.ByValue,
     ): Long
     external fun uniffi_zeron_mobile_fn_method_coreclient_list_harnesses(`ptr`: Long,`deviceId`: RustBuffer.ByValue,
@@ -1350,6 +1362,14 @@ internal object UniffiLib {
     ): RustBuffer.ByValue
     external fun uniffi_zeron_mobile_fn_func_workos_authorize_url(`state`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
+    external fun uniffi_zeron_mobile_fn_func_ssh_default_engine_port(uniffi_out_err: UniffiRustCallStatus, 
+    ): Int
+    external fun uniffi_zeron_mobile_fn_func_ssh_generate_key(`comment`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_zeron_mobile_fn_func_ssh_import_key(`privateKey`: RustBuffer.ByValue,`passphrase`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_zeron_mobile_fn_func_ssh_probe(`target`: RustBuffer.ByValue,
+    ): Long
     external fun uniffi_zeron_mobile_fn_func_file_mention_link(`path`: RustBuffer.ByValue,`isDir`: Byte,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_zeron_mobile_fn_func_debug_line_starts(`textSystem`: Long,`face`: RustBuffer.ByValue,`size`: Float,`width`: Float,`text`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -1536,6 +1556,18 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if ((lib.uniffi_zeron_mobile_checksum_func_workos_authorize_url() and 0xFFFF) != 35994) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if ((lib.uniffi_zeron_mobile_checksum_func_ssh_default_engine_port() and 0xFFFF) != 58464) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_zeron_mobile_checksum_func_ssh_generate_key() and 0xFFFF) != 3053) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_zeron_mobile_checksum_func_ssh_import_key() and 0xFFFF) != 52984) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_zeron_mobile_checksum_func_ssh_probe() and 0xFFFF) != 22124) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if ((lib.uniffi_zeron_mobile_checksum_func_file_mention_link() and 0xFFFF) != 14340) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1606,6 +1638,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_zeron_mobile_checksum_method_coreclient_is_demo() and 0xFFFF) != 28119) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_zeron_mobile_checksum_method_coreclient_is_direct() and 0xFFFF) != 38946) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_zeron_mobile_checksum_method_coreclient_list_folders() and 0xFFFF) != 2324) {
@@ -2843,6 +2878,11 @@ public interface CoreClientInterface {
     fun `isDemo`(): kotlin.Boolean
     
     /**
+     * Direct (SSH) mode.
+     */
+    fun `isDirect`(): kotlin.Boolean
+    
+    /**
      * Browse folders on a device (`None` = its home folder).
      */
     suspend fun `listFolders`(`deviceId`: kotlin.String, `path`: kotlin.String?): FolderListing
@@ -3393,6 +3433,22 @@ open class CoreClient: Disposable, AutoCloseable, CoreClientInterface
     callWithHandle {
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_zeron_mobile_fn_method_coreclient_is_demo(
+        it,
+        _status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Direct (SSH) mode.
+     */override fun `isDirect`(): kotlin.Boolean {
+            return FfiConverterBoolean.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_zeron_mobile_fn_method_coreclient_is_direct(
         it,
         _status)
 }
@@ -8776,6 +8832,54 @@ public object FfiConverterTypePendingSend: FfiConverterRustBuffer<PendingSend> {
 
 
 
+data class ProbeResult (
+    var `hostKeyFingerprint`: kotlin.String
+    , 
+    var `hostKeyAlgorithm`: kotlin.String
+    , 
+    var `engineDeviceId`: kotlin.String
+    , 
+    var `latencyMs`: kotlin.ULong
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeProbeResult: FfiConverterRustBuffer<ProbeResult> {
+    override fun read(buf: ByteBuffer): ProbeResult {
+        return ProbeResult(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterULong.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: ProbeResult) = (
+            FfiConverterString.allocationSize(value.`hostKeyFingerprint`) +
+            FfiConverterString.allocationSize(value.`hostKeyAlgorithm`) +
+            FfiConverterString.allocationSize(value.`engineDeviceId`) +
+            FfiConverterULong.allocationSize(value.`latencyMs`)
+    )
+
+    override fun write(value: ProbeResult, buf: ByteBuffer) {
+            FfiConverterString.write(value.`hostKeyFingerprint`, buf)
+            FfiConverterString.write(value.`hostKeyAlgorithm`, buf)
+            FfiConverterString.write(value.`engineDeviceId`, buf)
+            FfiConverterULong.write(value.`latencyMs`, buf)
+    }
+}
+
+
+
 data class ProjectRef (
     var `id`: kotlin.String
     , 
@@ -9838,6 +9942,116 @@ public object FfiConverterTypeSessionRow: FfiConverterRustBuffer<SessionRow> {
             FfiConverterOptionalTypeSendState.write(value.`sendState`, buf)
             FfiConverterOptionalString.write(value.`parentChatId`, buf)
             FfiConverterUInt.write(value.`roomGen`, buf)
+    }
+}
+
+
+
+data class SshKeyPair (
+    var `privateOpenssh`: kotlin.String
+    , 
+    /**
+     * The authorized_keys line (`ssh-ed25519 AAAA… comment`).
+     */
+    var `publicOpenssh`: kotlin.String
+    , 
+    var `fingerprint`: kotlin.String
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeSshKeyPair: FfiConverterRustBuffer<SshKeyPair> {
+    override fun read(buf: ByteBuffer): SshKeyPair {
+        return SshKeyPair(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: SshKeyPair) = (
+            FfiConverterString.allocationSize(value.`privateOpenssh`) +
+            FfiConverterString.allocationSize(value.`publicOpenssh`) +
+            FfiConverterString.allocationSize(value.`fingerprint`)
+    )
+
+    override fun write(value: SshKeyPair, buf: ByteBuffer) {
+            FfiConverterString.write(value.`privateOpenssh`, buf)
+            FfiConverterString.write(value.`publicOpenssh`, buf)
+            FfiConverterString.write(value.`fingerprint`, buf)
+    }
+}
+
+
+
+data class SshTarget (
+    var `host`: kotlin.String
+    , 
+    var `port`: kotlin.UShort
+    , 
+    var `user`: kotlin.String
+    , 
+    var `auth`: SshAuth
+    , 
+    /**
+     * The engine's IPC port on the machine's loopback (default 27654).
+     */
+    var `enginePort`: kotlin.UShort
+    , 
+    /**
+     * Pinned host key (`SHA256:…`); `None` until the user trusts it.
+     */
+    var `hostKeyFingerprint`: kotlin.String?
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeSshTarget: FfiConverterRustBuffer<SshTarget> {
+    override fun read(buf: ByteBuffer): SshTarget {
+        return SshTarget(
+            FfiConverterString.read(buf),
+            FfiConverterUShort.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterTypeSshAuth.read(buf),
+            FfiConverterUShort.read(buf),
+            FfiConverterOptionalString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: SshTarget) = (
+            FfiConverterString.allocationSize(value.`host`) +
+            FfiConverterUShort.allocationSize(value.`port`) +
+            FfiConverterString.allocationSize(value.`user`) +
+            FfiConverterTypeSshAuth.allocationSize(value.`auth`) +
+            FfiConverterUShort.allocationSize(value.`enginePort`) +
+            FfiConverterOptionalString.allocationSize(value.`hostKeyFingerprint`)
+    )
+
+    override fun write(value: SshTarget, buf: ByteBuffer) {
+            FfiConverterString.write(value.`host`, buf)
+            FfiConverterUShort.write(value.`port`, buf)
+            FfiConverterString.write(value.`user`, buf)
+            FfiConverterTypeSshAuth.write(value.`auth`, buf)
+            FfiConverterUShort.write(value.`enginePort`, buf)
+            FfiConverterOptionalString.write(value.`hostKeyFingerprint`, buf)
     }
 }
 
@@ -11298,6 +11512,18 @@ sealed class Credentials {
         companion object
     }
     
+    /**
+     * SSH straight to the user's own machine (no edge, no account).
+     */
+    data class Direct(
+        val `target`: uniffi.zeron_core.SshTarget) : Credentials()
+        
+    {
+        
+
+        companion object
+    }
+    
 
     
 
@@ -11325,6 +11551,9 @@ public object FfiConverterTypeCredentials : FfiConverterRustBuffer<Credentials>{
                 )
             3 -> Credentials.Demo(
                 FfiConverterTypeDemoOptions.read(buf),
+                )
+            4 -> Credentials.Direct(
+                FfiConverterTypeSshTarget.read(buf),
                 )
             else -> throw RuntimeException("invalid enum value, something is very wrong!!")
         }
@@ -11355,6 +11584,13 @@ public object FfiConverterTypeCredentials : FfiConverterRustBuffer<Credentials>{
                 + FfiConverterTypeDemoOptions.allocationSize(value.`options`)
             )
         }
+        is Credentials.Direct -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterTypeSshTarget.allocationSize(value.`target`)
+            )
+        }
     }
 
     override fun write(value: Credentials, buf: ByteBuffer) {
@@ -11375,6 +11611,11 @@ public object FfiConverterTypeCredentials : FfiConverterRustBuffer<Credentials>{
             is Credentials.Demo -> {
                 buf.putInt(3)
                 FfiConverterTypeDemoOptions.write(value.`options`, buf)
+                Unit
+            }
+            is Credentials.Direct -> {
+                buf.putInt(4)
+                FfiConverterTypeSshTarget.write(value.`target`, buf)
                 Unit
             }
         }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
@@ -12284,6 +12525,284 @@ public object FfiConverterTypeSessionTarget : FfiConverterRustBuffer<SessionTarg
 }
 
 
+
+
+
+sealed class SshAuth {
+    
+    /**
+     * OpenSSH/PEM private key text (+ passphrase if encrypted).
+     */
+    data class Key(
+        val `privateKey`: kotlin.String, 
+        val `passphrase`: kotlin.String?) : SshAuth()
+        
+    {
+        
+
+        companion object
+    }
+    
+    data class Password(
+        val `password`: kotlin.String) : SshAuth()
+        
+    {
+        
+
+        companion object
+    }
+    
+
+    
+
+    
+    
+
+
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeSshAuth : FfiConverterRustBuffer<SshAuth>{
+    override fun read(buf: ByteBuffer): SshAuth {
+        return when(buf.getInt()) {
+            1 -> SshAuth.Key(
+                FfiConverterString.read(buf),
+                FfiConverterOptionalString.read(buf),
+                )
+            2 -> SshAuth.Password(
+                FfiConverterString.read(buf),
+                )
+            else -> throw RuntimeException("invalid enum value, something is very wrong!!")
+        }
+    }
+
+    override fun allocationSize(value: SshAuth): ULong = when(value) {
+        is SshAuth.Key -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`privateKey`)
+                + FfiConverterOptionalString.allocationSize(value.`passphrase`)
+            )
+        }
+        is SshAuth.Password -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`password`)
+            )
+        }
+    }
+
+    override fun write(value: SshAuth, buf: ByteBuffer) {
+        when(value) {
+            is SshAuth.Key -> {
+                buf.putInt(1)
+                FfiConverterString.write(value.`privateKey`, buf)
+                FfiConverterOptionalString.write(value.`passphrase`, buf)
+                Unit
+            }
+            is SshAuth.Password -> {
+                buf.putInt(2)
+                FfiConverterString.write(value.`password`, buf)
+                Unit
+            }
+        }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
+    }
+}
+
+
+
+
+
+
+
+sealed class SshException: kotlin.Exception() {
+    
+    /**
+     * First contact: show the fingerprint and ask to trust it.
+     */
+    class HostKeyUnknown(
+        
+        val `fingerprint`: kotlin.String, 
+        
+        val `algorithm`: kotlin.String
+        ) : SshException() {
+        override val message
+            get() = "fingerprint=${ `fingerprint` }, algorithm=${ `algorithm` }"
+    }
+    
+    /**
+     * The pinned key changed.
+     */
+    class HostKeyMismatch(
+        
+        val `expected`: kotlin.String, 
+        
+        val `actual`: kotlin.String, 
+        
+        val `algorithm`: kotlin.String
+        ) : SshException() {
+        override val message
+            get() = "expected=${ `expected` }, actual=${ `actual` }, algorithm=${ `algorithm` }"
+    }
+    
+    class Connect(
+        
+        val `reason`: kotlin.String
+        ) : SshException() {
+        override val message
+            get() = "reason=${ `reason` }"
+    }
+    
+    class Auth(
+        
+        val `reason`: kotlin.String
+        ) : SshException() {
+        override val message
+            get() = "reason=${ `reason` }"
+    }
+    
+    class Engine(
+        
+        val `reason`: kotlin.String
+        ) : SshException() {
+        override val message
+            get() = "reason=${ `reason` }"
+    }
+    
+    class Key(
+        
+        val `reason`: kotlin.String
+        ) : SshException() {
+        override val message
+            get() = "reason=${ `reason` }"
+    }
+    
+
+    
+
+
+    companion object ErrorHandler : UniffiRustCallStatusErrorHandler<SshException> {
+        override fun lift(error_buf: RustBuffer.ByValue): SshException = FfiConverterTypeSshError.lift(error_buf)
+    }
+
+    
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeSshError : FfiConverterRustBuffer<SshException> {
+    override fun read(buf: ByteBuffer): SshException {
+        
+
+        return when(buf.getInt()) {
+            1 -> SshException.HostKeyUnknown(
+                FfiConverterString.read(buf),
+                FfiConverterString.read(buf),
+                )
+            2 -> SshException.HostKeyMismatch(
+                FfiConverterString.read(buf),
+                FfiConverterString.read(buf),
+                FfiConverterString.read(buf),
+                )
+            3 -> SshException.Connect(
+                FfiConverterString.read(buf),
+                )
+            4 -> SshException.Auth(
+                FfiConverterString.read(buf),
+                )
+            5 -> SshException.Engine(
+                FfiConverterString.read(buf),
+                )
+            6 -> SshException.Key(
+                FfiConverterString.read(buf),
+                )
+            else -> throw RuntimeException("invalid error enum value, something is very wrong!!")
+        }
+    }
+
+    override fun allocationSize(value: SshException): ULong {
+        return when(value) {
+            is SshException.HostKeyUnknown -> (
+                // Add the size for the Int that specifies the variant plus the size needed for all fields
+                4UL
+                + FfiConverterString.allocationSize(value.`fingerprint`)
+                + FfiConverterString.allocationSize(value.`algorithm`)
+            )
+            is SshException.HostKeyMismatch -> (
+                // Add the size for the Int that specifies the variant plus the size needed for all fields
+                4UL
+                + FfiConverterString.allocationSize(value.`expected`)
+                + FfiConverterString.allocationSize(value.`actual`)
+                + FfiConverterString.allocationSize(value.`algorithm`)
+            )
+            is SshException.Connect -> (
+                // Add the size for the Int that specifies the variant plus the size needed for all fields
+                4UL
+                + FfiConverterString.allocationSize(value.`reason`)
+            )
+            is SshException.Auth -> (
+                // Add the size for the Int that specifies the variant plus the size needed for all fields
+                4UL
+                + FfiConverterString.allocationSize(value.`reason`)
+            )
+            is SshException.Engine -> (
+                // Add the size for the Int that specifies the variant plus the size needed for all fields
+                4UL
+                + FfiConverterString.allocationSize(value.`reason`)
+            )
+            is SshException.Key -> (
+                // Add the size for the Int that specifies the variant plus the size needed for all fields
+                4UL
+                + FfiConverterString.allocationSize(value.`reason`)
+            )
+        }
+    }
+
+    override fun write(value: SshException, buf: ByteBuffer) {
+        when(value) {
+            is SshException.HostKeyUnknown -> {
+                buf.putInt(1)
+                FfiConverterString.write(value.`fingerprint`, buf)
+                FfiConverterString.write(value.`algorithm`, buf)
+                Unit
+            }
+            is SshException.HostKeyMismatch -> {
+                buf.putInt(2)
+                FfiConverterString.write(value.`expected`, buf)
+                FfiConverterString.write(value.`actual`, buf)
+                FfiConverterString.write(value.`algorithm`, buf)
+                Unit
+            }
+            is SshException.Connect -> {
+                buf.putInt(3)
+                FfiConverterString.write(value.`reason`, buf)
+                Unit
+            }
+            is SshException.Auth -> {
+                buf.putInt(4)
+                FfiConverterString.write(value.`reason`, buf)
+                Unit
+            }
+            is SshException.Engine -> {
+                buf.putInt(5)
+                FfiConverterString.write(value.`reason`, buf)
+                Unit
+            }
+            is SshException.Key -> {
+                buf.putInt(6)
+                FfiConverterString.write(value.`reason`, buf)
+                Unit
+            }
+        }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
+    }
+
+}
 
 
 
@@ -14796,6 +15315,70 @@ public object FfiConverterMapStringString: FfiConverterRustBuffer<Map<kotlin.Str
     )
     }
     
+
+        /**
+         * Default engine IPC port.
+         */ fun `sshDefaultEnginePort`(): kotlin.UShort {
+            return FfiConverterUShort.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_zeron_mobile_fn_func_ssh_default_engine_port(
+    
+        _status)
+}
+    )
+    }
+    
+
+        /**
+         * New ed25519 key (the phone's identity for SSH).
+         */
+    @Throws(SshException::class) fun `sshGenerateKey`(`comment`: kotlin.String): SshKeyPair {
+            return FfiConverterTypeSshKeyPair.lift(
+    uniffiRustCallWithError(SshException) { _status ->
+    UniffiLib.uniffi_zeron_mobile_fn_func_ssh_generate_key(
+    
+        
+        FfiConverterString.lower(`comment`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Parse a pasted private key; returns it unencrypted plus its public half.
+         */
+    @Throws(SshException::class) fun `sshImportKey`(`privateKey`: kotlin.String, `passphrase`: kotlin.String?): SshKeyPair {
+            return FfiConverterTypeSshKeyPair.lift(
+    uniffiRustCallWithError(SshException) { _status ->
+    UniffiLib.uniffi_zeron_mobile_fn_func_ssh_import_key(
+    
+        
+        FfiConverterString.lower(`privateKey`),
+        FfiConverterOptionalString.lower(`passphrase`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * SSH auth + tunnel + `EngineInfo`. An unpinned target fails with
+         * `HostKeyUnknown` carrying the fingerprint to confirm.
+         */
+    @Throws(SshException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+     suspend fun `sshProbe`(`target`: SshTarget) : ProbeResult {
+        return uniffiRustCallAsync(
+        UniffiLib.uniffi_zeron_mobile_fn_func_ssh_probe(
+        FfiConverterTypeSshTarget.lower(`target`),),
+        { future, callback, continuation -> UniffiLib.ffi_zeron_mobile_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.ffi_zeron_mobile_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.ffi_zeron_mobile_rust_future_free_rust_buffer(future) },
+        // lift function
+        { FfiConverterTypeProbeResult.lift(it) },
+        // Error FFI converter
+        SshException.ErrorHandler,
+    )
+    }
 
         /**
          * The canonical mention link the host understands (`[name](zeron-file:path)`).

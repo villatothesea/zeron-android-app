@@ -11,6 +11,7 @@
 //! through [`CoreClient::session_handle`] → [`zeron_client::SessionHandle`]
 //! (`snapshot()` / `subscribe()`), never over FFI.
 
+mod direct;
 mod session;
 mod types;
 
@@ -92,6 +93,11 @@ impl CoreClient {
 
     pub fn is_demo(&self) -> bool {
         self.client.is_demo()
+    }
+
+    /// Direct (SSH) mode.
+    pub fn is_direct(&self) -> bool {
+        self.client.is_direct()
     }
 
     pub fn device_id(&self) -> String {
@@ -377,7 +383,12 @@ impl CoreClient {
         query: String,
     ) -> CoreResult<Vec<FileMatch>> {
         let client = self.client.clone();
-        let files = on_runtime(async move { client.search_files(&device_id, chat_id, space_id, &query).await }).await?;
+        let files = on_runtime(async move {
+            client
+                .search_files(&device_id, chat_id, space_id, &query)
+                .await
+        })
+        .await?;
         Ok(files
             .into_iter()
             .map(|f| FileMatch {
