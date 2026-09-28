@@ -123,7 +123,7 @@ ssh-keygen -lf C:\ProgramData\ssh\ssh_host_ed25519_key.pub
 | User | Windows 用户名（`whoami` 输出中 `\` 后面的部分） |
 | Sign in with | This phone's key（推荐）/ Import key / Password |
 
-点 **Test** → 核对指纹 → **Trust** → 看到"Connected · Zeron engine answered" → **Save & Connect**。
+点 **Test** → 核对指纹 → **Trust** → 看到"Connected · Zeron 0.2.x answered in … ms" → **Save & Connect**。
 
 ## 常见问题
 
@@ -132,6 +132,10 @@ ssh-keygen -lf C:\ProgramData\ssh\ssh_host_ed25519_key.pub
   `Get-WinEvent -LogName OpenSSH/Operational -MaxEvents 20 | Format-List TimeCreated, Message`
 - **SSH 成功但引擎连不上**：Zeron 没在运行（第 4、5 步）。
 - **sshd 禁用了端口转发**：检查 `C:\ProgramData\ssh\sshd_config` 中没有 `AllowTcpForwarding no`；修改后 `Restart-Service sshd`。
+- **连上了但会话列表是空的 / 一直在加载**：会话页顶部会显示连接状态横幅（连接中 / 正在加载会话 / 错误原因）。
+  点 **Details**（或 设置 → Connection Details）查看引擎版本、每个数据流（WatchDevices / WatchSpaces / WatchChats / WatchSessions）收到的帧数和行数，以及连接日志；
+  点右上角 **Copy** 可把这份诊断文本（不含密钥）复制出来反馈。20 秒内有数据流一直没有数据时，会提示是哪一个并自动重连。
+- **引擎版本比 App 新**：App 对多出来的字段和无法识别的行做宽松处理，只跳过读不了的那一行，并在横幅和 Details 里提示跳过了几行。
 
 ## 目前的限制
 
