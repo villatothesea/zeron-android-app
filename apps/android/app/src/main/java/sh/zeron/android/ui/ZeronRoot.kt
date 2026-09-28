@@ -16,6 +16,8 @@ import androidx.compose.ui.input.pointer.changedToUp
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -142,6 +144,10 @@ fun ZeronApp(model: ZeronModel) {
         model.editMachine?.let { machine ->
             BackHandler { model.editMachine = null }
             androidx.compose.runtime.key(machine.id) { MachineEditScreen(model, machine) }
+        }
+        if (model.showLinkDetails) {
+            BackHandler { model.showLinkDetails = false }
+            LinkDetailsScreen(model)
         }
         if (model.showUpdate) {
             BackHandler { model.showUpdate = false }
@@ -304,8 +310,12 @@ private fun SessionsScreen(model: ZeronModel, colors: ZeronColors, onNewSpace: (
             refreshing = false
         }, modifier = Modifier.fillMaxSize()) {
             if (rows.isEmpty() && archived.isEmpty()) {
-                Box(Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
-                    Text("No sessions yet", color = colors.secondary, fontFamily = ZeronType.Sans, fontSize = 16.sp)
+                val topInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+                Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(top = topInset + 64.dp)) {
+                    DirectBanner(model, colors)
+                    Box(Modifier.fillMaxWidth().padding(32.dp).padding(top = 120.dp), contentAlignment = Alignment.Center) {
+                        Text(emptySessionsText(model), color = colors.secondary, fontFamily = ZeronType.Sans, fontSize = 16.sp)
+                    }
                 }
             } else {
                 val topInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
@@ -314,6 +324,7 @@ private fun SessionsScreen(model: ZeronModel, colors: ZeronColors, onNewSpace: (
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(top = topInset + 64.dp, bottom = 28.dp),
                 ) {
+                    item(key = "direct-banner") { DirectBanner(model, colors) }
                     items(rows, key = { it.id }) { row ->
                         SessionRowView(row, colors, archived = false, sections = front?.sections.orEmpty(), model = model)
                     }
@@ -709,17 +720,17 @@ private fun SettingsScreen(model: ZeronModel, colors: ZeronColors) {
             val conn = model.connectivity
             val sub = when {
                 model.client?.isDemo() == true -> "Offline workspace · tap to switch"
-                model.client?.isDirect() == true -> when {
-                    conn?.state == uniffi.zeron_core.ConnectivityState.CONNECTED -> "Connected over SSH · tap to switch"
-                    conn?.lastFailure != null -> conn.lastFailure
-                    else -> "Connecting over SSH…"
-                }
+                model.client?.isDirect() == true -> directSummary(model.directStatus).replaceFirstChar { it.uppercase() }
                 else -> "Signed in · ${model.client?.orgId()}"
             }
             SettingRow(colors, model.activeTitle(), sub, onClick = { model.showMachines = true }, trailing = {
-                val online = model.client?.isDemo() == true || conn?.state == uniffi.zeron_core.ConnectivityState.CONNECTED
+                val online = model.client?.isDemo() == true ||
+                    (if (model.client?.isDirect() == true) model.directStatus?.phase == uniffi.zeron_core.DirectPhase.LIVE else conn?.state == uniffi.zeron_core.ConnectivityState.CONNECTED)
                 Box(Modifier.size(8.dp).clip(CircleShape).background(if (online) colors.success else colors.tertiary))
             })
+        }
+        if (model.client?.isDirect() == true) {
+            item { SettingRow(colors, "Connection Details", "Link state, engine version, streams and log", onClick = { model.showLinkDetails = true }) }
         }
         item { GroupLabel(colors, "Devices") }
         val devices = model.workspace?.devices.orEmpty()

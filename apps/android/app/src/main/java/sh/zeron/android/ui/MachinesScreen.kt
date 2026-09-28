@@ -90,20 +90,18 @@ fun MachinesScreen(model: ZeronModel) {
             }
             items(model.machines, key = { it.id }) { machine ->
                 val active = model.activeMachine == machine.id
-                val conn = model.connectivity
+                val link = if (active) model.directStatus else null
                 val online: Boolean? = when {
-                    active && conn?.state == ConnectivityState.CONNECTED -> true
-                    active && conn?.lastFailure != null -> false
+                    active && link?.phase == uniffi.zeron_core.DirectPhase.LIVE -> true
+                    active && link?.phase == uniffi.zeron_core.DirectPhase.FAILED -> false
+                    active -> null
                     else -> model.machineOnline[machine.id]
                 }
                 val subtitle = buildString {
                     append("${machine.user}@${machine.host}:${machine.port}")
                     if (active) {
-                        when {
-                            conn?.state == ConnectivityState.CONNECTED -> append("  ·  connected")
-                            conn?.lastFailure != null -> append("\n${conn.lastFailure}")
-                            else -> append("  ·  connecting…")
-                        }
+                        val summary = directSummary(link)
+                        if (link?.phase == uniffi.zeron_core.DirectPhase.FAILED) append("\n$summary") else append("  ·  $summary")
                     } else if (machine.hostKey == null) {
                         append("  ·  not verified yet")
                     }
@@ -178,7 +176,7 @@ private fun StatusDot(colors: ZeronColors, online: Boolean?) {
 }
 
 @Composable
-private fun Pill(colors: ZeronColors, label: String, enabled: Boolean = true, primary: Boolean = false, onClick: () -> Unit) {
+internal fun Pill(colors: ZeronColors, label: String, enabled: Boolean = true, primary: Boolean = false, onClick: () -> Unit) {
     Text(
         label,
         color = if (primary) colors.background else colors.text.copy(alpha = if (enabled) 1f else 0.4f),
@@ -242,7 +240,7 @@ fun MachineEditScreen(model: ZeronModel, initial: Machine) {
             try {
                 val probe = model.testMachine(draft(), secretArg, pin)
                 hostKey = probe.hostKeyFingerprint
-                test = TestState.Ok("Connected · Zeron engine answered in ${probe.latencyMs} ms")
+                test = TestState.Ok("Connected · Zeron ${probe.engineVersion ?: "engine"} answered in ${probe.latencyMs} ms")
                 then?.invoke()
             } catch (e: SshException.HostKeyUnknown) {
                 test = TestState.Idle

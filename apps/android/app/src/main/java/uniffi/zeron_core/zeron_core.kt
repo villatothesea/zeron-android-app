@@ -864,6 +864,8 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_zeron_mobile_checksum_method_coreclient_devices(
     ): Int
+    external fun uniffi_zeron_mobile_checksum_method_coreclient_direct_status(
+    ): Int
     external fun uniffi_zeron_mobile_checksum_method_coreclient_execution_devices(
     ): Int
     external fun uniffi_zeron_mobile_checksum_method_coreclient_front_page(
@@ -905,6 +907,8 @@ internal object IntegrityCheckingUniffiLib {
     external fun uniffi_zeron_mobile_checksum_method_coreclient_pull_requests(
     ): Int
     external fun uniffi_zeron_mobile_checksum_method_coreclient_read_attachment(
+    ): Int
+    external fun uniffi_zeron_mobile_checksum_method_coreclient_reconnect_direct(
     ): Int
     external fun uniffi_zeron_mobile_checksum_method_coreclient_rename_project(
     ): Int
@@ -1112,6 +1116,8 @@ internal object UniffiLib {
     ): RustBuffer.ByValue
     external fun uniffi_zeron_mobile_fn_method_coreclient_devices(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
+    external fun uniffi_zeron_mobile_fn_method_coreclient_direct_status(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     external fun uniffi_zeron_mobile_fn_method_coreclient_execution_devices(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_zeron_mobile_fn_method_coreclient_front_page(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
@@ -1154,6 +1160,8 @@ internal object UniffiLib {
     ): RustBuffer.ByValue
     external fun uniffi_zeron_mobile_fn_method_coreclient_read_attachment(`ptr`: Long,`deviceId`: RustBuffer.ByValue,`path`: RustBuffer.ByValue,
     ): Long
+    external fun uniffi_zeron_mobile_fn_method_coreclient_reconnect_direct(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
     external fun uniffi_zeron_mobile_fn_method_coreclient_rename_project(`ptr`: Long,`spaceId`: RustBuffer.ByValue,`name`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
     external fun uniffi_zeron_mobile_fn_method_coreclient_rename_section(`ptr`: Long,`sectionId`: RustBuffer.ByValue,`name`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -1631,6 +1639,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if ((lib.uniffi_zeron_mobile_checksum_method_coreclient_devices() and 0xFFFF) != 57985) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if ((lib.uniffi_zeron_mobile_checksum_method_coreclient_direct_status() and 0xFFFF) != 61419) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if ((lib.uniffi_zeron_mobile_checksum_method_coreclient_execution_devices() and 0xFFFF) != 15578) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1692,6 +1703,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_zeron_mobile_checksum_method_coreclient_read_attachment() and 0xFFFF) != 50982) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_zeron_mobile_checksum_method_coreclient_reconnect_direct() and 0xFFFF) != 46514) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_zeron_mobile_checksum_method_coreclient_rename_project() and 0xFFFF) != 6571) {
@@ -2866,6 +2880,11 @@ public interface CoreClientInterface {
     fun `devices`(): List<DeviceView>
     
     /**
+     * Direct mode: link phase, errors and stream counters (`None` otherwise).
+     */
+    fun `directStatus`(): DirectStatus?
+    
+    /**
      * Devices that can run sessions (new-session / new-project pickers).
      */
     fun `executionDevices`(): List<DeviceView>
@@ -2946,6 +2965,11 @@ public interface CoreClientInterface {
      * Attachment bytes (LRU-cached): host paths and own `pending://` refs.
      */
     suspend fun `readAttachment`(`deviceId`: kotlin.String, `path`: kotlin.String): kotlin.ByteArray
+    
+    /**
+     * Direct mode: drop the current link, even a stalled one, and redial.
+     */
+    fun `reconnectDirect`()
     
     fun `renameProject`(`spaceId`: kotlin.String, `name`: kotlin.String?)
     
@@ -3398,6 +3422,22 @@ open class CoreClient: Disposable, AutoCloseable, CoreClientInterface
 
     
     /**
+     * Direct mode: link phase, errors and stream counters (`None` otherwise).
+     */override fun `directStatus`(): DirectStatus? {
+            return FfiConverterOptionalTypeDirectStatus.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_zeron_mobile_fn_method_coreclient_direct_status(
+        it,
+        _status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
      * Devices that can run sessions (new-session / new-project pickers).
      */override fun `executionDevices`(): List<DeviceView> {
             return FfiConverterSequenceTypeDeviceView.lift(
@@ -3759,6 +3799,21 @@ open class CoreClient: Disposable, AutoCloseable, CoreClientInterface
         CoreException.ErrorHandler,
     )
     }
+
+    
+    /**
+     * Direct mode: drop the current link, even a stalled one, and redial.
+     */override fun `reconnectDirect`()
+        = 
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_zeron_mobile_fn_method_coreclient_reconnect_direct(
+        it,
+        _status)
+}
+    }
+    
+    
 
     
     @Throws(CoreException::class)override fun `renameProject`(`spaceId`: kotlin.String, `name`: kotlin.String?)
@@ -7819,6 +7874,179 @@ public object FfiConverterTypeDeviceView: FfiConverterRustBuffer<DeviceView> {
 
 
 
+data class DirectLogLine (
+    var `atMs`: kotlin.Long
+    , 
+    var `message`: kotlin.String
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeDirectLogLine: FfiConverterRustBuffer<DirectLogLine> {
+    override fun read(buf: ByteBuffer): DirectLogLine {
+        return DirectLogLine(
+            FfiConverterLong.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: DirectLogLine) = (
+            FfiConverterLong.allocationSize(value.`atMs`) +
+            FfiConverterString.allocationSize(value.`message`)
+    )
+
+    override fun write(value: DirectLogLine, buf: ByteBuffer) {
+            FfiConverterLong.write(value.`atMs`, buf)
+            FfiConverterString.write(value.`message`, buf)
+    }
+}
+
+
+
+/**
+ * Link phase, last error, engine identity, per-stream counters and a short
+ * event log (the Machines diagnostics readout).
+ */
+data class DirectStatus (
+    var `phase`: DirectPhase
+    , 
+    var `lastError`: kotlin.String?
+    , 
+    var `retryAtMs`: kotlin.Long?
+    , 
+    var `engineVersion`: kotlin.String?
+    , 
+    var `engineDeviceId`: kotlin.String?
+    , 
+    var `connectedAtMs`: kotlin.Long?
+    , 
+    var `syncedAtMs`: kotlin.Long?
+    , 
+    var `streams`: List<DirectStreamStat>
+    , 
+    var `log`: List<DirectLogLine>
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeDirectStatus: FfiConverterRustBuffer<DirectStatus> {
+    override fun read(buf: ByteBuffer): DirectStatus {
+        return DirectStatus(
+            FfiConverterTypeDirectPhase.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalLong.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalLong.read(buf),
+            FfiConverterOptionalLong.read(buf),
+            FfiConverterSequenceTypeDirectStreamStat.read(buf),
+            FfiConverterSequenceTypeDirectLogLine.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: DirectStatus) = (
+            FfiConverterTypeDirectPhase.allocationSize(value.`phase`) +
+            FfiConverterOptionalString.allocationSize(value.`lastError`) +
+            FfiConverterOptionalLong.allocationSize(value.`retryAtMs`) +
+            FfiConverterOptionalString.allocationSize(value.`engineVersion`) +
+            FfiConverterOptionalString.allocationSize(value.`engineDeviceId`) +
+            FfiConverterOptionalLong.allocationSize(value.`connectedAtMs`) +
+            FfiConverterOptionalLong.allocationSize(value.`syncedAtMs`) +
+            FfiConverterSequenceTypeDirectStreamStat.allocationSize(value.`streams`) +
+            FfiConverterSequenceTypeDirectLogLine.allocationSize(value.`log`)
+    )
+
+    override fun write(value: DirectStatus, buf: ByteBuffer) {
+            FfiConverterTypeDirectPhase.write(value.`phase`, buf)
+            FfiConverterOptionalString.write(value.`lastError`, buf)
+            FfiConverterOptionalLong.write(value.`retryAtMs`, buf)
+            FfiConverterOptionalString.write(value.`engineVersion`, buf)
+            FfiConverterOptionalString.write(value.`engineDeviceId`, buf)
+            FfiConverterOptionalLong.write(value.`connectedAtMs`, buf)
+            FfiConverterOptionalLong.write(value.`syncedAtMs`, buf)
+            FfiConverterSequenceTypeDirectStreamStat.write(value.`streams`, buf)
+            FfiConverterSequenceTypeDirectLogLine.write(value.`log`, buf)
+    }
+}
+
+
+
+data class DirectStreamStat (
+    var `name`: kotlin.String
+    , 
+    var `frames`: kotlin.ULong
+    , 
+    var `rows`: kotlin.UInt
+    , 
+    var `skippedRows`: kotlin.UInt
+    , 
+    var `lastFrameMs`: kotlin.Long?
+    , 
+    var `error`: kotlin.String?
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeDirectStreamStat: FfiConverterRustBuffer<DirectStreamStat> {
+    override fun read(buf: ByteBuffer): DirectStreamStat {
+        return DirectStreamStat(
+            FfiConverterString.read(buf),
+            FfiConverterULong.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterOptionalLong.read(buf),
+            FfiConverterOptionalString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: DirectStreamStat) = (
+            FfiConverterString.allocationSize(value.`name`) +
+            FfiConverterULong.allocationSize(value.`frames`) +
+            FfiConverterUInt.allocationSize(value.`rows`) +
+            FfiConverterUInt.allocationSize(value.`skippedRows`) +
+            FfiConverterOptionalLong.allocationSize(value.`lastFrameMs`) +
+            FfiConverterOptionalString.allocationSize(value.`error`)
+    )
+
+    override fun write(value: DirectStreamStat, buf: ByteBuffer) {
+            FfiConverterString.write(value.`name`, buf)
+            FfiConverterULong.write(value.`frames`, buf)
+            FfiConverterUInt.write(value.`rows`, buf)
+            FfiConverterUInt.write(value.`skippedRows`, buf)
+            FfiConverterOptionalLong.write(value.`lastFrameMs`, buf)
+            FfiConverterOptionalString.write(value.`error`, buf)
+    }
+}
+
+
+
 data class FaceData (
     var `role`: FaceRole
     , 
@@ -8839,6 +9067,8 @@ data class ProbeResult (
     , 
     var `engineDeviceId`: kotlin.String
     , 
+    var `engineVersion`: kotlin.String?
+    , 
     var `latencyMs`: kotlin.ULong
     
 ){
@@ -8859,6 +9089,7 @@ public object FfiConverterTypeProbeResult: FfiConverterRustBuffer<ProbeResult> {
             FfiConverterString.read(buf),
             FfiConverterString.read(buf),
             FfiConverterString.read(buf),
+            FfiConverterOptionalString.read(buf),
             FfiConverterULong.read(buf),
         )
     }
@@ -8867,6 +9098,7 @@ public object FfiConverterTypeProbeResult: FfiConverterRustBuffer<ProbeResult> {
             FfiConverterString.allocationSize(value.`hostKeyFingerprint`) +
             FfiConverterString.allocationSize(value.`hostKeyAlgorithm`) +
             FfiConverterString.allocationSize(value.`engineDeviceId`) +
+            FfiConverterOptionalString.allocationSize(value.`engineVersion`) +
             FfiConverterULong.allocationSize(value.`latencyMs`)
     )
 
@@ -8874,6 +9106,7 @@ public object FfiConverterTypeProbeResult: FfiConverterRustBuffer<ProbeResult> {
             FfiConverterString.write(value.`hostKeyFingerprint`, buf)
             FfiConverterString.write(value.`hostKeyAlgorithm`, buf)
             FfiConverterString.write(value.`engineDeviceId`, buf)
+            FfiConverterOptionalString.write(value.`engineVersion`, buf)
             FfiConverterULong.write(value.`latencyMs`, buf)
     }
 }
@@ -11709,6 +11942,45 @@ public object FfiConverterTypeDemoFixture: FfiConverterRustBuffer<DemoFixture> {
 
 
 /**
+ * Where the direct link stands.
+ */
+
+enum class DirectPhase {
+    
+    CONNECTING,
+    SYNCING,
+    LIVE,
+    FAILED;
+
+    
+
+
+    companion object
+}
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeDirectPhase: FfiConverterRustBuffer<DirectPhase> {
+    override fun read(buf: ByteBuffer) = try {
+        DirectPhase.values()[buf.getInt() - 1]
+    } catch (e: IndexOutOfBoundsException) {
+        throw RuntimeException("invalid enum value, something is very wrong!!", e)
+    }
+
+    override fun allocationSize(value: DirectPhase) = 4UL
+
+    override fun write(value: DirectPhase, buf: ByteBuffer) {
+        buf.putInt(value.ordinal + 1)
+    }
+}
+
+
+
+
+
+/**
  * Faces the platform registers (same bytes it hands CoreText/Skia).
  */
 
@@ -13756,6 +14028,38 @@ public object FfiConverterOptionalTypeContextUsage: FfiConverterRustBuffer<Conte
 /**
  * @suppress
  */
+public object FfiConverterOptionalTypeDirectStatus: FfiConverterRustBuffer<DirectStatus?> {
+    override fun read(buf: ByteBuffer): DirectStatus? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterTypeDirectStatus.read(buf)
+    }
+
+    override fun allocationSize(value: DirectStatus?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterTypeDirectStatus.allocationSize(value)
+        }
+    }
+
+    override fun write(value: DirectStatus?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterTypeDirectStatus.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterOptionalTypeInputRequest: FfiConverterRustBuffer<InputRequest?> {
     override fun read(buf: ByteBuffer): InputRequest? {
         if (buf.get().toInt() == 0) {
@@ -14294,6 +14598,62 @@ public object FfiConverterSequenceTypeDeviceView: FfiConverterRustBuffer<List<De
         buf.putInt(value.size)
         value.iterator().forEach {
             FfiConverterTypeDeviceView.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeDirectLogLine: FfiConverterRustBuffer<List<DirectLogLine>> {
+    override fun read(buf: ByteBuffer): List<DirectLogLine> {
+        val len = buf.getInt()
+        return List<DirectLogLine>(len) {
+            FfiConverterTypeDirectLogLine.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<DirectLogLine>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeDirectLogLine.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<DirectLogLine>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeDirectLogLine.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeDirectStreamStat: FfiConverterRustBuffer<List<DirectStreamStat>> {
+    override fun read(buf: ByteBuffer): List<DirectStreamStat> {
+        val len = buf.getInt()
+        return List<DirectStreamStat>(len) {
+            FfiConverterTypeDirectStreamStat.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<DirectStreamStat>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeDirectStreamStat.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<DirectStreamStat>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeDirectStreamStat.write(it, buf)
         }
     }
 }

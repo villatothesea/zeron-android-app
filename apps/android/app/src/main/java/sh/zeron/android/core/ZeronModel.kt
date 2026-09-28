@@ -110,6 +110,11 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
     var connectivity by mutableStateOf<Connectivity?>(null)
         private set
     private var probeJob: Job? = null
+    /** Direct link phase/errors/counters, polled while a machine is active. */
+    var directStatus by mutableStateOf<uniffi.zeron_core.DirectStatus?>(null)
+        private set
+    var showLinkDetails by mutableStateOf(false)
+    private var directJob: Job? = null
 
     // ── updates ───────────────────────────────────────────────────────────
     val updater = Updater(app)
@@ -288,6 +293,8 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
         tab = Tab.Sessions
         workspace = null
         connectivity = null
+        directStatus = null
+        showLinkDetails = false
     }
 
     fun activeTitle(): String = when (activeMachine) {
@@ -448,6 +455,7 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
                     epoch++
                     phase = Phase.Ready
                     showSignIn = false
+                    if (created.isDirect()) watchDirect(created)
                 }
             } catch (t: Throwable) {
                 withContext(Dispatchers.Main) {
@@ -473,12 +481,71 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun shutdownClient() {
+        directJob?.cancel()
+        directJob = null
+        directStatus = null
         runCatching { client?.shutdown() }
         runCatching { client?.close() }
         client = null
     }
 
+    /**
+     * Poll the direct link once a second: the sessions page shows its phase
+     * and errors instead of a blank list, and a stalled workspace is re-read
+     * (belt and braces if an event was missed).
+     */
+    private fun watchDirect(created: CoreClient) {
+        directJob?.cancel()
+        directJob = viewModelScope.launch {
+            var lastFrames = -1L
+            while (client === created) {
+                val status = runCatching { created.directStatus() }.getOrNull()
+                if (status != directStatus) directStatus = status
+                val frames = status?.streams?.sumOf { it.frames.toLong() } ?: 0L
+                if (frames != lastFrames) {
+                    lastFrames = frames
+                    workspace = created.workspace()
+                    connectivity = created.connectivity()
+                    epoch++
+                }
+                kotlinx.coroutines.delay(1000)
+            }
+        }
+    }
+
+    /** Drop the current SSH link (even a stalled one) and dial again. */
+    fun retryDirect() {
+        val c = client ?: return
+        c.reconnectDirect()
+        directStatus = runCatching { c.directStatus() }.getOrNull()
+    }
+
+    /** Plain-text diagnostics for "Copy" (no secrets: host, phases, counters). */
+    fun linkReport(): String {
+        val s = directStatus ?: return "Not connected to a machine"
+        val m = machines.firstOrNull { it.id == activeMachine }
+        val fmt = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US)
+        return buildString {
+            appendLine("Zeron Android ${sh.zeron.android.BuildConfig.VERSION_NAME} (${sh.zeron.android.BuildConfig.VERSION_CODE})")
+            m?.let { appendLine("Machine: ${it.user}@${it.host}:${it.port} → 127.0.0.1:${it.enginePort}") }
+            appendLine("Phase: ${s.phase}")
+            appendLine("Engine: ${s.engineVersion ?: "?"} (device ${s.engineDeviceId?.take(8) ?: "?"})")
+            s.lastError?.let { appendLine("Last error: $it") }
+            for (st in s.streams) {
+                append("${st.name}: ${st.frames} frames, ${st.rows} rows")
+                if (st.skippedRows > 0u) append(", ${st.skippedRows} skipped")
+                st.error?.let { append(" — $it") }
+                appendLine()
+            }
+            val ws = workspace
+            appendLine("Workspace: ${ws?.projects?.size ?: 0} projects, ${ws?.front?.recent?.size ?: 0} recent, ${ws?.archived?.size ?: 0} archived")
+            appendLine("Log:")
+            for (line in s.log) appendLine("  ${fmt.format(java.util.Date(line.atMs))} ${line.message}")
+        }
+    }
+
     fun refreshPull() {
+        if (directStatus != null && directStatus?.phase != uniffi.zeron_core.DirectPhase.LIVE) retryDirect()
         client?.onForeground()
         workspace = client?.workspace()
         epoch++
