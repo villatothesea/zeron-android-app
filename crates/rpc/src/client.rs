@@ -56,6 +56,12 @@ impl RpcSubscription {
     pub async fn recv(&mut self) -> Option<serde_json::Value> {
         self.items.recv().await
     }
+
+    /// An item already queued, without waiting (snapshot streams use this to
+    /// skip to the newest frame).
+    pub fn try_recv(&mut self) -> Option<serde_json::Value> {
+        self.items.try_recv().ok()
+    }
 }
 
 impl Drop for RpcSubscription {
@@ -395,6 +401,10 @@ where
     let (mut sink, mut stream) = ws.split();
     let (out_tx, mut out_rx) = mpsc::channel::<String>(256);
     let (in_tx, in_rx) = mpsc::channel::<String>(256);
+    // Reader and writer run independently: a write parked on transport
+    // backpressure (an SSH channel waiting for its session loop) must never
+    // stop the reads that would unblock it.
+    let (closed_tx, mut closed_rx) = oneshot::channel::<()>();
     tokio::spawn(async move {
         loop {
             tokio::select! {
@@ -409,15 +419,22 @@ where
                         break;
                     }
                 },
-                message = stream.next() => match message {
-                    Some(Ok(WsMessage::Text(text))) => {
-                        if in_tx.send(text).await.is_err() {
-                            break;
-                        }
+                _ = &mut closed_rx => break,
+            }
+        }
+    });
+    tokio::spawn(async move {
+        // Dropped on exit: stops the writer.
+        let _closed = closed_tx;
+        while let Some(message) = stream.next().await {
+            match message {
+                Ok(WsMessage::Text(text)) => {
+                    if in_tx.send(text).await.is_err() {
+                        break;
                     }
-                    Some(Ok(WsMessage::Close(_))) | Some(Err(_)) | None => break,
-                    Some(Ok(_)) => {}
-                },
+                }
+                Ok(WsMessage::Close(_)) | Err(_) => break,
+                Ok(_) => {}
             }
         }
     });
