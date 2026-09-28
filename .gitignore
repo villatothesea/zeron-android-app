@@ -11,3 +11,8 @@ node_modules
 build/
 edge/dist/
 .agents
+# Signing material never lives in the repo (see ~/zeron-keys/README.md).
+*.jks
+*.keystore
+keystore.properties
+apps/android/.kotlin/

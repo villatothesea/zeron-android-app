@@ -3,6 +3,9 @@
 #
 #   scripts/android/build-apk.sh
 #
+# Version: apps/android/version.properties (ZERON_VERSION_CODE / _NAME override).
+# Signing: $ZERON_KEYSTORE_PROPERTIES or ~/zeron-keys/keystore.properties if present.
+#
 # Requires: Rust, cargo-ndk, the Android SDK (platforms;android-35,
 # build-tools;35.0.0) and NDK r27. Set ANDROID_HOME (or ANDROID_SDK_ROOT).
 # On Windows, run this from Git Bash or WSL; see apps/android/README.md.
@@ -62,6 +65,17 @@ if [[ ! -x ./gradlew ]]; then
   fi
 fi
 chmod +x ./gradlew
-./gradlew :app:assembleDebug --no-daemon
+# Sign with the one stable release key when it's available (never in the repo).
+KEYPROPS="${ZERON_KEYSTORE_PROPERTIES:-$HOME/zeron-keys/keystore.properties}"
+GRADLE_ARGS=()
+if [[ -f "$KEYPROPS" ]]; then
+  echo "Signing with $KEYPROPS"
+  GRADLE_ARGS+=("-PzeronKeystoreProperties=$KEYPROPS")
+else
+  echo "warning: $KEYPROPS not found; using the debug key (in-app updates won't install over releases)" >&2
+fi
+[[ -n "${ZERON_VERSION_CODE:-}" ]] && GRADLE_ARGS+=("-PzeronVersionCode=$ZERON_VERSION_CODE")
+[[ -n "${ZERON_VERSION_NAME:-}" ]] && GRADLE_ARGS+=("-PzeronVersionName=$ZERON_VERSION_NAME")
+./gradlew :app:assembleDebug --no-daemon "${GRADLE_ARGS[@]}"
 APK="$ROOT/apps/android/app/build/outputs/apk/debug/app-debug.apk"
 echo "APK: $APK"

@@ -1,7 +1,26 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
+}
+
+// Release identity: apps/android/version.properties (overridable with
+// -PzeronVersionCode / -PzeronVersionName, e.g. to test the updater).
+val versionProps = Properties().apply {
+    rootProject.file("version.properties").takeIf { it.exists() }?.inputStream()?.use { load(it) }
+}
+val zeronVersionCode = (findProperty("zeronVersionCode") as String?)?.toInt()
+    ?: versionProps.getProperty("versionCode", "1").toInt()
+val zeronVersionName = (findProperty("zeronVersionName") as String?)
+    ?: versionProps.getProperty("versionName", "dev")
+
+// One stable signing key for every release (kept OUTSIDE the repo): pass
+// -PzeronKeystoreProperties=/path/keystore.properties (storeFile, storePassword,
+// keyAlias, keyPassword). Without it the default debug key is used.
+val keystoreProps = (findProperty("zeronKeystoreProperties") as String?)?.let { path ->
+    Properties().apply { file(path).inputStream().use { load(it) } }
 }
 
 android {
@@ -12,19 +31,32 @@ android {
         applicationId = "sh.zeron.android"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.2.94"
+        versionCode = zeronVersionCode
+        versionName = zeronVersionName
         ndk {
             abiFilters += listOf("arm64-v8a", "x86_64")
+        }
+    }
+
+    signingConfigs {
+        if (keystoreProps != null) {
+            create("zeron") {
+                storeFile = file(keystoreProps.getProperty("storeFile"))
+                storePassword = keystoreProps.getProperty("storePassword")
+                keyAlias = keystoreProps.getProperty("keyAlias")
+                keyPassword = keystoreProps.getProperty("keyPassword")
+            }
         }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
+            signingConfigs.findByName("zeron")?.let { signingConfig = it }
         }
         debug {
             isDebuggable = true
+            signingConfigs.findByName("zeron")?.let { signingConfig = it }
         }
     }
 
