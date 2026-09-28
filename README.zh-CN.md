@@ -18,8 +18,8 @@ app 用 Jetpack Compose 编写，和 iOS 版链接同一个 Rust 移动端核心
 ## 当前进度
 
 - 离线演示工作区：可用。
-- 通过 SSH 直连你自己的 Zeron 引擎（不需要 Cloudflare 中转）：开发中。
-- 从本仓库的 GitHub Releases 在 app 内更新：开发中。
+- 通过 SSH 直连你自己的 Zeron 引擎（不需要 Cloudflare 中转，也不需要云账号）：round5 起可用。手机登录电脑上的 OpenSSH 服务，再通过隧道连到本机 `127.0.0.1:27654` 的引擎；首次连接时需核对主机指纹。Windows 配置步骤（PowerShell）：[docs/ssh-direct.md](docs/ssh-direct.md)。该模式暂不支持附件和共享消息队列（agent 忙时发送的消息会插入当前轮次）；置顶和分组只保存在手机上。
+- 从本仓库的 GitHub Releases 在 app 内更新：round5 起可用（设置 → Check for Updates，另有每天一次的静默检查），无需 token。round5 起所有版本使用同一个签名密钥。如果装过 round4，需要先卸载一次、手动安装最新的 APK，之后即可在 app 内直接覆盖更新。
 
 ## 下载
 
@@ -31,7 +31,7 @@ app 用 Jetpack Compose 编写，和 iOS 版链接同一个 Rust 移动端核心
 scripts/android/build-apk.sh
 ```
 
-环境要求见 [apps/android/README.md](apps/android/README.md)。安卓相关代码在 `apps/android` 和 `crates/mobile`，其余部分是原仓库源码的副本。
+环境要求见 [apps/android/README.md](apps/android/README.md)。安卓相关代码在 `apps/android` 和 `crates/mobile`，SSH 直连在 `crates/client/src/direct`，其余部分是原仓库源码的副本。发版步骤见 [scripts/android/release.md](scripts/android/release.md)。
 
 ## 原仓库
 
