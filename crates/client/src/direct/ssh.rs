@@ -158,6 +158,9 @@ pub(crate) async fn connect(target: &SshTarget) -> Result<SshSession, SshError> 
         keepalive_max: KEEPALIVE_MAX,
         inactivity_timeout: None,
         nodelay: true,
+        // russh parks its whole session loop when a channel's queue is full;
+        // leave room for a burst of snapshot frames.
+        channel_buffer_size: 1024,
         ..Default::default()
     });
     let seen = Arc::new(Mutex::new(None));

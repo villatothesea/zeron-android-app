@@ -4,7 +4,7 @@
 //! session docs; commands the client writes into a doc are forwarded with
 //! `RelayCommand` (keeping the phone-minted ids) and marked applied locally.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
@@ -17,7 +17,7 @@ use zeron_doc::{
 use zeron_proto::{Chat, Device, Session, Space};
 
 use super::ssh::{self, SshSession};
-use super::{SshError, SshTarget};
+use super::{DirectLogLine, DirectPhase, DirectStatus, SshError, SshTarget, StreamStat};
 use crate::client::ClientInner;
 use crate::demo::DemoServer;
 use crate::error::{ClientError, Result};
@@ -36,19 +36,32 @@ const LINK_WAIT: Duration = Duration::from_secs(20);
 /// echo must include them.
 const LOCAL_ROW_GRACE_MS: i64 = 20_000;
 const REGISTRY_FILE: &str = "direct-registry.bin";
+/// Every registry stream must deliver its first frame this soon after the
+/// tunnel opens; otherwise the link is reported and recycled (a silent,
+/// half-working tunnel used to leave an empty sessions page).
+#[cfg(not(test))]
+const SYNC_TIMEOUT: Duration = Duration::from_secs(20);
+#[cfg(test)]
+const SYNC_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// Tests: `host` → plain `ws://` URL of an in-process engine (no SSH).
+#[cfg(test)]
+pub(crate) static TEST_ENGINES: Mutex<Option<HashMap<String, String>>> = Mutex::new(None);
+/// Link log depth kept for the diagnostics readout.
+const LOG_LINES: usize = 40;
+const REGISTRY_STREAMS: [&str; 4] = [
+    zeron_rpc::methods::WATCH_DEVICES,
+    zeron_rpc::methods::WATCH_SPACES,
+    zeron_rpc::methods::WATCH_CHATS,
+    zeron_rpc::methods::WATCH_SESSIONS,
+];
 
 struct Link {
-    ssh: SshSession,
+    /// `None` only for the in-process test engine (plain WebSocket).
+    ssh: Option<SshSession>,
     rpc: zeron_rpc::RpcClient,
     cancel: CancellationToken,
     engine_device_id: String,
-}
-
-#[derive(Debug, Clone, Default)]
-pub(crate) struct LinkStatus {
-    pub(crate) connected: bool,
-    pub(crate) retry_at_ms: Option<i64>,
-    pub(crate) last_error: Option<String>,
 }
 
 pub(crate) struct DirectHost {
@@ -57,7 +70,7 @@ pub(crate) struct DirectHost {
     server: Mutex<DemoServer>,
     link: Mutex<Option<Arc<Link>>>,
     link_changed: tokio::sync::watch::Sender<u64>,
-    status: Mutex<LinkStatus>,
+    status: Mutex<DirectStatus>,
     engine_device: Mutex<Option<String>>,
     /// Transcript mirrors: chat → (core it feeds, stop token).
     mirrors: Mutex<HashMap<String, (Weak<SessionCore>, CancellationToken)>>,
@@ -79,7 +92,7 @@ impl DirectHost {
             server: Mutex::new(DemoServer::default()),
             link: Mutex::new(None),
             link_changed: tokio::sync::watch::channel(0).0,
-            status: Mutex::new(LinkStatus::default()),
+            status: Mutex::new(DirectStatus::default()),
             engine_device: Mutex::new(None),
             mirrors: Mutex::new(HashMap::new()),
             drains: Mutex::new(HashMap::new()),
@@ -116,8 +129,37 @@ impl DirectHost {
         }
     }
 
-    pub(crate) fn status(&self) -> LinkStatus {
+    pub(crate) fn status(&self) -> DirectStatus {
         lock(&self.status).clone()
+    }
+
+    /// Drop the current link (even a stalled one) and dial again now.
+    pub(crate) fn reconnect(&self) {
+        if let Some(link) = self.current_link() {
+            self.note("reconnect requested");
+            link.cancel.cancel();
+        }
+        self.kick();
+    }
+
+    /// Append to the link log (also traced).
+    fn note(&self, message: impl Into<String>) {
+        let message = message.into();
+        tracing::info!(target: "zeron_client::direct", "{message}");
+        let mut status = lock(&self.status);
+        status.log.push(DirectLogLine {
+            at_ms: now_ms(),
+            message,
+        });
+        let excess = status.log.len().saturating_sub(LOG_LINES);
+        status.log.drain(..excess);
+    }
+
+    fn stream_stat(&self, method: &str, f: impl FnOnce(&mut StreamStat)) {
+        let mut status = lock(&self.status);
+        if let Some(stat) = status.streams.iter_mut().find(|s| s.name == method) {
+            f(stat);
+        }
     }
 
     /// Apply + ack local registry writes in-process (phone-only state such
@@ -158,7 +200,7 @@ impl DirectHost {
         self.wake.notify_one();
     }
 
-    fn set_status(&self, f: impl FnOnce(&mut LinkStatus)) {
+    fn set_status(&self, f: impl FnOnce(&mut DirectStatus)) {
         f(&mut lock(&self.status));
         if let Some(client) = self.client.upgrade() {
             client.recompute_connectivity();
@@ -171,26 +213,38 @@ impl DirectHost {
             if cancel.is_cancelled() {
                 return;
             }
+            self.set_status(|s| {
+                s.phase = DirectPhase::Connecting;
+                s.retry_at_ms = None;
+            });
             let attempt = tokio::select! {
                 _ = cancel.cancelled() => return,
                 r = self.open_link() => r,
             };
             let wait = match attempt {
                 Ok(link) => {
-                    backoff = BACKOFF_MIN;
-                    self.run_link(link, &cancel).await;
+                    let synced = self.run_link(link, &cancel).await;
                     if cancel.is_cancelled() {
                         return;
                     }
-                    Some(BACKOFF_MIN)
+                    // A link that never synced backs off like a failed dial,
+                    // so a half-working tunnel doesn't spin.
+                    let wait = if synced { BACKOFF_MIN } else { backoff };
+                    backoff = if synced {
+                        BACKOFF_MIN
+                    } else {
+                        (backoff * 2).min(BACKOFF_MAX)
+                    };
+                    self.set_status(|s| s.retry_at_ms = Some(now_ms() + wait.as_millis() as i64));
+                    Some(wait)
                 }
                 Err(err) => {
-                    tracing::info!(error = %err, "direct link failed");
                     let wait = (!err.needs_user()).then_some(backoff);
                     backoff = (backoff * 2).min(BACKOFF_MAX);
                     let message = err.to_string();
+                    self.note(format!("connect failed: {message}"));
                     self.set_status(|s| {
-                        s.connected = false;
+                        s.phase = DirectPhase::Failed;
                         s.last_error = Some(message);
                         s.retry_at_ms = wait.map(|w| now_ms() + w.as_millis() as i64);
                     });
@@ -213,8 +267,14 @@ impl DirectHost {
     }
 
     async fn open_link(&self) -> std::result::Result<Link, SshError> {
-        let ssh = ssh::connect(&self.target).await?;
-        let rpc = ssh.open_engine(self.target.engine_port).await?;
+        let target = &self.target;
+        self.note(format!(
+            "connecting to {}@{}:{}",
+            target.user.trim(),
+            target.host.trim(),
+            target.port
+        ));
+        let (ssh, rpc) = self.dial().await?;
         let info = tokio::time::timeout(
             Duration::from_secs(20),
             rpc.call(zeron_rpc::methods::ENGINE_INFO, serde_json::json!({})),
@@ -227,6 +287,24 @@ impl DirectHost {
             .and_then(|v| v.as_str())
             .unwrap_or_default()
             .to_owned();
+        if engine_device_id.is_empty() {
+            return Err(SshError::Engine(
+                "the engine's EngineInfo reply has no deviceId".into(),
+            ));
+        }
+        let version = info
+            .get("version")
+            .and_then(|v| v.as_str())
+            .map(str::to_owned);
+        self.note(format!(
+            "engine answered (version {}, device {})",
+            version.as_deref().unwrap_or("unknown"),
+            short_id(&engine_device_id)
+        ));
+        self.set_status(|s| {
+            s.engine_version = version;
+            s.engine_device_id = Some(engine_device_id.clone());
+        });
         Ok(Link {
             ssh,
             rpc,
@@ -235,10 +313,36 @@ impl DirectHost {
         })
     }
 
-    async fn run_link(self: &Arc<Self>, link: Link, cancel: &CancellationToken) {
+    async fn dial(
+        &self,
+    ) -> std::result::Result<(Option<SshSession>, zeron_rpc::RpcClient), SshError> {
+        let target = &self.target;
+        #[cfg(test)]
+        {
+            let url = lock(&TEST_ENGINES)
+                .as_ref()
+                .and_then(|m| m.get(&target.host).cloned());
+            if let Some(url) = url {
+                let rpc = zeron_rpc::connect_ws(&url)
+                    .await
+                    .map_err(|e| SshError::Engine(e.to_string()))?;
+                return Ok((None, rpc));
+            }
+        }
+        let ssh = ssh::connect(target).await?;
+        self.note(format!(
+            "SSH ready ({}); opening tunnel to 127.0.0.1:{}",
+            ssh.host_algorithm, target.engine_port
+        ));
+        let rpc = ssh.open_engine(target.engine_port).await?;
+        Ok((Some(ssh), rpc))
+    }
+
+    /// Drive one link until it drops. Returns whether it ever fully synced.
+    async fn run_link(self: &Arc<Self>, link: Link, cancel: &CancellationToken) -> bool {
         let link = Arc::new(link);
         let Some(client) = self.client.upgrade() else {
-            return;
+            return false;
         };
         *lock(&self.engine_device) = Some(link.engine_device_id.clone());
         client
@@ -247,18 +351,22 @@ impl DirectHost {
         *lock(&self.link) = Some(link.clone());
         self.link_changed.send_modify(|g| *g += 1);
         self.set_status(|s| {
-            s.connected = true;
+            s.phase = DirectPhase::Syncing;
             s.retry_at_ms = None;
             s.last_error = None;
+            s.connected_at_ms = Some(now_ms());
+            s.synced_at_ms = None;
+            s.streams = REGISTRY_STREAMS
+                .iter()
+                .map(|name| StreamStat {
+                    name: (*name).to_owned(),
+                    ..StreamStat::default()
+                })
+                .collect();
         });
         drop(client);
 
-        for method in [
-            zeron_rpc::methods::WATCH_DEVICES,
-            zeron_rpc::methods::WATCH_SPACES,
-            zeron_rpc::methods::WATCH_CHATS,
-            zeron_rpc::methods::WATCH_SESSIONS,
-        ] {
+        for method in REGISTRY_STREAMS {
             let host = self.clone();
             let link = link.clone();
             crate::runtime::shared().spawn(async move {
@@ -276,12 +384,31 @@ impl DirectHost {
         }
 
         let mut beat = tokio::time::interval(BEAT);
+        let sync_deadline = tokio::time::sleep(SYNC_TIMEOUT);
+        tokio::pin!(sync_deadline);
+        let mut sync_checked = false;
+        let mut lost_reason = "connection to the machine lost".to_owned();
         loop {
             tokio::select! {
                 _ = cancel.cancelled() => break,
                 _ = link.cancel.cancelled() => break,
+                _ = &mut sync_deadline, if !sync_checked => {
+                    sync_checked = true;
+                    let missing = self.unsynced_streams();
+                    if !missing.is_empty() {
+                        let message = format!(
+                            "connected to the engine, but it sent no {} within {} s",
+                            missing.join(" / "),
+                            SYNC_TIMEOUT.as_secs()
+                        );
+                        self.note(message.clone());
+                        lost_reason = message;
+                        break;
+                    }
+                }
                 _ = beat.tick() => {
-                    if link.ssh.is_closed() {
+                    if link.ssh.as_ref().is_some_and(|s| s.is_closed()) {
+                        lost_reason = "the SSH session closed".into();
                         break;
                     }
                     if let Some(client) = self.client.upgrade() {
@@ -298,18 +425,69 @@ impl DirectHost {
             }
         }
         self.link_changed.send_modify(|g| *g += 1);
-        link.ssh.close().await;
+        if let Some(ssh) = &link.ssh {
+            ssh.close().await;
+        }
         self.save_registry();
         if let Some(client) = self.client.upgrade() {
             // Presence decays on its own; drop it now so the dot flips.
             client.workspace.set_presence(&link.engine_device_id, 0);
             client.recompute_workspace();
         }
-        self.set_status(|s| {
-            s.connected = false;
-            s.last_error = Some("connection to the machine lost".into());
-            s.retry_at_ms = Some(now_ms() + BACKOFF_MIN.as_millis() as i64);
-        });
+        let synced = lock(&self.status).synced_at_ms.is_some();
+        if !cancel.is_cancelled() {
+            let stream_error = lock(&self.status)
+                .streams
+                .iter()
+                .find_map(|s| s.error.clone().map(|e| format!("{}: {e}", s.name)));
+            let message = match stream_error {
+                Some(e) if !synced => format!("{lost_reason} ({e})"),
+                _ => lost_reason,
+            };
+            self.note(format!("link down: {message}"));
+            self.set_status(|s| {
+                s.phase = DirectPhase::Failed;
+                s.last_error = Some(message);
+            });
+        }
+        synced
+    }
+
+    fn unsynced_streams(&self) -> Vec<String> {
+        lock(&self.status)
+            .streams
+            .iter()
+            .filter(|s| s.frames == 0)
+            .map(|s| s.name.clone())
+            .collect()
+    }
+
+    /// First frame on every stream → live.
+    fn note_frame(&self, method: &str, rows: usize, skipped: usize) {
+        let now = now_ms();
+        let became_live = {
+            let mut status = lock(&self.status);
+            if let Some(stat) = status.streams.iter_mut().find(|s| s.name == method) {
+                stat.frames += 1;
+                stat.rows = rows as u32;
+                stat.skipped_rows = skipped as u32;
+                stat.last_frame_ms = Some(now);
+            }
+            let all = !status.streams.is_empty() && status.streams.iter().all(|s| s.frames > 0);
+            if all && status.phase == DirectPhase::Syncing {
+                status.phase = DirectPhase::Live;
+                status.synced_at_ms = Some(now);
+                true
+            } else {
+                false
+            }
+        };
+        if became_live {
+            self.note("workspace synced");
+            if let Some(client) = self.client.upgrade() {
+                client.recompute_connectivity();
+            }
+        }
     }
 
     fn current_link(&self) -> Option<Arc<Link>> {
@@ -388,6 +566,9 @@ impl DirectHost {
             Ok(sub) => sub,
             Err(err) => {
                 tracing::warn!(method, error = %err, "direct watch failed");
+                let message = format!("subscribe failed: {err}");
+                self.note(format!("{method} {message}"));
+                self.stream_stat(method, |s| s.error = Some(message));
                 return;
             }
         };
@@ -396,28 +577,91 @@ impl DirectHost {
                 _ = link.cancel.cancelled() => return,
                 item = sub.recv() => item,
             };
-            let Some(value) = item else { return };
+            let Some(mut value) = item else {
+                if !link.cancel.is_cancelled() {
+                    self.note(format!("{method} stream ended by the engine"));
+                    self.stream_stat(method, |s| {
+                        s.error.get_or_insert_with(|| "stream ended".into());
+                    });
+                }
+                return;
+            };
+            // Every frame is a full snapshot: skip straight to the newest
+            // one queued so a slow phone never falls behind the engine.
+            while let Some(newer) = sub.try_recv() {
+                value = newer;
+            }
             let Some(client) = self.client.upgrade() else {
                 return;
             };
             let applied = match method {
-                zeron_rpc::methods::WATCH_DEVICES => serde_json::from_value::<Vec<Device>>(value)
-                    .map(|rows| self.mirror_devices(&client, rows)),
-                zeron_rpc::methods::WATCH_SPACES => serde_json::from_value::<Vec<Space>>(value)
-                    .map(|rows| self.mirror_spaces(&client, rows)),
-                zeron_rpc::methods::WATCH_CHATS => serde_json::from_value::<Vec<Chat>>(value)
-                    .map(|rows| self.mirror_chats(&client, rows)),
-                _ => serde_json::from_value::<Vec<Session>>(value)
-                    .map(|rows| self.mirror_sessions(&client, rows)),
+                zeron_rpc::methods::WATCH_DEVICES => {
+                    self.apply_frame(method, value, |rows: Vec<Device>, _| {
+                        self.mirror_devices(&client, rows)
+                    })
+                }
+                zeron_rpc::methods::WATCH_SPACES => {
+                    self.apply_frame(method, value, |rows: Vec<Space>, keep| {
+                        self.mirror_spaces(&client, rows, keep)
+                    })
+                }
+                zeron_rpc::methods::WATCH_CHATS => {
+                    self.apply_frame(method, value, |rows: Vec<Chat>, keep| {
+                        self.mirror_chats(&client, rows, keep)
+                    })
+                }
+                _ => self.apply_frame(method, value, |rows: Vec<Session>, _| {
+                    self.mirror_sessions(&client, rows)
+                }),
             };
             match applied {
-                Ok(true) => {
+                Some(true) => {
                     self.settle_registry(&client);
                     client.mark_direct_synced();
                     client.recompute_workspace();
                 }
-                Ok(false) => client.mark_direct_synced(),
-                Err(err) => tracing::warn!(method, error = %err, "direct watch: bad item"),
+                Some(false) => client.mark_direct_synced(),
+                None => {}
+            }
+        }
+    }
+
+    /// Lenient frame decode: rows that don't parse are skipped (and never
+    /// treated as deleted) instead of failing the whole snapshot, so a newer
+    /// engine's shape drift degrades one row, not the workspace.
+    fn apply_frame<T: serde::de::DeserializeOwned>(
+        &self,
+        method: &str,
+        value: serde_json::Value,
+        mirror: impl FnOnce(Vec<T>, &HashSet<String>) -> bool,
+    ) -> Option<bool> {
+        match decode_rows::<T>(value) {
+            Ok(decoded) => {
+                if let Some(first) = decoded.errors.first() {
+                    tracing::warn!(method, skipped = decoded.errors.len(), error = %first, "direct watch: skipped rows");
+                    let message = format!(
+                        "skipped {} unreadable row(s): {first}",
+                        decoded.errors.len()
+                    );
+                    self.stream_stat(method, |s| s.error = Some(message));
+                } else {
+                    self.stream_stat(method, |s| s.error = None);
+                }
+                let (rows, skipped) = (decoded.rows.len(), decoded.errors.len());
+                let changed = mirror(decoded.rows, &decoded.ids);
+                self.note_frame(method, rows, skipped);
+                Some(changed)
+            }
+            Err(err) => {
+                tracing::warn!(method, error = %err, "direct watch: unreadable frame");
+                self.note(format!("{method}: unreadable frame: {err}"));
+                self.stream_stat(method, |s| {
+                    s.error = Some(format!("unreadable frame: {err}"))
+                });
+                self.set_status(|s| {
+                    s.last_error = Some(format!("couldn't read {method} from the engine: {err}"));
+                });
+                None
             }
         }
     }
@@ -448,7 +692,12 @@ impl DirectHost {
         true
     }
 
-    fn mirror_spaces(&self, client: &ClientInner, rows: Vec<Space>) -> bool {
+    fn mirror_spaces(
+        &self,
+        client: &ClientInner,
+        rows: Vec<Space>,
+        keep: &HashSet<String>,
+    ) -> bool {
         let (state, _) = client.workspace.state();
         let changed: Vec<&Space> = rows
             .iter()
@@ -457,7 +706,7 @@ impl DirectHost {
         let gone: Vec<String> = state
             .spaces
             .iter()
-            .filter(|s| !rows.iter().any(|r| r.id == s.id) && !self.recently_local(&s.id))
+            .filter(|s| !keep.contains(&s.id) && !self.recently_local(&s.id))
             .map(|s| s.id.clone())
             .collect();
         if changed.is_empty() && gone.is_empty() {
@@ -476,7 +725,7 @@ impl DirectHost {
         true
     }
 
-    fn mirror_chats(&self, client: &ClientInner, rows: Vec<Chat>) -> bool {
+    fn mirror_chats(&self, client: &ClientInner, rows: Vec<Chat>, keep: &HashSet<String>) -> bool {
         let (state, _) = client.workspace.state();
         let changed: Vec<&Chat> = rows
             .iter()
@@ -485,7 +734,7 @@ impl DirectHost {
         let gone: Vec<String> = state
             .chats
             .iter()
-            .filter(|c| !rows.iter().any(|r| r.id == c.id) && !self.recently_local(&c.id))
+            .filter(|c| !keep.contains(&c.id) && !self.recently_local(&c.id))
             .map(|c| c.id.clone())
             .collect();
         if changed.is_empty() && gone.is_empty() {
@@ -759,4 +1008,78 @@ fn reconcile(
         }
     }
     Ok(())
+}
+
+/// A watch snapshot decoded row by row.
+#[derive(Debug)]
+pub(crate) struct DecodedRows<T> {
+    pub(crate) rows: Vec<T>,
+    /// Ids of every row in the frame, parsed or not (deletion guard).
+    pub(crate) ids: HashSet<String>,
+    pub(crate) errors: Vec<String>,
+}
+
+/// Decode a registry snapshot leniently: a JSON array (or an object wrapping
+/// exactly one array, for forward compatibility) whose unreadable rows are
+/// reported rather than fatal.
+pub(crate) fn decode_rows<T: serde::de::DeserializeOwned>(
+    value: serde_json::Value,
+) -> std::result::Result<DecodedRows<T>, String> {
+    let items = match value {
+        serde_json::Value::Array(items) => items,
+        serde_json::Value::Object(mut map) => {
+            let arrays: Vec<String> = map
+                .iter()
+                .filter(|(_, v)| v.is_array())
+                .map(|(k, _)| k.clone())
+                .collect();
+            match arrays.as_slice() {
+                [key] => match map.remove(key) {
+                    Some(serde_json::Value::Array(items)) => items,
+                    _ => unreachable!("checked above"),
+                },
+                _ => return Err("expected a list of rows, got an object".into()),
+            }
+        }
+        other => {
+            return Err(format!(
+                "expected a list of rows, got {}",
+                json_kind(&other)
+            ));
+        }
+    };
+    let mut decoded = DecodedRows {
+        rows: Vec::with_capacity(items.len()),
+        ids: HashSet::with_capacity(items.len()),
+        errors: Vec::new(),
+    };
+    for item in items {
+        let id = item.get("id").and_then(|v| v.as_str()).map(str::to_owned);
+        if let Some(id) = &id {
+            decoded.ids.insert(id.clone());
+        }
+        match serde_json::from_value::<T>(item) {
+            Ok(row) => decoded.rows.push(row),
+            Err(err) => decoded.errors.push(match id {
+                Some(id) => format!("row {}: {err}", short_id(&id)),
+                None => format!("row without id: {err}"),
+            }),
+        }
+    }
+    Ok(decoded)
+}
+
+fn json_kind(value: &serde_json::Value) -> &'static str {
+    match value {
+        serde_json::Value::Null => "null",
+        serde_json::Value::Bool(_) => "a boolean",
+        serde_json::Value::Number(_) => "a number",
+        serde_json::Value::String(_) => "a string",
+        serde_json::Value::Array(_) => "a list",
+        serde_json::Value::Object(_) => "an object",
+    }
+}
+
+fn short_id(id: &str) -> &str {
+    id.get(..8).unwrap_or(id)
 }

@@ -339,7 +339,7 @@ impl ClientInner {
                 let status = self.direct().map(|d| d.status()).unwrap_or_default();
                 RawConnectivity {
                     path_offline: !self.network_online(),
-                    registry_connected: status.connected,
+                    registry_connected: status.phase.is_up(),
                     registry_retry_at_ms: status.retry_at_ms,
                     last_failure: status.last_error,
                     chat_rooms: Vec::new(),
@@ -729,6 +729,19 @@ impl Client {
 
     pub fn is_direct(&self) -> bool {
         self.inner.is_direct()
+    }
+
+    /// The direct link's phase, errors and stream counters (`None` outside
+    /// direct mode).
+    pub fn direct_status(&self) -> Option<crate::direct::DirectStatus> {
+        self.inner.direct().map(|d| d.status())
+    }
+
+    /// Direct mode: drop the current link, even a stalled one, and redial.
+    pub fn reconnect_direct(&self) {
+        if let Some(direct) = self.inner.direct() {
+            direct.reconnect();
+        }
     }
 
     pub fn device_id(&self) -> &str {

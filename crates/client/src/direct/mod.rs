@@ -6,8 +6,69 @@
 
 pub(crate) mod host;
 mod ssh;
+#[cfg(test)]
+mod tests;
 
 pub use ssh::{ProbeResult, SshKeyPair, generate_ed25519, import_key, probe};
+
+/// Where the link to the machine stands, for the UI and the diagnostics
+/// readout (a blank sessions page must never be the only symptom).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum DirectPhase {
+    /// SSH / tunnel / `EngineInfo` in progress.
+    #[default]
+    Connecting,
+    /// Tunnel up; waiting for the first frame of every registry stream.
+    Syncing,
+    /// Every registry stream delivered at least once.
+    Live,
+    /// The last attempt failed (see `last_error`); a retry may be scheduled.
+    Failed,
+}
+
+impl DirectPhase {
+    /// The tunnel to the engine is open (syncing or live).
+    pub fn is_up(self) -> bool {
+        matches!(self, DirectPhase::Syncing | DirectPhase::Live)
+    }
+}
+
+/// One engine watch stream as the phone saw it on the current link.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct StreamStat {
+    /// RPC method (`WatchChats`, …).
+    pub name: String,
+    pub frames: u64,
+    /// Rows in the last frame that parsed.
+    pub rows: u32,
+    /// Rows in the last frame that didn't parse (kept, never deleted).
+    pub skipped_rows: u32,
+    pub last_frame_ms: Option<i64>,
+    /// Last subscribe/parse problem on this stream.
+    pub error: Option<String>,
+}
+
+/// A timestamped line of the link log (newest last).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DirectLogLine {
+    pub at_ms: i64,
+    pub message: String,
+}
+
+/// Snapshot of the direct link: phase, errors, engine identity, per-stream
+/// counters and a short event log.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct DirectStatus {
+    pub phase: DirectPhase,
+    pub last_error: Option<String>,
+    pub retry_at_ms: Option<i64>,
+    pub engine_version: Option<String>,
+    pub engine_device_id: Option<String>,
+    pub connected_at_ms: Option<i64>,
+    pub synced_at_ms: Option<i64>,
+    pub streams: Vec<StreamStat>,
+    pub log: Vec<DirectLogLine>,
+}
 
 /// Default engine IPC port (`ZERON_IPC_PORT` on the machine overrides it).
 pub const DEFAULT_ENGINE_PORT: u16 = 27654;
