@@ -369,6 +369,29 @@ pub async fn connect_ws(url: &str) -> Result<RpcClient, RpcError> {
         .await
         .map_err(|_| RpcError::Transport(format!("timed out dialing {url}")))?
         .map_err(|e| RpcError::Transport(e.to_string()))?;
+    Ok(spawn_ws(ws))
+}
+
+/// Run the WebSocket handshake over an already-open byte stream (e.g. an SSH
+/// `direct-tcpip` channel to the engine's loopback port) and wrap it.
+pub async fn connect_ws_stream<S>(url: &str, stream: S) -> Result<RpcClient, RpcError>
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+{
+    let (ws, _) = tokio::time::timeout(
+        CONNECT_TIMEOUT * 3,
+        tokio_tungstenite::client_async(url, stream),
+    )
+    .await
+    .map_err(|_| RpcError::Transport(format!("timed out opening {url}")))?
+    .map_err(|e| RpcError::Transport(e.to_string()))?;
+    Ok(spawn_ws(ws))
+}
+
+fn spawn_ws<S>(ws: tokio_tungstenite::WebSocketStream<S>) -> RpcClient
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+{
     let (mut sink, mut stream) = ws.split();
     let (out_tx, mut out_rx) = mpsc::channel::<String>(256);
     let (in_tx, in_rx) = mpsc::channel::<String>(256);
@@ -398,5 +421,5 @@ pub async fn connect_ws(url: &str) -> Result<RpcClient, RpcError> {
             }
         }
     });
-    Ok(RpcClient::new(out_tx, in_rx))
+    RpcClient::new(out_tx, in_rx)
 }
