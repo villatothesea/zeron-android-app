@@ -26,6 +26,14 @@ object SessionGrouping {
     fun projectKey(projectId: String?): String = if (projectId == null) HOME_KEY else "project:$projectId"
 
     /**
+     * The project name on a row's second line (Pinned group, By Activity, and
+     * inside groups): the project, or "~" for project-less sessions, the
+     * same label as their By Project group, never the host's name.
+     */
+    fun rowProjectLabel(row: SessionRow): String =
+        row.project?.name?.takeIf { it.isNotBlank() } ?: if (row.project == null) HOME_LABEL else "?"
+
+    /**
      * One group per project, in order of each project's first session (so the
      * group holding the most recent session comes first); rows keep their
      * incoming order.

@@ -755,8 +755,9 @@ private fun SessionRowView(
                         }
                     }
                     Row(Modifier.padding(top = 3.dp).height(18.dp), verticalAlignment = Alignment.CenterVertically) {
-                        val project = row.project?.name ?: row.deviceName ?: "No project"
-                        // Project-less sessions tile as "H" in the home tone.
+                        val project = SessionGrouping.rowProjectLabel(row)
+                        // Project-less sessions tile as "H" in the home tone and
+                        // read "~", like their By Project group header.
                         ProjectTile(
                             name = row.project?.name ?: "Home",
                             colorIndex = row.project?.colorIndex?.toInt() ?: model.homeColorIndex(),

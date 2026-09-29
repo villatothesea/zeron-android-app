@@ -101,4 +101,11 @@ class SessionGroupingTest {
         val rows = listOf(pinned, row("x", at = 2), pinned)
         assertEquals(listOf("x", "p"), SessionGrouping.activityOrder(rows).map { it.id })
     }
+
+    @Test
+    fun rowProjectLabelIsTheProjectOrTilde() {
+        assertEquals("ZERON", SessionGrouping.rowProjectLabel(row("a", project = "zeron", pinned = true)))
+        // Project-less: "~" like the By Project group, not the host ("Studio").
+        assertEquals("~", SessionGrouping.rowProjectLabel(row("b")))
+    }
 }
