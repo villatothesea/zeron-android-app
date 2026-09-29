@@ -7927,6 +7927,11 @@ data class DirectStatus (
     , 
     var `engineDeviceId`: kotlin.String?
     , 
+    /**
+     * Non-blocking note (e.g. the engine is a newer minor version).
+     */
+    var `notice`: kotlin.String?
+    , 
     var `connectedAtMs`: kotlin.Long?
     , 
     var `syncedAtMs`: kotlin.Long?
@@ -7955,6 +7960,7 @@ public object FfiConverterTypeDirectStatus: FfiConverterRustBuffer<DirectStatus>
             FfiConverterOptionalLong.read(buf),
             FfiConverterOptionalString.read(buf),
             FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
             FfiConverterOptionalLong.read(buf),
             FfiConverterOptionalLong.read(buf),
             FfiConverterSequenceTypeDirectStreamStat.read(buf),
@@ -7968,6 +7974,7 @@ public object FfiConverterTypeDirectStatus: FfiConverterRustBuffer<DirectStatus>
             FfiConverterOptionalLong.allocationSize(value.`retryAtMs`) +
             FfiConverterOptionalString.allocationSize(value.`engineVersion`) +
             FfiConverterOptionalString.allocationSize(value.`engineDeviceId`) +
+            FfiConverterOptionalString.allocationSize(value.`notice`) +
             FfiConverterOptionalLong.allocationSize(value.`connectedAtMs`) +
             FfiConverterOptionalLong.allocationSize(value.`syncedAtMs`) +
             FfiConverterSequenceTypeDirectStreamStat.allocationSize(value.`streams`) +
@@ -7980,6 +7987,7 @@ public object FfiConverterTypeDirectStatus: FfiConverterRustBuffer<DirectStatus>
             FfiConverterOptionalLong.write(value.`retryAtMs`, buf)
             FfiConverterOptionalString.write(value.`engineVersion`, buf)
             FfiConverterOptionalString.write(value.`engineDeviceId`, buf)
+            FfiConverterOptionalString.write(value.`notice`, buf)
             FfiConverterOptionalLong.write(value.`connectedAtMs`, buf)
             FfiConverterOptionalLong.write(value.`syncedAtMs`, buf)
             FfiConverterSequenceTypeDirectStreamStat.write(value.`streams`, buf)
@@ -7997,6 +8005,11 @@ data class DirectStreamStat (
     var `rows`: kotlin.UInt
     , 
     var `skippedRows`: kotlin.UInt
+    , 
+    /**
+     * Rows kept after dropping/defaulting values this app doesn't know.
+     */
+    var `repairedRows`: kotlin.UInt
     , 
     var `lastFrameMs`: kotlin.Long?
     , 
@@ -8021,6 +8034,7 @@ public object FfiConverterTypeDirectStreamStat: FfiConverterRustBuffer<DirectStr
             FfiConverterULong.read(buf),
             FfiConverterUInt.read(buf),
             FfiConverterUInt.read(buf),
+            FfiConverterUInt.read(buf),
             FfiConverterOptionalLong.read(buf),
             FfiConverterOptionalString.read(buf),
         )
@@ -8031,6 +8045,7 @@ public object FfiConverterTypeDirectStreamStat: FfiConverterRustBuffer<DirectStr
             FfiConverterULong.allocationSize(value.`frames`) +
             FfiConverterUInt.allocationSize(value.`rows`) +
             FfiConverterUInt.allocationSize(value.`skippedRows`) +
+            FfiConverterUInt.allocationSize(value.`repairedRows`) +
             FfiConverterOptionalLong.allocationSize(value.`lastFrameMs`) +
             FfiConverterOptionalString.allocationSize(value.`error`)
     )
@@ -8040,6 +8055,7 @@ public object FfiConverterTypeDirectStreamStat: FfiConverterRustBuffer<DirectStr
             FfiConverterULong.write(value.`frames`, buf)
             FfiConverterUInt.write(value.`rows`, buf)
             FfiConverterUInt.write(value.`skippedRows`, buf)
+            FfiConverterUInt.write(value.`repairedRows`, buf)
             FfiConverterOptionalLong.write(value.`lastFrameMs`, buf)
             FfiConverterOptionalString.write(value.`error`, buf)
     }
