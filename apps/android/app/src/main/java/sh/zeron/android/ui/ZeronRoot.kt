@@ -362,6 +362,9 @@ private val SessionsBackdrop = Color(0xFF0D0D0D)
 /** The list's floating header row: 6 + 44 (capsules) + 6. */
 private val ListHeaderHeight = 56.dp
 
+/** Shortest time the pull-to-refresh spinner stays up, so it never just flashes. */
+private const val MinRefreshSpinMs = 600L
+
 /** Gap below the header where rows fade out. */
 private val ListHeaderGap = 14.dp
 
@@ -393,6 +396,7 @@ private fun SessionsScreen(model: ZeronModel, colors: ZeronColors, onPrompt: (Pr
     var menu by remember { mutableStateOf(false) }
     var menuAnchor by remember { mutableStateOf(androidx.compose.ui.geometry.Rect.Zero) }
     var refreshing by remember { mutableStateOf(false) }
+    val refreshScope = rememberCoroutineScope()
     val mode = model.listMode
     val homeColor = remember(model.client) { model.homeColorIndex() }
     // Keyed on the snapshot itself: ZeronModel only swaps `workspace` when its
@@ -439,9 +443,23 @@ private fun SessionsScreen(model: ZeronModel, colors: ZeronColors, onPrompt: (Pr
         val pullState = androidx.compose.material3.pulltorefresh.rememberPullToRefreshState()
         val headerBottom = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + ListHeaderHeight
         PullToRefreshBox(isRefreshing = refreshing, onRefresh = {
-            refreshing = true
-            model.refreshPull()
-            refreshing = false
+            // Material3 only animates the indicator when it SEES isRefreshing
+            // flip (false → true shows the spinner, true → false hides it).
+            // Flipping both ways in one frame left the arrow stuck on screen,
+            // so hold the spinner for a moment, then let it animate away.
+            if (!refreshing) {
+                refreshing = true
+                refreshScope.launch {
+                    val started = android.os.SystemClock.uptimeMillis()
+                    try {
+                        model.refreshPull()
+                    } finally {
+                        val left = MinRefreshSpinMs - (android.os.SystemClock.uptimeMillis() - started)
+                        if (left > 0) kotlinx.coroutines.delay(left)
+                        refreshing = false
+                    }
+                }
+            }
         }, modifier = Modifier.fillMaxSize(), state = pullState, indicator = {
             // Below the solid header band, or it would pull out of sight.
             androidx.compose.material3.pulltorefresh.PullToRefreshDefaults.Indicator(
