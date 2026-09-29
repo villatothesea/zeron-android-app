@@ -10,7 +10,8 @@ use futures::StreamExt;
 use zeron_proto::Chat;
 use zeron_rpc::{RpcError, RpcReply, RpcService};
 
-use super::host::{TEST_ENGINES, decode_rows};
+use super::host::{TEST_ENGINES, engine_notice};
+use super::lenient::{decode_rows, parse_version, sanitize_transcript_update, unsupported_text};
 use super::{DirectPhase, SshAuth, SshTarget};
 use crate::events::NullListener;
 use crate::{Client, ClientConfig, Credentials, lock};
@@ -46,6 +47,18 @@ fn drifted(method: &str, mut value: serde_json::Value) -> serde_json::Value {
         // An unknown status value on one session.
         "WatchSessions" => rows[0]["status"] = serde_json::json!("hibernating"),
         _ => {}
+    }
+    if method == "WatchChats" {
+        // A harness and a reasoning level this app has never heard of: the
+        // chat must stay, just without the parts it can't read.
+        let active: Vec<usize> = rows
+            .iter()
+            .enumerate()
+            .filter(|(_, r)| r["archived"] == false && r.get("createdAt").is_some())
+            .map(|(i, _)| i)
+            .collect();
+        rows[active[0]]["config"]["harness"] = serde_json::json!("nova-agent");
+        rows[active[1]]["config"]["reasoning"] = serde_json::json!("ludicrous");
     }
     value
 }
@@ -138,10 +151,22 @@ fn real_shape_frames_decode_without_skips() {
         let value = fixture(method);
         let n = value.as_array().unwrap().len();
         let errors = match method {
-            "WatchDevices" => decode_rows::<zeron_proto::Device>(value).unwrap().errors,
-            "WatchSpaces" => decode_rows::<zeron_proto::Space>(value).unwrap().errors,
-            "WatchChats" => decode_rows::<Chat>(value).unwrap().errors,
-            _ => decode_rows::<zeron_proto::Session>(value).unwrap().errors,
+            "WatchDevices" => {
+                decode_rows::<zeron_proto::Device>(value, &[])
+                    .unwrap()
+                    .errors
+            }
+            "WatchSpaces" => {
+                decode_rows::<zeron_proto::Space>(value, &[])
+                    .unwrap()
+                    .errors
+            }
+            "WatchChats" => decode_rows::<Chat>(value, &[]).unwrap().errors,
+            _ => {
+                decode_rows::<zeron_proto::Session>(value, &[])
+                    .unwrap()
+                    .errors
+            }
         };
         assert!(errors.is_empty(), "{method}: {errors:?}");
         assert!(n > 0);
@@ -150,14 +175,39 @@ fn real_shape_frames_decode_without_skips() {
 
 #[test]
 fn drifted_rows_are_skipped_not_fatal() {
-    let decoded = decode_rows::<Chat>(drifted("WatchChats", fixture("WatchChats"))).unwrap();
+    let decoded = decode_rows::<Chat>(drifted("WatchChats", fixture("WatchChats")), &[]).unwrap();
     assert_eq!(decoded.rows.len(), 39);
     assert_eq!(decoded.errors.len(), 1, "{:?}", decoded.errors);
+    assert_eq!(decoded.repaired.len(), 2, "{:?}", decoded.repaired);
+    assert!(
+        decoded
+            .repaired
+            .iter()
+            .any(|r| r.ends_with("ignored config.reasoning"))
+    );
+    assert!(
+        decoded
+            .repaired
+            .iter()
+            .any(|r| r.ends_with("ignored config"))
+    );
+    assert!(
+        decoded.rows.iter().any(|c| c.config.is_none()),
+        "unknown-harness chat kept"
+    );
     assert_eq!(decoded.ids.len(), 40, "the broken row's id still guards it");
     // Wrapped lists and junk frames.
     let wrapped = serde_json::json!({ "chats": fixture("WatchChats"), "cursor": 3 });
-    assert_eq!(decode_rows::<Chat>(wrapped).unwrap().rows.len(), 40);
-    assert!(decode_rows::<Chat>(serde_json::json!("nope")).is_err());
+    assert_eq!(decode_rows::<Chat>(wrapped, &[]).unwrap().rows.len(), 40);
+    assert!(decode_rows::<Chat>(serde_json::json!("nope"), &[]).is_err());
+    // Unknown session status → idle, row kept.
+    let sessions = decode_rows::<zeron_proto::Session>(
+        drifted("WatchSessions", fixture("WatchSessions")),
+        &[("status", serde_json::json!("idle"))],
+    )
+    .unwrap();
+    assert!(sessions.errors.is_empty(), "{:?}", sessions.errors);
+    assert_eq!(sessions.rows[0].status, zeron_proto::SessionStatus::Idle);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -179,7 +229,9 @@ async fn syncs_the_real_engine_shape() {
     assert_eq!(ws.devices.len(), 1);
     assert!(ws.projects.len() >= 10, "projects: {}", ws.projects.len());
     let status = client.direct_status().unwrap();
+    // EngineInfo has no version; the engine's Device row supplies it.
     assert_eq!(status.engine_version.as_deref(), Some("0.2.97"));
+    assert!(status.notice.is_none());
     assert!(status.last_error.is_none(), "{status:?}");
     assert!(
         status
@@ -207,7 +259,16 @@ async fn tolerates_version_drift() {
         .iter()
         .find(|s| s.name == "WatchChats")
         .unwrap();
-    assert_eq!((chats.rows, chats.skipped_rows), (39, 1));
+    assert_eq!(
+        (chats.rows, chats.skipped_rows, chats.repaired_rows),
+        (39, 1, 2)
+    );
+    let sessions = status
+        .streams
+        .iter()
+        .find(|s| s.name == "WatchSessions")
+        .unwrap();
+    assert_eq!((sessions.skipped_rows, sessions.repaired_rows), (0, 1));
     assert!(
         chats
             .error
@@ -241,4 +302,99 @@ async fn a_silent_stream_is_reported_not_blank() {
         status.log
     );
     client.shutdown();
+}
+
+/// A transcript entry as a future engine might send it.
+fn future_entry() -> serde_json::Value {
+    serde_json::json!({
+        "id": "m1",
+        "role": "narrator",
+        "status": "paused",
+        "createdAt": 1_700_000_000_000i64,
+        "deviceId": "d1",
+        "mood": "curious",
+        "parts": [
+            { "kind": "text", "id": "p1", "text": "hello", "lang": "en" },
+            { "kind": "canvas", "id": "p2", "shapes": [1, 2] },
+            { "kind": "tool", "id": "p3", "call": { "kind": "browser", "url": "https://x" }, "resolved": true },
+            { "kind": "tool", "id": "p4", "call": { "kind": "exec", "command": "ls" }, "subagentStatus": "queued" },
+            { "kind": "reasoning", "id": "p5", "text": "hmm" }
+        ]
+    })
+}
+
+#[test]
+fn unknown_transcript_kinds_render_as_fallbacks() {
+    let mut update = serde_json::json!({
+        "reset": [future_entry()],
+        "contextUsage": { "tokens": "lots" },
+        "cursor": 7
+    });
+    let repaired = sanitize_transcript_update(&mut update);
+    assert!(repaired >= 4, "repaired {repaired}");
+    let update: zeron_doc::TranscriptUpdate = serde_json::from_value(update).expect("readable");
+    let zeron_doc::transcript_delta::TranscriptFrame::Reset { reset } = update.frame else {
+        panic!("reset frame");
+    };
+    let entry = &reset[0];
+    assert_eq!(entry.role, zeron_doc::MessageRole::Assistant);
+    assert_eq!(entry.status, None);
+    assert_eq!(entry.parts.len(), 5, "no part is dropped");
+    use zeron_doc::MessagePart as P;
+    assert!(matches!(&entry.parts[0], P::Text { text, .. } if text == "hello"));
+    assert!(matches!(&entry.parts[1], P::Text { text, .. } if *text == unsupported_text("canvas")));
+    assert!(matches!(
+        &entry.parts[2],
+        P::Tool { call: zeron_proto::ToolCall::Unknown { name, .. }, resolved: true, .. } if name == "browser"
+    ));
+    assert!(matches!(
+        &entry.parts[3],
+        P::Tool {
+            call: zeron_proto::ToolCall::Exec { .. },
+            subagent_status: None,
+            ..
+        }
+    ));
+    assert!(matches!(&entry.parts[4], P::Reasoning { .. }));
+    assert!(update.context_usage.is_none());
+}
+
+#[test]
+fn unknown_kinds_in_deltas_and_broken_entries() {
+    let mut update = serde_json::json!({
+        "upsert": [
+            { "after": null, "entry": future_entry() },
+            { "after": "m1", "entry": { "id": "m2", "parts": "not a list" } }
+        ],
+        "append": [],
+        "remove": [],
+        "count": 2
+    });
+    sanitize_transcript_update(&mut update);
+    let update: zeron_doc::TranscriptUpdate = serde_json::from_value(update).expect("readable");
+    let zeron_doc::transcript_delta::TranscriptFrame::Delta { upsert, .. } = update.frame else {
+        panic!("delta frame");
+    };
+    assert_eq!(
+        upsert.len(),
+        2,
+        "a broken entry becomes a placeholder, keeping the count"
+    );
+    assert_eq!(upsert[1].entry.id, "m2");
+    // Known frames are untouched.
+    let mut plain = serde_json::json!({ "reset": [] });
+    assert_eq!(sanitize_transcript_update(&mut plain), 0);
+}
+
+#[test]
+fn newer_minor_engines_get_a_notice_patches_do_not() {
+    assert_eq!(parse_version("0.2.98"), Some((0, 2, 98)));
+    assert_eq!(parse_version("v0.3.0-beta.1"), Some((0, 3, 0)));
+    assert_eq!(parse_version("1"), Some((1, 0, 0)));
+    assert_eq!(parse_version("nightly"), None);
+    assert!(engine_notice(Some("0.2.97")).is_none());
+    assert!(engine_notice(Some("0.2.140")).is_none());
+    assert!(engine_notice(Some("0.3.0")).is_some_and(|n| n.contains("0.3.0")));
+    assert!(engine_notice(Some("garbage")).is_none());
+    assert!(engine_notice(None).is_none());
 }
