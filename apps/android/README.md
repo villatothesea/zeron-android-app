@@ -79,7 +79,7 @@ Then from `apps/android`:
   -PzeronScreenshotsDir=/tmp/zeron-renders      # default: app/build/screenshots
 ```
 
-It writes `01a-home-by-project.png`, `01b-home-by-activity.png`, `02-chat-usage-rings.png` (a live demo turn, so the pill shows the timer), `03-usage-sheet.png`, `04-settings.png`, `05-machines.png`, `06-machine-editor.png`, `07-new-session.png` and `08-working-timer.png` at 411×891 dp, xxhdpi, dark. Without `-PzeronScreenshots=true` (or without the host library) these tests are skipped, so the normal unit-test run stays fast. The host `.so` must match the checked-in UniFFI bindings; rebuild it after changing the core.
+It writes `01a-home-by-project.png`, `01b-home-by-activity.png`, `02-chat-usage-rings.png` (a live demo turn, so the pill shows the timer), `03-usage-sheet.png`, `04-settings.png`, `05-machines.png`, `06-machine-editor.png`, `07-new-session.png`, `08-working-timer.png`, `09-chat-scheduled.png` (scheduled-send chip) and `10-schedule-picker.png` at 411×891 dp, xxhdpi, dark. Without `-PzeronScreenshots=true` (or without the host library) these tests are skipped, so the normal unit-test run stays fast. The host `.so` must match the checked-in UniFFI bindings; rebuild it after changing the core.
 
 ## Approximations
 
