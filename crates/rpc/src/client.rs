@@ -440,3 +440,32 @@ where
     });
     RpcClient::new(out_tx, in_rx)
 }
+
+#[cfg(test)]
+mod drift_tests {
+    use super::*;
+
+    /// A newer engine may push frames this client doesn't know: server
+    /// notifications without an id, unknown ids, extra fields, junk lines.
+    /// They are ignored and the connection keeps working.
+    #[tokio::test]
+    async fn unknown_server_frames_are_ignored() {
+        let (out_tx, mut out_rx) = mpsc::channel::<String>(16);
+        let (in_tx, in_rx) = mpsc::channel::<String>(16);
+        let client = RpcClient::new(out_tx, in_rx);
+        let call =
+            tokio::spawn(async move { client.call("EngineInfo", serde_json::json!({})).await });
+        let sent: serde_json::Value = serde_json::from_str(&out_rx.recv().await.unwrap()).unwrap();
+        let id = sent["id"].as_u64().unwrap();
+        for junk in [
+            r#"{"method":"HarnessUpdateAvailable","params":{"harness":"codex"}}"#.to_owned(),
+            r#"{"id":987654,"item":{"anything":true}}"#.to_owned(),
+            "not json at all".to_owned(),
+            format!(r#"{{"id":{id},"ok":{{"deviceId":"d"}},"trace":"x","newField":[1]}}"#),
+        ] {
+            in_tx.send(junk).await.unwrap();
+        }
+        let reply = call.await.unwrap().expect("reply despite unknown frames");
+        assert_eq!(reply["deviceId"], "d");
+    }
+}
