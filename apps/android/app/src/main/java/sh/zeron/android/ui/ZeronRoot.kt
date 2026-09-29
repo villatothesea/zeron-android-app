@@ -9,7 +9,6 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.ui.input.pointer.changedToUp
 import androidx.compose.foundation.layout.Arrangement
@@ -78,7 +77,6 @@ import androidx.core.view.WindowCompat
 import kotlinx.coroutines.launch
 import sh.zeron.android.core.Machine
 import sh.zeron.android.core.ZeronModel
-import androidx.compose.material3.HorizontalDivider
 import sh.zeron.android.design.AnchoredMenu
 import sh.zeron.android.design.AssetIcon
 import sh.zeron.android.design.Glyph
@@ -91,7 +89,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import sh.zeron.android.design.BackChevron
 import sh.zeron.android.design.BrandMark
 import sh.zeron.android.design.ChevronMark
-import sh.zeron.android.design.FolderPlusMark
+import sh.zeron.android.design.EllipsisMark
 import sh.zeron.android.design.LocalZeronColors
 import sh.zeron.android.design.MarkKind
 import sh.zeron.android.design.PlusMark
@@ -105,7 +103,6 @@ import sh.zeron.android.design.ZeronLight
 import sh.zeron.android.design.ZeronType
 import sh.zeron.android.design.glassSurface
 import uniffi.zeron_core.ChatIndicator
-import uniffi.zeron_core.ProjectView
 import uniffi.zeron_core.PullRequest
 import uniffi.zeron_core.PullRequestState
 import uniffi.zeron_core.SectionView
@@ -212,7 +209,6 @@ private fun Shell(model: ZeronModel, colors: ZeronColors) {
         else model.tab = ZeronModel.Tab.Sessions
     }
     var prompt by remember { mutableStateOf<Prompt?>(null) }
-    var newProject by remember { mutableStateOf(false) }
     val menus = remember { RowMenuHost() }
     val swipe = remember { SwipeCoordinator() }
     androidx.compose.runtime.CompositionLocalProvider(LocalRowMenus provides menus, LocalSwipe provides swipe) {
@@ -238,21 +234,11 @@ private fun Shell(model: ZeronModel, colors: ZeronColors) {
             top is ZeronModel.Route.Folder -> FolderScreen(model, colors, top)
             model.tab == ZeronModel.Tab.Settings -> SettingsScreen(model, colors)
             model.tab == ZeronModel.Tab.Search -> SearchScreen(model, colors)
-            else -> SessionsScreen(model, colors, onNewSpace = { newProject = true })
+            else -> SessionsScreen(model, colors, onPrompt = { prompt = it })
         }
         if (model.showNewSession) {
             Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.35f))) {
                 NewSessionSheet(model, onDismiss = { model.showNewSession = false })
-            }
-        }
-        if (newProject) {
-            Box(Modifier.fillMaxSize().background(colors.background)) {
-                NewProjectScreen(model, onClose = { newProject = false }, onCreated = { id, name ->
-                    newProject = false
-                    model.showToast("Added $name")
-                    model.newSessionProject = id
-                    model.showNewSession = true
-                })
             }
         }
         RowMenusOverlay(model, colors, menus) { prompt = it }
@@ -356,53 +342,27 @@ private fun NameDialog(colors: ZeronColors, prompt: Prompt, onDismiss: () -> Uni
 }
 
 @Composable
-private fun SessionsScreen(model: ZeronModel, colors: ZeronColors, onNewSpace: () -> Unit) {
-    val workspace = model.workspace
-    val front = workspace?.front
-    var spaceId by remember { mutableStateOf<String?>(null) }
-    var spaceMenu by remember { mutableStateOf(false) }
-    var archivedOpen by remember { mutableStateOf(true) }
+private fun SessionsScreen(model: ZeronModel, colors: ZeronColors, onPrompt: (Prompt) -> Unit) {
+    val front = model.workspace?.front
+    var menu by remember { mutableStateOf(false) }
+    var menuAnchor by remember { mutableStateOf(androidx.compose.ui.geometry.Rect.Zero) }
     var refreshing by remember { mutableStateOf(false) }
-    LaunchedEffect(model.pendingSpaceMenu) {
-        if (model.pendingSpaceMenu) {
-            spaceMenu = true
-            model.pendingSpaceMenu = false
-        }
-    }
-    val projects = workspace?.projects.orEmpty()
-    // iOS space filter: only spaces that have active sessions, most recent
-    // activity first (the frame lists zeron, then edge). A space with no
-    // live sessions (all archived, or never used) is left out; the selected
-    // space always stays so the checkmark has a row.
-    val menuProjects = remember(projects, spaceId) {
-        projects
-            .filter { it.sessions.isNotEmpty() || it.id == spaceId }
-            .sortedByDescending { project -> project.sessions.maxOfOrNull { it.lastActivityMs } ?: 0L }
-    }
-    val space = projects.firstOrNull { it.id == spaceId }
     // Keyed on the snapshot itself: ZeronModel only swaps `workspace` when its
     // content changed, so streaming updates elsewhere do not rebuild the list.
     // iOS front page: Pinned and the user's sections as foldable groups, then
     // everything else under Recent (headed only when a group precedes it).
-    val groups = remember(front, spaceId, projects) {
+    val groups = remember(front) {
         val seen = HashSet<String>()
         fun fresh(list: List<SessionRow>) = list.filter { seen.add(it.id) }
-        if (spaceId != null) {
-            listOf(ListGroup("space", null, fresh(projects.firstOrNull { it.id == spaceId }?.sessions.orEmpty())))
-        } else {
-            val out = ArrayList<ListGroup>()
-            val pinned = fresh(front?.pinned.orEmpty())
-            if (pinned.isNotEmpty()) out.add(ListGroup("pinned", "Pinned", pinned))
-            front?.sections.orEmpty().forEach { section -> out.add(ListGroup(section.id, section.name, fresh(section.sessions), section = section)) }
-            val recent = fresh(front?.recent.orEmpty())
-            out.add(ListGroup("recent", if (out.isEmpty()) null else "Recent", recent))
-            out
-        }
+        val out = ArrayList<ListGroup>()
+        val pinned = fresh(front?.pinned.orEmpty())
+        if (pinned.isNotEmpty()) out.add(ListGroup("pinned", "Pinned", pinned))
+        front?.sections.orEmpty().forEach { section -> out.add(ListGroup(section.id, section.name, fresh(section.sessions), section = section)) }
+        val recent = fresh(front?.recent.orEmpty())
+        out.add(ListGroup("recent", if (out.isEmpty()) null else "Recent", recent))
+        out
     }
     val rows = remember(groups) { groups.flatMap { it.rows } }
-    val archived = remember(workspace, spaceId) {
-        workspace?.archived.orEmpty().filter { spaceId == null || it.project?.id == spaceId }
-    }
     val listState = rememberLazyListState()
     val guard = remember { TapGuard() }
     val swipe = LocalSwipe.current
@@ -433,7 +393,7 @@ private fun SessionsScreen(model: ZeronModel, colors: ZeronColors, onNewSpace: (
                 modifier = Modifier.align(Alignment.TopCenter).padding(top = headerBottom),
             )
         }) {
-            if (rows.isEmpty() && archived.isEmpty()) {
+            if (rows.isEmpty()) {
                 val topInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
                 Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(top = topInset + ListHeaderHeight + ListHeaderGap)) {
                     DirectBanner(model, colors)
@@ -470,29 +430,12 @@ private fun SessionsScreen(model: ZeronModel, colors: ZeronColors, onNewSpace: (
                             }
                         }
                     }
-                    if (archived.isNotEmpty()) {
-                        item(key = "archived-head") {
-                            Row(
-                                Modifier.fillMaxWidth().clickable { archivedOpen = !archivedOpen }.padding(start = 20.dp, end = 16.dp, top = 22.dp, bottom = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Text("Archived", color = colors.secondary, fontFamily = ZeronType.Sans, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-                                Spacer(Modifier.weight(1f))
-                                ChevronMark(colors.tertiary, Modifier.size(12.dp), expanded = archivedOpen)
-                            }
-                        }
-                        if (archivedOpen) {
-                            items(archived, key = { "arch-${it.id}" }) { row ->
-                                SessionRowView(row, colors, archived = true, model = model, tapGuard = guard)
-                            }
-                        }
-                    }
                 }
             }
         }
         // Solid band behind the status bar and the floating capsules, then a
         // fade: rows scrolling up dissolve a gap below the header instead of
-        // running under "All" and the buttons (like the chat's top edge).
+        // running under "Sessions" and the buttons (like the chat's top edge).
         val band = if (colors.dark) SessionsBackdrop else colors.background
         Column(Modifier.fillMaxWidth()) {
             Box(Modifier.fillMaxWidth().height(headerBottom).background(band))
@@ -503,18 +446,24 @@ private fun SessionsScreen(model: ZeronModel, colors: ZeronColors, onNewSpace: (
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
-            Row(
-                Modifier.height(44.dp).glassSurface(colors, 22.dp).clickable { spaceMenu = true }.padding(horizontal = 14.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(space?.name ?: "All", color = colors.text, fontFamily = ZeronType.Sans, fontWeight = FontWeight.Medium, fontSize = 16.sp, maxLines = 1)
-                Spacer(Modifier.width(6.dp))
-                ChevronMark(colors.text, Modifier.size(11.dp), expanded = true)
-            }
+            Text(
+                "Sessions",
+                color = colors.text,
+                fontFamily = ZeronType.Sans,
+                fontWeight = FontWeight.Bold,
+                fontSize = 30.sp,
+                maxLines = 1,
+            )
             Row(
                 Modifier.height(44.dp).glassSurface(colors, 22.dp).padding(horizontal = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                Box(
+                    Modifier.size(40.dp).onGloballyPositioned { menuAnchor = it.boundsInRoot() }.clickable { menu = true },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    EllipsisMark(colors.text, Modifier.size(18.dp))
+                }
                 Box(Modifier.size(40.dp).clickable { model.showNewSession = true }, contentAlignment = Alignment.Center) {
                     PlusMark(colors.text, Modifier.size(18.dp))
                 }
@@ -526,80 +475,25 @@ private fun SessionsScreen(model: ZeronModel, colors: ZeronColors, onNewSpace: (
                 }
             }
         }
-        if (spaceMenu) {
-            // iOS: no dimming scrim. The glass menu grows out of the "All"
-            // capsule and covers it (same top, slightly further left).
-            val none = remember { MutableInteractionSource() }
-            Box(Modifier.fillMaxSize().clickable(interactionSource = none, indication = null) { spaceMenu = false }) {
-                Column(
-                    Modifier
-                        .statusBarsPadding()
-                        .padding(start = 9.dp, top = 6.dp)
-                        .width(247.dp)
-                        .glassSurface(colors, 26.dp)
-                        // Measured from mobile-polish/project-menu.png (@3x): 247pt
-                        // wide, check at 27pt, titles at 59pt inside the panel. Denser wash
-                        // stands in for UIMenu's heavy blur.
-                        .background(if (colors.dark) Color(0xFF232325).copy(alpha = 0.86f) else Color(0xFFF7F7F8).copy(alpha = 0.86f))
-                        .padding(vertical = 8.dp),
-                ) {
-                    SpaceChoice(colors, "All", null, selected = spaceId == null) {
-                        spaceId = null
-                        spaceMenu = false
-                    }
-                    menuProjects.forEach { project ->
-                        SpaceChoice(colors, project.name, projectSubtitle(project), selected = spaceId == project.id) {
-                            spaceId = project.id
-                            spaceMenu = false
-                        }
-                    }
-                    HorizontalDivider(Modifier.padding(start = 23.dp, end = 21.dp, top = 4.dp, bottom = 4.dp), color = colors.text.copy(alpha = 0.14f))
-                    Row(
-                        Modifier.fillMaxWidth().height(52.dp).clickable {
-                            spaceMenu = false
-                            onNewSpace()
-                        }.padding(start = 25.dp, end = 14.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        FolderPlusMark(colors.text, Modifier.size(22.dp))
-                        Spacer(Modifier.width(12.dp))
-                        Text("New space…", color = colors.text, fontFamily = ZeronType.Sans, fontSize = 17.sp)
-                    }
-                }
-            }
+        if (menu) {
+            // iOS optionsMenu() on the "ellipsis" bar item (AnchoredMenu's own
+            // BackHandler closes it).
+            AnchoredMenu(
+                colors,
+                menuAnchor,
+                title = null,
+                entries = listOf(
+                    MenuEntry("New Section…", icon = { c -> Glyph(Glyphs.FolderPlus, 17.dp, c) }) {
+                        onPrompt(Prompt("New Section", "", "Create") { value -> if (value.isNotEmpty()) model.createSection(value) })
+                    },
+                    MenuEntry("Collapse All", icon = { c -> Glyph(Glyphs.Tray, 17.dp, c) }) { model.collapseAll() },
+                    MenuEntry("Archived", icon = { c -> Glyph(Glyphs.Archive, 17.dp, c) }) { model.openFolder("archived", "Archived") },
+                ),
+                above = false,
+            ) { menu = false }
         }
     }
     }
-}
-
-@Composable
-private fun SpaceChoice(
-    colors: ZeronColors,
-    title: String,
-    subtitle: String?,
-    selected: Boolean,
-    onClick: () -> Unit,
-) {
-    val twoLine = !subtitle.isNullOrBlank()
-    Row(
-        Modifier.fillMaxWidth().height(if (twoLine) 58.dp else 48.dp).clickable(onClick = onClick).padding(start = 27.dp, end = 14.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(Modifier.width(32.dp), contentAlignment = Alignment.CenterStart) {
-            if (selected) sh.zeron.android.design.CheckGlyph(colors.text, Modifier.size(16.dp))
-        }
-        Column(Modifier.weight(1f)) {
-            Text(title, color = colors.text, fontFamily = ZeronType.Sans, fontSize = 17.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            if (twoLine) {
-                Text(subtitle, color = colors.secondary, fontFamily = ZeronType.Sans, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            }
-        }
-    }
-}
-
-private fun projectSubtitle(project: ProjectView): String {
-    val host = project.deviceName ?: "This device"
-    return if (project.deviceOnline) "@ $host" else "@ $host · offline"
 }
 
 /** One front-page group: Pinned, a user section, or Recent (headerless alone). */
