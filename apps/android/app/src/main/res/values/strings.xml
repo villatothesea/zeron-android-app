@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Scheduled send. The rest of the app is English-only for now. -->
+<resources>
+    <string name="schedule_send_title">Schedule send</string>
+    <string name="schedule_menu_entry">Schedule send…</string>
+    <string name="schedule_today">Today %1$s</string>
+    <string name="schedule_tomorrow">Tomorrow %1$s</string>
+    <string name="schedule_confirm">Schedule</string>
+    <string name="schedule_dismiss">Cancel</string>
+    <string name="schedule_exact_hint">Exact alarms are off for Zeron, so this may send a few minutes late.</string>
+    <string name="schedule_exact_allow">Allow</string>
+    <string name="schedule_chip">Scheduled for %1$s</string>
+    <string name="schedule_chip_cancel">Cancel</string>
+    <string name="schedule_toast">Scheduled for %1$s</string>
+    <string name="schedule_cancelled">Scheduled message cancelled</string>
+    <string name="schedule_channel_progress">Sending scheduled messages</string>
+    <string name="schedule_channel_result">Scheduled message results</string>
+    <string name="schedule_notif_sending">Sending scheduled message…</string>
+    <string name="schedule_notif_sent">Scheduled message sent</string>
+    <string name="schedule_notif_pending">Scheduled message not confirmed yet</string>
+    <string name="schedule_notif_pending_body">It stays queued and goes out when Zeron reconnects.</string>
+    <string name="schedule_notif_failed">Scheduled message not sent</string>
+    <string name="schedule_notif_failed_body">%1$s\n\n%2$s</string>
+</resources>

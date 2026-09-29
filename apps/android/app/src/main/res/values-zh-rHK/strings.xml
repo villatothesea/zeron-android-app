@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Scheduled send. The rest of the app is English-only for now. -->
+<resources>
+    <string name="schedule_send_title">排程傳送</string>
+    <string name="schedule_menu_entry">排程傳送…</string>
+    <string name="schedule_today">今天 %1$s</string>
+    <string name="schedule_tomorrow">明天 %1$s</string>
+    <string name="schedule_confirm">排程</string>
+    <string name="schedule_dismiss">取消</string>
+    <string name="schedule_exact_hint">Zeron 未獲准使用精確鬧鐘，可能會晚幾分鐘傳送。</string>
+    <string name="schedule_exact_allow">前往允許</string>
+    <string name="schedule_chip">已排程於 %1$s</string>
+    <string name="schedule_chip_cancel">取消</string>
+    <string name="schedule_toast">已排程於 %1$s 傳送</string>
+    <string name="schedule_cancelled">已取消排程訊息</string>
+    <string name="schedule_channel_progress">傳送排程訊息</string>
+    <string name="schedule_channel_result">排程訊息結果</string>
+    <string name="schedule_notif_sending">正在傳送排程訊息…</string>
+    <string name="schedule_notif_sent">排程訊息已傳送</string>
+    <string name="schedule_notif_pending">排程訊息尚未確認送達</string>
+    <string name="schedule_notif_pending_body">訊息已排入佇列，Zeron 重新連線後會送出。</string>
+    <string name="schedule_notif_failed">排程訊息傳送失敗</string>
+    <string name="schedule_notif_failed_body">%1$s\n\n%2$s</string>
+</resources>

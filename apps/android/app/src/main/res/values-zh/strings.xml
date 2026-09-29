@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Scheduled send. The rest of the app is English-only for now. -->
+<resources>
+    <string name="schedule_send_title">定时发送</string>
+    <string name="schedule_menu_entry">定时发送…</string>
+    <string name="schedule_today">今天 %1$s</string>
+    <string name="schedule_tomorrow">明天 %1$s</string>
+    <string name="schedule_confirm">定时发送</string>
+    <string name="schedule_dismiss">取消</string>
+    <string name="schedule_exact_hint">Zeron 未获准使用精确闹钟，可能会晚几分钟发送。</string>
+    <string name="schedule_exact_allow">去允许</string>
+    <string name="schedule_chip">定时 %1$s 发送</string>
+    <string name="schedule_chip_cancel">取消</string>
+    <string name="schedule_toast">已定时 %1$s 发送</string>
+    <string name="schedule_cancelled">已取消定时消息</string>
+    <string name="schedule_channel_progress">发送定时消息</string>
+    <string name="schedule_channel_result">定时消息结果</string>
+    <string name="schedule_notif_sending">正在发送定时消息…</string>
+    <string name="schedule_notif_sent">定时消息已发送</string>
+    <string name="schedule_notif_pending">定时消息尚未确认送达</string>
+    <string name="schedule_notif_pending_body">消息已排队，Zeron 重新连接后会发出。</string>
+    <string name="schedule_notif_failed">定时消息发送失败</string>
+    <string name="schedule_notif_failed_body">%1$s\n\n%2$s</string>
+</resources>
