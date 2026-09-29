@@ -23,6 +23,8 @@ data class HeaderMenuTarget(val id: String, val title: String, val section: Sect
 class RowMenuHost {
     var row by mutableStateOf<RowMenuTarget?>(null)
     var header by mutableStateOf<HeaderMenuTarget?>(null)
+    /** The Move swipe action's "Move to Section" menu, anchored on the row. */
+    var move by mutableStateOf<RowMenuTarget?>(null)
 }
 
 val LocalRowMenus = staticCompositionLocalOf { RowMenuHost() }

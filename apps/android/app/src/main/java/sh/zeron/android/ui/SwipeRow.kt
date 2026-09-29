@@ -72,9 +72,11 @@ class SwipeRowScope internal constructor(
 private val ActionWidth = 84.dp
 
 /**
- * iOS-style swipe actions. A short swipe reveals the button (tap it to act);
- * only a long, full swipe (past 60% of the row) acts on release. Mostly
- * vertical drags stay with the list ([detectRowSwipe]).
+ * iOS-style swipe actions. A short swipe reveals the buttons (tap one to
+ * act); only a long, full swipe (past 60% of the row) acts on release —
+ * the first action on that side. Trailing actions sit side by side, the
+ * first outermost, like a UISwipeActionsConfiguration. Mostly vertical
+ * drags stay with the list ([detectRowSwipe]).
  */
 @Composable
 fun SwipeRow(
@@ -82,7 +84,7 @@ fun SwipeRow(
     height: Dp,
     coordinator: SwipeCoordinator,
     leading: SwipeAction?,
-    trailing: SwipeAction?,
+    trailing: List<SwipeAction>,
     modifier: Modifier = Modifier,
     content: @Composable BoxScope.(SwipeRowScope) -> Unit,
 ) {
@@ -124,9 +126,24 @@ fun SwipeRow(
                 ActionPane(action, widthDp = with(density) { x.toDp() }, revealDp = with(density) { minOf(x, actionPx).toDp() }, leadingSide = true) { fire(action) }
             }
         }
-        trail?.let { action ->
-            if (x < -0.5f) {
-                ActionPane(action, widthDp = with(density) { (-x).toDp() }, revealDp = with(density) { minOf(-x, actionPx).toDp() }, leadingSide = false) { fire(action) }
+        val openPx = actionPx * trail.size
+        if (trail.isNotEmpty() && x < -0.5f) {
+            if (-x > openPx) {
+                // Past the open point the outermost action stretches under the
+                // finger and fires on release (UIKit's full-swipe action).
+                ActionPane(trail.first(), widthDp = with(density) { (-x).toDp() }, revealDp = with(density) { actionPx.toDp() }, leadingSide = false) { fire(trail.first()) }
+            } else {
+                // Equal slices, the first action rightmost (outermost).
+                val slice = -x / trail.size
+                trail.forEachIndexed { index, action ->
+                    ActionPane(
+                        action,
+                        widthDp = with(density) { slice.toDp() },
+                        revealDp = with(density) { minOf(slice, actionPx).toDp() },
+                        leadingSide = false,
+                        inset = with(density) { (slice * index).toDp() },
+                    ) { fire(action) }
+                }
             }
         }
         val gesture = Modifier.pointerInput(id) {
@@ -138,7 +155,7 @@ fun SwipeRow(
                         base = offset.value
                         coordinator.openId = id
                     }
-                    val min = if (trail != null) -widthPx else 0f
+                    val min = if (trail.isNotEmpty()) -widthPx else 0f
                     val max = if (lead != null) widthPx else 0f
                     val v = (base + total).coerceIn(min, max)
                     val full = abs(v) >= widthPx * 0.6f
@@ -150,17 +167,18 @@ fun SwipeRow(
                 },
                 onEnd = { total ->
                     dragging = false
-                    val min = if (trail != null) -widthPx else 0f
+                    val min = if (trail.isNotEmpty()) -widthPx else 0f
                     val max = if (lead != null) widthPx else 0f
                     val v = (base + total).coerceIn(min, max)
                     val full = widthPx * 0.6f
+                    val open = actionPx * trail.size
                     val l = lead
                     val t = trail
                     when {
                         l != null && v >= full -> fire(l)
-                        t != null && v <= -full -> fire(t)
+                        t.isNotEmpty() && v <= -full -> fire(t.first())
                         l != null && v > actionPx / 2f -> settle(actionPx)
-                        t != null && v < -actionPx / 2f -> settle(-actionPx)
+                        t.isNotEmpty() && v < -open / 2f -> settle(-open)
                         else -> settle(0f)
                     }
                 },
@@ -188,10 +206,12 @@ fun SwipeRow(
 }
 
 @Composable
-private fun BoxScope.ActionPane(action: SwipeAction, widthDp: Dp, revealDp: Dp, leadingSide: Boolean, onClick: () -> Unit) {
+private fun BoxScope.ActionPane(action: SwipeAction, widthDp: Dp, revealDp: Dp, leadingSide: Boolean, inset: Dp = 0.dp, onClick: () -> Unit) {
     Box(
         Modifier
             .align(if (leadingSide) Alignment.CenterStart else Alignment.CenterEnd)
+            // Trailing panes step in from the right edge: action 0 outermost.
+            .offset(x = if (leadingSide) 0.dp else -inset)
             .width(widthDp)
             .fillMaxHeight()
             .background(action.color)

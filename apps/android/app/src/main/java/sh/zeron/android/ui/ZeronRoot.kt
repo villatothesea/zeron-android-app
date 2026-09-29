@@ -300,6 +300,32 @@ private fun RowMenusOverlay(model: ZeronModel, colors: ZeronColors, menus: RowMe
         }
         AnchoredMenu(colors, target.anchor, title = null, entries = entries, above = target.anchor.center.y > screenHeight * 0.55f) { menus.row = null }
     }
+    menus.move?.let { target ->
+        // The swipe "Move" action's menu (iOS presentMoveMenu): every user
+        // section with a checkmark on the row's, then No Section, then New.
+        val row = model.client?.sessionRow(target.id)
+            ?: model.workspace?.archived?.firstOrNull { it.id == target.id }
+        if (row == null) {
+            menus.move = null
+            return@let
+        }
+        val entries = buildList {
+            model.workspace?.front?.sections.orEmpty().forEach { section ->
+                add(
+                    MenuEntry(section.name, checked = section.id == row.sectionId, icon = { c -> Glyph(Glyphs.Folder, 17.dp, c) }) {
+                        model.move(row.id, section.id)
+                    },
+                )
+            }
+            add(MenuEntry("No Section", checked = row.sectionId == null, icon = { c -> Glyph(Glyphs.Tray, 17.dp, c) }) { model.move(row.id, null) })
+            add(
+                MenuEntry("New Section…", icon = { c -> Glyph(Glyphs.FolderPlus, 17.dp, c) }) {
+                    onPrompt(Prompt("New Section", "", "Create") { value -> if (value.isNotEmpty()) model.createSection(value) })
+                },
+            )
+        }
+        AnchoredMenu(colors, target.anchor, title = "Move to Section", entries = entries, above = target.anchor.center.y > screenHeight * 0.55f) { menus.move = null }
+    }
     menus.header?.let { target ->
         // iOS headerMenu: Pinned gets Open + Reorder… (the folder screen), a
         // section gets Open + Rename/Delete. "Recent" never opens a menu.
@@ -567,7 +593,8 @@ private fun SessionRowView(
     val latestRow by rememberUpdatedState(row)
     // The snapshot's `timeLabel` goes stale; re-derive it against LocalNow.
     val timeLabel = RelativeTime.label(row.lastActivityMs, LocalNow.current)
-    // iOS: leading Pin/Unpin (accent), trailing Archive (red) or Unarchive.
+    // iOS: leading Pin/Unpin (accent); trailing Archive + Move (Archive is
+    // the outermost, full-swipe action) or a lone Unarchive when archived.
     val leading = if (archived) null else SwipeAction(
         title = if (row.pinned) "Unpin" else "Pin",
         color = colors.accent,
@@ -576,9 +603,14 @@ private fun SessionRowView(
         onAction = { model.pin(latestRow.id, !latestRow.pinned) },
     )
     val trailing = if (archived) {
-        SwipeAction("Unarchive", colors.accent, { tint -> Glyph(Glyphs.Unarchive, 20.dp, tint) }) { model.unarchive(latestRow.id) }
+        listOf(SwipeAction("Unarchive", colors.accent, { tint -> Glyph(Glyphs.Unarchive, 20.dp, tint) }) { model.unarchive(latestRow.id) })
     } else {
-        SwipeAction("Archive", colors.danger, { tint -> Glyph(Glyphs.Archive, 20.dp, tint) }) { model.archive(latestRow.id) }
+        listOf(
+            SwipeAction("Archive", colors.secondary, { tint -> Glyph(Glyphs.Archive, 20.dp, tint) }) { model.archive(latestRow.id) },
+            SwipeAction("Move", Color(0xFF5E6AD2), { tint -> Glyph(Glyphs.Folder, 20.dp, tint) }) {
+                menus.move = RowMenuTarget(latestRow.id, archived = false, anchor = bounds)
+            },
+        )
     }
     SwipeRow(
         id = if (archived) "arch-${row.id}" else row.id,
