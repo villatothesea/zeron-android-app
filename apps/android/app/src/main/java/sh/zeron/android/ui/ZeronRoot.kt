@@ -10,6 +10,9 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.ui.input.pointer.changedToUp
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -18,6 +21,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -47,6 +51,8 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -70,6 +76,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.platform.LocalView
@@ -86,6 +93,7 @@ import sh.zeron.android.design.PinSlashGlyph
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onSizeChanged
 import sh.zeron.android.design.BackChevron
 import sh.zeron.android.design.BrandMark
 import sh.zeron.android.design.ChevronMark
@@ -96,6 +104,7 @@ import sh.zeron.android.design.PlusMark
 import sh.zeron.android.design.ProfileMark
 import sh.zeron.android.design.ProjectTile
 import sh.zeron.android.design.PullRequestIcon
+import sh.zeron.android.design.ReorderMark
 import sh.zeron.android.design.StatusMark
 import sh.zeron.android.design.ZeronColors
 import sh.zeron.android.design.ZeronDark
@@ -584,6 +593,9 @@ private fun SessionRowView(
     archived: Boolean,
     model: ZeronModel,
     tapGuard: TapGuard? = null,
+    modifier: Modifier = Modifier,
+    dragHandle: Modifier? = null,
+    elevated: Boolean = false,
 ) {
     val swipe = LocalSwipe.current
     val menus = LocalRowMenus.current
@@ -618,12 +630,13 @@ private fun SessionRowView(
         coordinator = swipe,
         leading = leading,
         trailing = trailing,
+        modifier = modifier,
     ) { scope ->
         Row(
             Modifier
                 .fillMaxSize()
                 .then(scope.offset)
-                .background(if (scope.revealed) backdrop else Color.Transparent)
+                .background(if (scope.revealed) backdrop else if (elevated) colors.elevated else Color.Transparent)
                 .onGloballyPositioned { bounds = it.boundsInRoot() }
                 .combinedClickable(
                     onClick = {
@@ -716,6 +729,14 @@ private fun SessionRowView(
                         }
                     }
                 }
+                if (dragHandle != null) {
+                    Box(
+                        Modifier.fillMaxHeight().width(36.dp).then(dragHandle),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        ReorderMark(colors.tertiary, Modifier.size(20.dp))
+                    }
+                }
             }
         }
     }
@@ -782,6 +803,9 @@ private fun FolderScreen(model: ZeronModel, colors: ZeronColors, folder: ZeronMo
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text("Nothing here", color = colors.secondary, fontFamily = ZeronType.Sans)
             }
+        } else if (folder.id == "pinned") {
+            // Pins are an ordered list: drag the grip to reorder (synced).
+            PinnedRows(model, colors, rows, Modifier.weight(1f))
         } else {
             LazyColumn(Modifier.weight(1f)) {
                 items(rows, key = { it.id }) { row ->
@@ -790,6 +814,99 @@ private fun FolderScreen(model: ZeronModel, colors: ZeronColors, folder: ZeronMo
             }
         }
     }
+    }
+}
+
+/**
+ * The Pinned folder's rows. Each carries a reorder grip on its trailing edge
+ * that drags the row up or down, iOS-style — the row follows the finger,
+ * lifted; neighbours shift as it passes (animateItem). On drop the new order
+ * goes to the core via [ZeronModel.movePin]. Between drags [order] mirrors
+ * the workspace's pin list.
+ */
+@Composable
+private fun PinnedRows(model: ZeronModel, colors: ZeronColors, rows: List<SessionRow>, modifier: Modifier = Modifier) {
+    val order = remember { mutableStateListOf<SessionRow>() }
+    var dragIndex by remember { mutableIntStateOf(-1) }
+    var dragOffset by remember { mutableFloatStateOf(0f) }
+    var rowPx by remember { mutableFloatStateOf(1f) }
+    var preDrag by remember { mutableStateOf<List<SessionRow>?>(null) }
+    val latestRows by rememberUpdatedState(rows)
+    LaunchedEffect(rows) {
+        if (dragIndex < 0 && order.toList() != rows) {
+            order.clear()
+            order.addAll(rows)
+        }
+    }
+
+    fun drop() {
+        val pre = preDrag
+        val i = dragIndex
+        dragIndex = -1
+        preDrag = null
+        dragOffset = 0f
+        val id = order.getOrNull(i)?.id
+        if (pre != null && id != null && order.toList() != pre) {
+            // Like iOS pinsReordered: the rows now above/below the dropped one.
+            if (!model.movePin(id, order.getOrNull(i - 1)?.id, order.getOrNull(i + 1)?.id)) {
+                order.clear()
+                order.addAll(latestRows)
+            }
+        } else if (order.toList() != latestRows) {
+            order.clear()
+            order.addAll(latestRows)
+        }
+    }
+
+    LazyColumn(modifier) {
+        items(order, key = { it.id }) { row ->
+            val dragging = dragIndex >= 0 && order.getOrNull(dragIndex)?.id == row.id
+            SessionRowView(
+                row,
+                colors,
+                archived = false,
+                model = model,
+                modifier = Modifier
+                    .then(if (dragging) Modifier else Modifier.animateItem())
+                    .zIndex(if (dragging) 1f else 0f)
+                    .onSizeChanged { rowPx = it.height.toFloat().coerceAtLeast(1f) }
+                    .graphicsLayer {
+                        translationY = if (dragging) dragOffset else 0f
+                        shadowElevation = if (dragging) 10.dp.toPx() else 0f
+                    },
+                elevated = dragging,
+                dragHandle = Modifier
+                    .pointerInput(Unit) {
+                        // Taps and long-presses on the grip stay on the grip.
+                        awaitEachGesture { awaitFirstDown(requireUnconsumed = false).consume() }
+                    }
+                    .pointerInput(row.id) {
+                        detectVerticalDragGestures(
+                            onDragStart = {
+                                preDrag = order.toList()
+                                dragIndex = order.indexOfFirst { it.id == row.id }
+                                dragOffset = 0f
+                            },
+                            onVerticalDrag = { change, amount ->
+                                change.consume()
+                                dragOffset += amount
+                                while (dragOffset > rowPx / 2f && dragIndex in 0 until order.lastIndex) {
+                                    order.add(dragIndex + 1, order.removeAt(dragIndex))
+                                    dragIndex++
+                                    dragOffset -= rowPx
+                                }
+                                while (dragOffset < -rowPx / 2f && dragIndex > 0) {
+                                    order.add(dragIndex - 1, order.removeAt(dragIndex))
+                                    dragIndex--
+                                    dragOffset += rowPx
+                                }
+                            },
+                            onDragEnd = { drop() },
+                            onDragCancel = { drop() },
+                        )
+                    },
+            )
+        }
     }
 }
 

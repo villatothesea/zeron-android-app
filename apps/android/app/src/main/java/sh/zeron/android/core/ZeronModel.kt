@@ -718,6 +718,7 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
     }
     fun rename(id: String, title: String) = attempt { it.renameSession(id, title) }
     fun move(id: String, section: String?) = attempt { it.assignSection(id, section) }
+    fun movePin(id: String, after: String?, before: String?) = attempt { it.movePin(id, after, before) }
     fun createSection(name: String) = attempt { it.createSection(name) }
     fun renameSection(id: String, name: String) = attempt { it.renameSection(id, name) }
     fun deleteSection(id: String) = attempt { it.deleteSection(id) }

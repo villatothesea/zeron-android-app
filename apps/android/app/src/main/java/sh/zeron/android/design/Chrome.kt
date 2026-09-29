@@ -336,6 +336,21 @@ fun EllipsisMark(color: Color, modifier: Modifier = Modifier) {
     }
 }
 
+/** The reorder grip on pinned rows: three short bars, iOS-style. */
+@Composable
+fun ReorderMark(color: Color, modifier: Modifier = Modifier) {
+    Canvas(modifier) {
+        val s = size.minDimension
+        val stroke = s * 0.09f
+        val x0 = s * 0.24f
+        val x1 = s * 0.76f
+        for (i in 0..2) {
+            val y = s * (0.30f + i * 0.20f)
+            drawLine(color, Offset(x0, y), Offset(x1, y), stroke, androidx.compose.ui.graphics.StrokeCap.Round)
+        }
+    }
+}
+
 @Composable
 fun PrGlyph(color: Color, modifier: Modifier = Modifier) {
     Canvas(modifier) { drawPrIcon(color) }
