@@ -37,6 +37,7 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import sh.zeron.android.core.Machine
 import sh.zeron.android.core.ZeronModel
 import sh.zeron.android.design.AnchoredMenu
 import sh.zeron.android.design.BrandMark
@@ -247,9 +248,15 @@ fun NewSessionSheet(model: ZeronModel, onDismiss: () -> Unit) {
                         hostId = hostId ?: (hosts.firstOrNull { it.online } ?: hosts.firstOrNull())?.id
                     })
                     add(MenuEntry("New Project…", icon = { c -> Glyph(Glyphs.FolderPlus, 17.dp, c) }) { browsing = true })
+                    add(menuSection())
+                    add(MenuEntry("Add Computer…", icon = { c -> Glyph(Glyphs.Computer, 17.dp, c) }) { model.editMachine = Machine() })
                 }
-                "host" -> "Run on" to hosts.map { h ->
-                    MenuEntry(h.name, subtitle = if (h.online) "Online" else "Offline", checked = h.id == hostId, icon = { c -> Glyph(Glyphs.Computer, 17.dp, c) }) { hostId = h.id }
+                "host" -> "Run on" to buildList {
+                    hosts.forEach { h ->
+                        add(MenuEntry(h.name, subtitle = if (h.online) "Online" else "Offline", checked = h.id == hostId, icon = { c -> Glyph(Glyphs.Computer, 17.dp, c) }) { hostId = h.id })
+                    }
+                    add(menuSection())
+                    add(MenuEntry("Add Computer…", icon = { c -> Glyph(Glyphs.Computer, 17.dp, c) }) { model.editMachine = Machine() })
                 }
                 "branch" -> "Checkout" to buildList {
                     add(MenuEntry("New worktree", checked = worktree) { worktree = !worktree })
