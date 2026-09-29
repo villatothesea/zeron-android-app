@@ -77,6 +77,16 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
 
     enum class Tab { Sessions, Settings, Search }
 
+    /** Home list view: grouped by project (default) or one list by agent activity. */
+    enum class ListMode(val key: String) {
+        Project("project"),
+        Activity("activity");
+
+        companion object {
+            fun from(key: String?): ListMode = entries.firstOrNull { it.key == key } ?: Project
+        }
+    }
+
     var phase by mutableStateOf<Phase>(Phase.Loading)
     var workspace by mutableStateOf<WorkspaceSnapshot?>(null)
     var epoch by mutableIntStateOf(0)
@@ -171,8 +181,20 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
         val ws = workspace ?: return
         if (ws.front.pinned.isNotEmpty()) collapsed.add("pinned")
         ws.front.sections.forEach { collapsed.add(it.id) }
+        if (listMode == ListMode.Project) {
+            ws.front.recent.forEach { collapsed.add(sh.zeron.android.ui.SessionGrouping.projectKey(it.project?.id)) }
+        }
         prefs.edit().putStringSet("collapsed", HashSet(collapsed)).apply()
         collapsedIds = collapsed.toSet()
+    }
+
+    /** Persisted home list view ("listMode"); unknown values read as By Project. */
+    var listMode by mutableStateOf(ListMode.from(prefs.getString("listMode", null)))
+        private set
+
+    fun applyListMode(mode: ListMode) {
+        listMode = mode
+        prefs.edit().putString("listMode", mode.key).apply()
     }
 
     fun applyAppearance(mode: Int) {

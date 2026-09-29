@@ -89,6 +89,7 @@ import sh.zeron.android.design.AssetIcon
 import sh.zeron.android.design.Glyph
 import sh.zeron.android.design.Glyphs
 import sh.zeron.android.design.MenuEntry
+import sh.zeron.android.design.menuSection
 import sh.zeron.android.design.PinSlashGlyph
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.boundsInRoot
@@ -392,19 +393,30 @@ private fun SessionsScreen(model: ZeronModel, colors: ZeronColors, onPrompt: (Pr
     var menu by remember { mutableStateOf(false) }
     var menuAnchor by remember { mutableStateOf(androidx.compose.ui.geometry.Rect.Zero) }
     var refreshing by remember { mutableStateOf(false) }
+    val mode = model.listMode
+    val homeColor = remember(model.client) { model.homeColorIndex() }
     // Keyed on the snapshot itself: ZeronModel only swaps `workspace` when its
     // content changed, so streaming updates elsewhere do not rebuild the list.
-    // iOS front page: Pinned and the user's sections as foldable groups, then
-    // everything else under Recent (headed only when a group precedes it).
-    val groups = remember(front) {
+    // By Project (default): Pinned, the user's sections, then one foldable
+    // group per project ("~" for project-less sessions). By Activity: one flat
+    // list, live turns first, then unread, then the rest.
+    val groups = remember(front, mode, homeColor) {
         val seen = HashSet<String>()
         fun fresh(list: List<SessionRow>) = list.filter { seen.add(it.id) }
         val out = ArrayList<ListGroup>()
+        if (mode == ZeronModel.ListMode.Activity) {
+            val all = front?.pinned.orEmpty() + front?.sections.orEmpty().flatMap { it.sessions } + front?.recent.orEmpty()
+            out.add(ListGroup("activity", null, SessionGrouping.activityOrder(all), menu = false))
+            return@remember out
+        }
         val pinned = fresh(front?.pinned.orEmpty())
         if (pinned.isNotEmpty()) out.add(ListGroup("pinned", "Pinned", pinned))
         front?.sections.orEmpty().forEach { section -> out.add(ListGroup(section.id, section.name, fresh(section.sessions), section = section)) }
-        val recent = fresh(front?.recent.orEmpty())
-        out.add(ListGroup("recent", if (out.isEmpty()) null else "Recent", recent))
+        SessionGrouping.projectGroups(fresh(front?.recent.orEmpty())).forEach { g ->
+            // The "~" group wears the desktop's home tile ("H").
+            val tile = if (g.projectId == null) "Home" to homeColor else g.title to (g.colorIndex ?: 0)
+            out.add(ListGroup(g.key, g.title, g.rows, tile = tile, menu = false))
+        }
         out
     }
     val rows = remember(groups) { groups.flatMap { it.rows } }
@@ -469,15 +481,16 @@ private fun SessionsScreen(model: ZeronModel, colors: ZeronColors, onPrompt: (Pr
                                         else -> null
                                     },
                                     onToggle = { model.toggleCollapsed(group.id) },
-                                    onLongPress = if (group.id == "recent") null else { rect: androidx.compose.ui.geometry.Rect ->
+                                    onLongPress = if (!group.menu) null else { rect: androidx.compose.ui.geometry.Rect ->
                                         menus.header = HeaderMenuTarget(group.id, group.title, group.section, rect)
                                     },
+                                    tile = group.tile,
                                 )
                             }
                         }
                         if (!folded) {
                             items(group.rows, key = { it.id }, contentType = { "row" }) { row ->
-                                SessionRowView(row, colors, archived = false, model = model, tapGuard = guard)
+                                SessionRowView(row, colors, archived = false, model = model, tapGuard = guard, showPin = mode == ZeronModel.ListMode.Activity && row.pinned)
                             }
                         }
                     }
@@ -533,13 +546,19 @@ private fun SessionsScreen(model: ZeronModel, colors: ZeronColors, onPrompt: (Pr
                 colors,
                 menuAnchor,
                 title = null,
-                entries = listOf(
-                    MenuEntry("New Section…", icon = { c -> Glyph(Glyphs.FolderPlus, 17.dp, c) }) {
-                        onPrompt(Prompt("New Section", "", "Create") { value -> if (value.isNotEmpty()) model.createSection(value) })
-                    },
-                    MenuEntry("Collapse All", icon = { c -> Glyph(Glyphs.Tray, 17.dp, c) }) { model.collapseAll() },
-                    MenuEntry("Archived", icon = { c -> Glyph(Glyphs.Archive, 17.dp, c) }) { model.openFolder("archived", "Archived") },
-                ),
+                entries = buildList {
+                    add(menuSection("View"))
+                    add(MenuEntry("By Project", checked = mode == ZeronModel.ListMode.Project, icon = { c -> Glyph(Glyphs.Folder, 17.dp, c) }) { model.applyListMode(ZeronModel.ListMode.Project) })
+                    add(MenuEntry("By Activity", checked = mode == ZeronModel.ListMode.Activity, icon = { c -> Glyph(Glyphs.Recent, 17.dp, c) }) { model.applyListMode(ZeronModel.ListMode.Activity) })
+                    add(menuSection())
+                    add(
+                        MenuEntry("New Section…", icon = { c -> Glyph(Glyphs.FolderPlus, 17.dp, c) }) {
+                            onPrompt(Prompt("New Section", "", "Create") { value -> if (value.isNotEmpty()) model.createSection(value) })
+                        },
+                    )
+                    if (mode == ZeronModel.ListMode.Project) add(MenuEntry("Collapse All", icon = { c -> Glyph(Glyphs.Tray, 17.dp, c) }) { model.collapseAll() })
+                    add(MenuEntry("Archived", icon = { c -> Glyph(Glyphs.Archive, 17.dp, c) }) { model.openFolder("archived", "Archived") })
+                },
                 above = false,
             ) { menu = false }
         }
@@ -547,8 +566,19 @@ private fun SessionsScreen(model: ZeronModel, colors: ZeronColors, onPrompt: (Pr
     }
 }
 
-/** One front-page group: Pinned, a user section, or Recent (headerless alone). */
-private class ListGroup(val id: String, val title: String?, val rows: List<SessionRow>, val section: SectionView? = null)
+/**
+ * One front-page group: Pinned, a user section, a project (with its [tile]:
+ * name + colour index), or the headerless By Activity list. [menu] = the
+ * header has a long-press menu (Pinned and sections).
+ */
+private class ListGroup(
+    val id: String,
+    val title: String?,
+    val rows: List<SessionRow>,
+    val section: SectionView? = null,
+    val tile: Pair<String, Int>? = null,
+    val menu: Boolean = true,
+)
 
 @Composable
 private fun GroupHeader(
@@ -559,6 +589,7 @@ private fun GroupHeader(
     live: MarkKind?,
     onToggle: () -> Unit,
     onLongPress: ((androidx.compose.ui.geometry.Rect) -> Unit)?,
+    tile: Pair<String, Int>? = null,
 ) {
     var bounds by remember { mutableStateOf(androidx.compose.ui.geometry.Rect.Zero) }
     // SectionHeaderCell: 40pt, semibold title + count, chevron on the right
@@ -574,6 +605,10 @@ private fun GroupHeader(
             .padding(start = 12.dp, end = 12.dp, bottom = 6.dp),
         verticalAlignment = Alignment.Bottom,
     ) {
+        if (tile != null) {
+            Box(Modifier.padding(bottom = 2.dp)) { ProjectTile(tile.first, tile.second, colors, 14.dp) }
+            Spacer(Modifier.width(7.dp))
+        }
         Text(title, color = colors.secondary, fontFamily = ZeronType.Sans, fontWeight = FontWeight.SemiBold, fontSize = 13.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
         Spacer(Modifier.width(7.dp))
         Text("$count", color = colors.tertiary, fontFamily = ZeronType.Sans, fontWeight = FontWeight.Medium, fontSize = 13.5.sp)
@@ -596,6 +631,7 @@ private fun SessionRowView(
     modifier: Modifier = Modifier,
     dragHandle: Modifier? = null,
     elevated: Boolean = false,
+    showPin: Boolean = false,
 ) {
     val swipe = LocalSwipe.current
     val menus = LocalRowMenus.current
@@ -687,6 +723,11 @@ private fun SessionRowView(
                             modifier = Modifier.weight(1f),
                         )
                         Spacer(Modifier.width(10.dp))
+                        if (showPin) {
+                            // By Activity has no Pinned group: a quiet pin marks them.
+                            Glyph(Glyphs.Pin, 12.dp, colors.tertiary, Modifier.graphicsLayer { rotationZ = 30f })
+                            Spacer(Modifier.width(4.dp))
+                        }
                         if (corner != null) {
                             StatusMark(corner.mark, colors, Modifier.size(12.dp))
                             Spacer(Modifier.width(5.dp))
