@@ -42,6 +42,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -182,6 +183,15 @@ fun SessionScreen(model: ZeronModel, chatId: String) {
     val drafts = remember { context.getSharedPreferences("drafts", android.content.Context.MODE_PRIVATE) }
     var draft by remember(chatId) { mutableStateOf(drafts.getString(chatId, "") ?: "") }
     var usageOpen by remember { mutableStateOf(false) }
+    // Scheduled sends for this chat on this workspace (store ticks on change).
+    var scheduleOpen by remember { mutableStateOf(false) }
+    val scheduledTick by sh.zeron.android.schedule.ScheduledStore.changes.collectAsState()
+    val scheduled = remember(scheduledTick, chatId, model.activeMachine) {
+        sh.zeron.android.schedule.ScheduledStore(context).list().filter { it.chatId == chatId && it.workspace == model.activeMachine }
+    }
+    val notificationPermission = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestPermission(),
+    ) { }
     // Plan usage for the composer's ring (desktop AccountUsage): the engine's
     // cached probe paints at once, a forced probe follows, then every 5 min.
     var planAccounts by remember(chatId) { mutableStateOf<List<uniffi.zeron_core.AgentUsage>?>(null) }
@@ -348,6 +358,14 @@ fun SessionScreen(model: ZeronModel, chatId: String) {
         Column(
             Modifier.align(Alignment.BottomCenter).widthIn(max = 768.dp).fillMaxWidth().padding(horizontal = 16.dp).windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars)).padding(bottom = 6.dp).onGloballyPositioned { composerTop = it.boundsInRoot().top.roundToInt() },
         ) {
+            scheduled.forEach { message ->
+                ScheduledChip(colors, message) {
+                    sh.zeron.android.schedule.ScheduledAlarms.cancel(context, message.id)
+                    // Give the text back if the composer is empty.
+                    if (draft.isBlank()) draft = message.text
+                    model.showToast(context.getString(sh.zeron.android.R.string.schedule_cancelled))
+                }
+            }
             StatusPill(chrome, model.connectivity, sendFailure, editingQueue != null, colors) {
                 if (editingQueue != null) {
                     editingQueue = null
@@ -384,6 +402,10 @@ fun SessionScreen(model: ZeronModel, chatId: String) {
                     rings = {
                         UsageRings(colors, planFraction(planAccounts, row?.harness), chrome.contextUsage, onTap = { focusManager.clearFocus(); usageOpen = true })
                     },
+                    // Text only (no images) and not while editing a queued message.
+                    onSchedule = if (staged.isEmpty() && editingQueue == null) {
+                        { focusManager.clearFocus(); scheduleOpen = true }
+                    } else null,
                     images = staged,
                     onRemoveImage = { staged = staged.filterNot { s -> s === it } },
                     onAttach = { picker.launch("image/*") },
@@ -496,6 +518,29 @@ fun SessionScreen(model: ZeronModel, chatId: String) {
                 ),
                 above = false,
             ) { menu = false }
+        }
+        if (scheduleOpen) {
+            ScheduleSendDialog(colors, onDismiss = { scheduleOpen = false }) { atMs ->
+                scheduleOpen = false
+                val body = draft.trim()
+                if (body.isNotEmpty()) {
+                    val message = sh.zeron.android.schedule.ScheduledMessage(
+                        workspace = model.activeMachine,
+                        chatId = chatId,
+                        text = body,
+                        atMs = atMs,
+                        chatTitle = row?.title.orEmpty(),
+                    )
+                    sh.zeron.android.schedule.ScheduledAlarms.schedule(context, message)
+                    draft = ""
+                    model.showToast(context.getString(sh.zeron.android.R.string.schedule_toast, sh.zeron.android.schedule.ScheduleTime.clock(atMs)))
+                    if (android.os.Build.VERSION.SDK_INT >= 33 &&
+                        androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED
+                    ) {
+                        notificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                    }
+                }
+            }
         }
         if (usageOpen) {
             UsageSheet(colors, model.agentUsageSource, row?.deviceId ?: chrome.host.deviceId, row?.harness, chrome.contextUsage, onAccounts = { planAccounts = it }) { usageOpen = false }
@@ -835,6 +880,8 @@ internal fun ComposerBar(
     onMention: (String, Boolean) -> Unit,
     /** Usage rings (desktop footer ring cluster), just before the send button. */
     rings: (@Composable () -> Unit)? = null,
+    /** Long-press Send → Schedule send (null when not offered). */
+    onSchedule: (() -> Unit)? = null,
 ) {
     var trailingPx by remember { mutableIntStateOf(0) }
     val trailingDp = with(androidx.compose.ui.platform.LocalDensity.current) { trailingPx.toDp() }
@@ -945,7 +992,7 @@ internal fun ComposerBar(
                         }
                     }
                     rings?.let { Box(Modifier.padding(end = 4.dp)) { it() } }
-                    SendButton(colors, stop, has, running, canSteer, deliveryMenu, { deliveryMenu = it }, onSend)
+                    SendButton(colors, stop, has, running, canSteer, deliveryMenu, { deliveryMenu = it }, onSend, onSchedule)
                 }
             } else {
                 Row(
@@ -953,7 +1000,7 @@ internal fun ComposerBar(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     rings?.let { Box(Modifier.padding(end = 4.dp)) { it() } }
-                    SendButton(colors, stop, has, running, canSteer, deliveryMenu, { deliveryMenu = it }, onSend)
+                    SendButton(colors, stop, has, running, canSteer, deliveryMenu, { deliveryMenu = it }, onSend, onSchedule)
                 }
             }
         }
@@ -970,8 +1017,10 @@ private fun SendButton(
     deliveryMenu: Boolean,
     onMenu: (Boolean) -> Unit,
     onSend: (Delivery) -> Unit,
+    onSchedule: (() -> Unit)? = null,
 ) {
     var anchor by remember { mutableStateOf(Rect.Zero) }
+    val scheduleTitle = androidx.compose.ui.res.stringResource(sh.zeron.android.R.string.schedule_menu_entry)
     Box {
         Box(
             Modifier
@@ -981,7 +1030,11 @@ private fun SendButton(
                 .background(if (stop) colors.text else if (has) colors.accent else colors.text.copy(alpha = 0.10f))
                 .combinedClickable(
                     onClick = { onSend(if (stop) Delivery.Send else if (running && canSteer) Delivery.Steer else Delivery.Queue) },
-                    onLongClick = { if (running && has) onMenu(true) },
+                    // Mid-turn: the delivery menu (with Schedule send…);
+                    // otherwise straight to the time picker.
+                    onLongClick = {
+                        if (running && has) onMenu(true) else if (has) onSchedule?.invoke()
+                    },
                 ),
             contentAlignment = Alignment.Center,
         ) {
@@ -996,6 +1049,7 @@ private fun SendButton(
                     MenuEntry("Queue for next turn") { onSend(Delivery.Queue) },
                     if (canSteer) MenuEntry("Steer now") { onSend(Delivery.Steer) } else null,
                     MenuEntry("Stop and send", destructive = true) { onSend(Delivery.Interrupt) },
+                    onSchedule?.let { MenuEntry(scheduleTitle) { it() } },
                 ),
                 above = true,
             ) { onMenu(false) }
