@@ -72,11 +72,10 @@ fun UpdateScreen(model: ZeronModel) {
                         if (release.newer) "Build ${release.versionCode} · newer than this one" else "Build ${release.versionCode} · you're up to date",
                     )
                     if (release.notes.isNotBlank()) {
-                        Text(
+                        // Release notes are GitHub Markdown: render, don't show the raw text.
+                        MarkdownText(
                             release.notes,
-                            color = colors.text,
-                            fontFamily = ZeronType.Sans,
-                            fontSize = 14.sp,
+                            colors,
                             modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp).clip(RoundedCornerShape(14.dp)).background(colors.elevated).padding(14.dp),
                         )
                     }
