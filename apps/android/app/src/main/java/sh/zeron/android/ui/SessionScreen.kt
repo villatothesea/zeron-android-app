@@ -189,9 +189,9 @@ fun SessionScreen(model: ZeronModel, chatId: String) {
     val usageHarness = row?.harness
     LaunchedEffect(usageDevice, usageHarness) {
         if (!reportsPlanUsage(usageHarness)) return@LaunchedEffect
-        runCatching { client.listAgentUsage(usageDevice, false) }.onSuccess { planAccounts = it }
+        runCatching { model.agentUsageSource(usageDevice, false) }.onSuccess { planAccounts = it }
         while (true) {
-            runCatching { client.listAgentUsage(usageDevice, true) }.onSuccess { planAccounts = it }
+            runCatching { model.agentUsageSource(usageDevice, true) }.onSuccess { planAccounts = it }
             kotlinx.coroutines.delay(5 * 60_000L)
         }
     }
@@ -498,7 +498,7 @@ fun SessionScreen(model: ZeronModel, chatId: String) {
             ) { menu = false }
         }
         if (usageOpen) {
-            UsageSheet(colors, client, row?.deviceId ?: chrome.host.deviceId, row?.harness, chrome.contextUsage, onAccounts = { planAccounts = it }) { usageOpen = false }
+            UsageSheet(colors, model.agentUsageSource, row?.deviceId ?: chrome.host.deviceId, row?.harness, chrome.contextUsage, onAccounts = { planAccounts = it }) { usageOpen = false }
         }
         chipMenu?.let { (chip, anchor) ->
             ChipMenu(chip, anchor, row, chrome, client, chatId, colors, model) { chipMenu = null }
@@ -660,6 +660,12 @@ private fun StatusPill(
         }
         else -> return
     }
+    StatusPillView(dot, text, colors, onTap)
+}
+
+/** The pill itself: status dot + one line of text on a glass capsule. */
+@Composable
+internal fun StatusPillView(dot: Color, text: String, colors: ZeronColors, onTap: () -> Unit) {
     Row(Modifier.padding(bottom = 8.dp)) {
         Row(
             Modifier.height(30.dp).glassSurface(colors, 15.dp).clickable(onClick = onTap).padding(start = 11.dp, end = 12.dp),

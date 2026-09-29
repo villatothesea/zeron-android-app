@@ -144,6 +144,15 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
 
     var client: CoreClient? = null
         private set
+
+    /**
+     * Where plan usage (composer ring, Usage sheet) comes from: the host's
+     * signed-in agent accounts. A seam so JVM screenshot tests can supply
+     * fixture accounts; the demo host reports none.
+     */
+    var agentUsageSource: suspend (deviceId: String, force: Boolean) -> List<uniffi.zeron_core.AgentUsage> = { deviceId, force ->
+        (client ?: error("Not connected")).listAgentUsage(deviceId, force)
+    }
     var text: TextSystem? = null
         private set
 

@@ -43,7 +43,6 @@ import sh.zeron.android.design.ZeronColors
 import sh.zeron.android.design.ZeronType
 import uniffi.zeron_core.AgentUsage
 import uniffi.zeron_core.ContextUsage
-import uniffi.zeron_core.CoreClient
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -65,7 +64,7 @@ import java.util.Locale
 @Composable
 internal fun UsageSheet(
     colors: ZeronColors,
-    client: CoreClient,
+    loadUsage: suspend (deviceId: String, force: Boolean) -> List<AgentUsage>,
     deviceId: String,
     harness: String?,
     context: ContextUsage?,
@@ -80,11 +79,11 @@ internal fun UsageSheet(
     val scope = rememberCoroutineScope()
     LaunchedEffect(deviceId) {
         // Cached probe first (instant), then a forced one so it's current.
-        runCatching { client.listAgentUsage(deviceId, false) }
+        runCatching { loadUsage(deviceId, false) }
             .onSuccess { accounts = it; onAccounts(it) }
             .onFailure { failure = it.message }
         refreshing = true
-        runCatching { client.listAgentUsage(deviceId, true) }
+        runCatching { loadUsage(deviceId, true) }
             .onSuccess { accounts = it; failure = null; onAccounts(it) }
         refreshing = false
     }
@@ -134,7 +133,7 @@ internal fun UsageSheet(
                     modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable(enabled = !refreshing) {
                         scope.launch {
                             refreshing = true
-                            runCatching { client.listAgentUsage(deviceId, true) }
+                            runCatching { loadUsage(deviceId, true) }
                                 .onSuccess { accounts = it; failure = null; onAccounts(it) }
                                 .onFailure { failure = it.message }
                             refreshing = false
