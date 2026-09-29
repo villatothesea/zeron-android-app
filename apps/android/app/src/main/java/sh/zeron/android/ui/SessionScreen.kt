@@ -636,8 +636,9 @@ private fun StatusPill(
 ) {
     var now by remember { mutableStateOf(System.currentTimeMillis()) }
     val retryAt = chrome.room.retryAtMs.takeIf { !chrome.room.connected }
-    LaunchedEffect(retryAt) {
-        while (retryAt != null) {
+    val working = chrome.live.turnRunning
+    LaunchedEffect(retryAt, working) {
+        while (retryAt != null || working) {
             now = System.currentTimeMillis()
             kotlinx.coroutines.delay(1000)
         }
@@ -652,6 +653,11 @@ private fun StatusPill(
         connectivity?.state == uniffi.zeron_core.ConnectivityState.OFFLINE -> colors.tertiary to "Offline — sends are saved"
         retryAt != null -> colors.tertiary to "Reconnecting in ${((retryAt - now) / 1000).coerceAtLeast(1)}s"
         chrome.queueError != null -> colors.danger to chrome.queueError!!
+        working -> {
+            val word = if (chrome.live.streaming) "Writing" else "Working"
+            val secs = chrome.live.workingSinceMs?.let { ((now - it) / 1000).coerceAtLeast(0) } ?: 0L
+            colors.working to if (secs > 0) "$word · ${ElapsedFormat.format(secs)}" else "$word…"
+        }
         else -> return
     }
     Row(Modifier.padding(bottom = 8.dp)) {

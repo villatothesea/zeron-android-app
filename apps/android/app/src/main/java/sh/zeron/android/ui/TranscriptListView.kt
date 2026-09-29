@@ -515,14 +515,22 @@ class TranscriptListView(context: Context) : View(context) {
             is WidgetKind.Working -> {
                 drawSpinner(canvas, w.x, w.y + (w.h - 14f) / 2f, 14f, 14f, colors, trailer = true, now = now)
                 val word = if (kind.streaming) "Writing" else "Working"
-                val secs = kind.sinceMs?.let { max(0, ((System.currentTimeMillis() - it) / 1000).toInt()) } ?: 0
-                val label = if (secs > 0) "$word…  ${elapsed(secs)}" else "$word…"
+                val secs = kind.sinceMs?.let { max(0L, (System.currentTimeMillis() - it) / 1000) } ?: 0L
                 val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     typeface = faces[FaceRole.SANS_MEDIUM] ?: faces[FaceRole.SANS]
                     textSize = 13.5f
                     color = colors.secondary.toArgb()
                 }
-                canvas.drawText(label, w.x + 22f, w.y + w.h / 2f - (paint.ascent() + paint.descent()) / 2f, paint)
+                val label = "$word…"
+                val x = w.x + 22f
+                val baseline = w.y + w.h / 2f - (paint.ascent() + paint.descent()) / 2f
+                canvas.drawText(label, x, baseline, paint)
+                // iOS WorkingIndicatorView: the elapsed time follows, fainter.
+                if (secs > 0) {
+                    val tx = x + paint.measureText(label)
+                    paint.color = colors.tertiary.toArgb()
+                    canvas.drawText("  ${ElapsedFormat.format(secs)}", tx, baseline, paint)
+                }
                 animate = true
             }
             is WidgetKind.Detail -> Unit
@@ -839,4 +847,3 @@ class TranscriptListView(context: Context) : View(context) {
     }
 }
 
-private fun elapsed(secs: Int): String = if (secs < 60) "${secs}s" else "%d:%02d".format(secs / 60, secs % 60)
