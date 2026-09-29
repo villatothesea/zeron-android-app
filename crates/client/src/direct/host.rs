@@ -16,6 +16,9 @@ use zeron_doc::{
 };
 use zeron_proto::{Chat, Device, Session, Space};
 
+use super::lenient::{
+    Substitution, decode_rows, parse_version, sanitize_transcript_update, short_id,
+};
 use super::ssh::{self, SshSession};
 use super::{DirectLogLine, DirectPhase, DirectStatus, SshError, SshTarget, StreamStat};
 use crate::client::ClientInner;
@@ -49,6 +52,9 @@ const SYNC_TIMEOUT: Duration = Duration::from_secs(2);
 pub(crate) static TEST_ENGINES: Mutex<Option<HashMap<String, String>>> = Mutex::new(None);
 /// Link log depth kept for the diagnostics readout.
 const LOG_LINES: usize = 40;
+/// Engine version this build was checked against. Newer patch releases are
+/// expected and silent; a newer minor/major gets a non-blocking notice.
+pub(crate) const TESTED_ENGINE: (u32, u32, u32) = (0, 2, 98);
 const REGISTRY_STREAMS: [&str; 4] = [
     zeron_rpc::methods::WATCH_DEVICES,
     zeron_rpc::methods::WATCH_SPACES,
@@ -302,7 +308,12 @@ impl DirectHost {
             short_id(&engine_device_id)
         ));
         self.set_status(|s| {
-            s.engine_version = version;
+            // EngineInfo carries no version on current engines; the engine's
+            // own Device row fills it in (mirror_devices).
+            if version.is_some() {
+                s.notice = engine_notice(version.as_deref());
+                s.engine_version = version;
+            }
             s.engine_device_id = Some(engine_device_id.clone());
         });
         Ok(Link {
@@ -596,23 +607,26 @@ impl DirectHost {
             };
             let applied = match method {
                 zeron_rpc::methods::WATCH_DEVICES => {
-                    self.apply_frame(method, value, |rows: Vec<Device>, _| {
+                    self.apply_frame(method, value, &[], |rows: Vec<Device>, _| {
                         self.mirror_devices(&client, rows)
                     })
                 }
                 zeron_rpc::methods::WATCH_SPACES => {
-                    self.apply_frame(method, value, |rows: Vec<Space>, keep| {
+                    self.apply_frame(method, value, &[], |rows: Vec<Space>, keep| {
                         self.mirror_spaces(&client, rows, keep)
                     })
                 }
                 zeron_rpc::methods::WATCH_CHATS => {
-                    self.apply_frame(method, value, |rows: Vec<Chat>, keep| {
+                    self.apply_frame(method, value, &[], |rows: Vec<Chat>, keep| {
                         self.mirror_chats(&client, rows, keep)
                     })
                 }
-                _ => self.apply_frame(method, value, |rows: Vec<Session>, _| {
-                    self.mirror_sessions(&client, rows)
-                }),
+                _ => self.apply_frame(
+                    method,
+                    value,
+                    &session_fallbacks(),
+                    |rows: Vec<Session>, _| self.mirror_sessions(&client, rows),
+                ),
             };
             match applied {
                 Some(true) => {
@@ -633,10 +647,16 @@ impl DirectHost {
         &self,
         method: &str,
         value: serde_json::Value,
+        substitutions: &[Substitution],
         mirror: impl FnOnce(Vec<T>, &HashSet<String>) -> bool,
     ) -> Option<bool> {
-        match decode_rows::<T>(value) {
+        match decode_rows::<T>(value, substitutions) {
             Ok(decoded) => {
+                if let Some(first) = decoded.repaired.first() {
+                    tracing::info!(method, repaired = decoded.repaired.len(), note = %first, "direct watch: repaired rows");
+                }
+                let repaired = decoded.repaired.len() as u32;
+                self.stream_stat(method, |s| s.repaired_rows = repaired);
                 if let Some(first) = decoded.errors.first() {
                     tracing::warn!(method, skipped = decoded.errors.len(), error = %first, "direct watch: skipped rows");
                     let message = format!(
@@ -674,6 +694,29 @@ impl DirectHost {
     }
 
     fn mirror_devices(&self, client: &ClientInner, rows: Vec<Device>) -> bool {
+        let engine = lock(&self.engine_device).clone();
+        if let Some(version) = rows
+            .iter()
+            .find(|d| Some(&d.id) == engine.as_ref())
+            .and_then(|d| d.version.clone())
+        {
+            let notice = engine_notice(Some(&version));
+            let fresh = {
+                let mut status = lock(&self.status);
+                let fresh = status.engine_version.as_deref() != Some(version.as_str());
+                if fresh {
+                    status.engine_version = Some(version.clone());
+                    status.notice = notice.clone();
+                }
+                fresh
+            };
+            if fresh {
+                self.note(format!("engine version {version}"));
+                if let Some(notice) = notice {
+                    self.note(notice);
+                }
+            }
+        }
         let (state, _) = client.workspace.state();
         let changed: Vec<&Device> = rows
             .iter()
@@ -933,6 +976,11 @@ async fn mirror_transcript(
                 break;
             };
             let Some(core) = core.upgrade() else { return };
+            let mut value = value;
+            let repaired = sanitize_transcript_update(&mut value);
+            if repaired > 0 {
+                tracing::info!(repaired, chat = %chat_id, "direct transcript: repaired items");
+            }
             let update: TranscriptUpdate = match serde_json::from_value(value) {
                 Ok(update) => update,
                 Err(err) => {
@@ -1010,76 +1058,20 @@ fn reconcile(
     Ok(())
 }
 
-/// A watch snapshot decoded row by row.
-#[derive(Debug)]
-pub(crate) struct DecodedRows<T> {
-    pub(crate) rows: Vec<T>,
-    /// Ids of every row in the frame, parsed or not (deletion guard).
-    pub(crate) ids: HashSet<String>,
-    pub(crate) errors: Vec<String>,
+/// Unknown enum values in session rows map to a safe default.
+fn session_fallbacks() -> Vec<Substitution> {
+    vec![("status", serde_json::Value::String("idle".into()))]
 }
 
-/// Decode a registry snapshot leniently: a JSON array (or an object wrapping
-/// exactly one array, for forward compatibility) whose unreadable rows are
-/// reported rather than fatal.
-pub(crate) fn decode_rows<T: serde::de::DeserializeOwned>(
-    value: serde_json::Value,
-) -> std::result::Result<DecodedRows<T>, String> {
-    let items = match value {
-        serde_json::Value::Array(items) => items,
-        serde_json::Value::Object(mut map) => {
-            let arrays: Vec<String> = map
-                .iter()
-                .filter(|(_, v)| v.is_array())
-                .map(|(k, _)| k.clone())
-                .collect();
-            match arrays.as_slice() {
-                [key] => match map.remove(key) {
-                    Some(serde_json::Value::Array(items)) => items,
-                    _ => unreachable!("checked above"),
-                },
-                _ => return Err("expected a list of rows, got an object".into()),
-            }
-        }
-        other => {
-            return Err(format!(
-                "expected a list of rows, got {}",
-                json_kind(&other)
-            ));
-        }
-    };
-    let mut decoded = DecodedRows {
-        rows: Vec::with_capacity(items.len()),
-        ids: HashSet::with_capacity(items.len()),
-        errors: Vec::new(),
-    };
-    for item in items {
-        let id = item.get("id").and_then(|v| v.as_str()).map(str::to_owned);
-        if let Some(id) = &id {
-            decoded.ids.insert(id.clone());
-        }
-        match serde_json::from_value::<T>(item) {
-            Ok(row) => decoded.rows.push(row),
-            Err(err) => decoded.errors.push(match id {
-                Some(id) => format!("row {}: {err}", short_id(&id)),
-                None => format!("row without id: {err}"),
-            }),
-        }
-    }
-    Ok(decoded)
-}
-
-fn json_kind(value: &serde_json::Value) -> &'static str {
-    match value {
-        serde_json::Value::Null => "null",
-        serde_json::Value::Bool(_) => "a boolean",
-        serde_json::Value::Number(_) => "a number",
-        serde_json::Value::String(_) => "a string",
-        serde_json::Value::Array(_) => "a list",
-        serde_json::Value::Object(_) => "an object",
-    }
-}
-
-fn short_id(id: &str) -> &str {
-    id.get(..8).unwrap_or(id)
+/// The notice for an engine newer than [`TESTED_ENGINE`] by minor/major.
+pub(crate) fn engine_notice(version: Option<&str>) -> Option<String> {
+    let (major, minor, _) = parse_version(version?)?;
+    let (tm, tn, tp) = TESTED_ENGINE;
+    ((major, minor) > (tm, tn)).then(|| {
+        format!(
+            "This computer runs Zeron {}, newer than this app was checked with ({tm}.{tn}.{tp}). \
+             Everything should keep working; if something looks wrong, check for an app update.",
+            version.unwrap_or_default()
+        )
+    })
 }

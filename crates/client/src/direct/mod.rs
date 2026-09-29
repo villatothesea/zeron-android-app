@@ -5,6 +5,7 @@
 //! so the rest of the client (views, composer, commands) is unchanged.
 
 pub(crate) mod host;
+mod lenient;
 mod ssh;
 #[cfg(test)]
 mod tests;
@@ -43,6 +44,9 @@ pub struct StreamStat {
     pub rows: u32,
     /// Rows in the last frame that didn't parse (kept, never deleted).
     pub skipped_rows: u32,
+    /// Rows in the last frame read after a repair (an unknown value this
+    /// app version doesn't know was dropped or defaulted).
+    pub repaired_rows: u32,
     pub last_frame_ms: Option<i64>,
     /// Last subscribe/parse problem on this stream.
     pub error: Option<String>,
@@ -64,6 +68,9 @@ pub struct DirectStatus {
     pub retry_at_ms: Option<i64>,
     pub engine_version: Option<String>,
     pub engine_device_id: Option<String>,
+    /// Non-blocking note, e.g. the engine is a newer minor version than
+    /// this app was checked against.
+    pub notice: Option<String>,
     pub connected_at_ms: Option<i64>,
     pub synced_at_ms: Option<i64>,
     pub streams: Vec<StreamStat>,
