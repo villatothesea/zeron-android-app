@@ -56,7 +56,6 @@ import sh.zeron.android.core.Machine
 import sh.zeron.android.core.ZeronModel
 import sh.zeron.android.design.BackChevron
 import sh.zeron.android.design.LocalZeronColors
-import sh.zeron.android.design.PlusMark
 import sh.zeron.android.design.ZeronColors
 import sh.zeron.android.design.ZeronType
 import sh.zeron.android.design.glassSurface
@@ -76,18 +75,10 @@ fun MachinesScreen(model: ZeronModel) {
                 BackChevron(colors.text, Modifier.size(18.dp))
             }
             Spacer(Modifier.width(10.dp))
-            Text("Machines", color = colors.text, fontFamily = ZeronType.Sans, fontWeight = FontWeight.SemiBold, fontSize = 17.sp, modifier = Modifier.weight(1f))
-            Box(Modifier.size(44.dp).glassSurface(colors, 22.dp).clickable { model.editMachine = Machine() }, contentAlignment = Alignment.Center) {
-                PlusMark(colors.text, Modifier.size(18.dp))
-            }
+            Text("Accounts & Computers", color = colors.text, fontFamily = ZeronType.Sans, fontWeight = FontWeight.SemiBold, fontSize = 17.sp, modifier = Modifier.weight(1f))
         }
         LazyColumn(Modifier.weight(1f).padding(horizontal = 16.dp)) {
             item { GroupLabel(colors, "Your computers (SSH)") }
-            if (model.machines.isEmpty()) {
-                item {
-                    SettingRow(colors, "Add a computer", "Connect straight to Zeron on your PC over SSH: no cloud account needed.", onClick = { model.editMachine = Machine() })
-                }
-            }
             items(model.machines, key = { it.id }) { machine ->
                 val active = model.activeMachine == machine.id
                 val link = if (active) model.directStatus else null
@@ -109,6 +100,14 @@ fun MachinesScreen(model: ZeronModel) {
                 MachineRow(colors, machine.title(), subtitle, online, active, onClick = {
                     if (machine.hostKey == null) model.editMachine = machine else model.connectMachine(machine)
                 }, onEdit = { model.editMachine = machine })
+            }
+            item {
+                SettingRow(
+                    colors,
+                    "Add a computer",
+                    if (model.machines.isEmpty()) "Connect straight to Zeron on your PC over SSH: no cloud account needed." else "Connect over SSH",
+                    onClick = { model.editMachine = Machine() },
+                )
             }
             item { GroupLabel(colors, "Other workspaces") }
             item {
@@ -264,7 +263,7 @@ fun MachineEditScreen(model: ZeronModel, initial: Machine) {
     Column(Modifier.fillMaxSize().background(colors.background).statusBarsPadding().navigationBarsPadding().imePadding()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("Cancel", color = colors.text, fontFamily = ZeronType.Sans, fontSize = 16.sp, modifier = Modifier.clip(RoundedCornerShape(12.dp)).clickable { model.editMachine = null }.padding(8.dp))
-            Text(if (existing) "Edit Machine" else "Add Machine", color = colors.text, fontFamily = ZeronType.Sans, fontWeight = FontWeight.SemiBold, fontSize = 17.sp, modifier = Modifier.weight(1f), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+            Text(if (existing) "Edit Computer" else "Add Computer", color = colors.text, fontFamily = ZeronType.Sans, fontWeight = FontWeight.SemiBold, fontSize = 17.sp, modifier = Modifier.weight(1f), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
             Text(
                 "Save",
                 color = if (valid) colors.accent else colors.tertiary,
@@ -277,7 +276,7 @@ fun MachineEditScreen(model: ZeronModel, initial: Machine) {
             )
         }
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
-            GroupLabel(colors, "Machine")
+            GroupLabel(colors, "Computer")
             Field(colors, "Name", name, "My PC") { name = it }
             Field(colors, "Host", host, "192.168.1.20 or pc.local", keyboard = KeyboardType.Uri) { host = it; hostKey = if (it.trim() == initial.host) initial.hostKey else null }
             Row {

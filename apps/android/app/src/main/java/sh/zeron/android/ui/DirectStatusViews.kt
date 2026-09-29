@@ -103,7 +103,7 @@ internal fun DirectBanner(model: ZeronModel, colors: ZeronColors, modifier: Modi
             Spacer(Modifier.width(8.dp))
             Pill(colors, "Details") { model.showLinkDetails = true }
             Spacer(Modifier.width(8.dp))
-            Pill(colors, "Machines") { model.showMachines = true }
+            Pill(colors, "Computers") { model.showMachines = true }
         }
     }
 }

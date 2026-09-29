@@ -76,6 +76,7 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 import kotlinx.coroutines.launch
+import sh.zeron.android.core.Machine
 import sh.zeron.android.core.ZeronModel
 import androidx.compose.material3.HorizontalDivider
 import sh.zeron.android.design.AnchoredMenu
@@ -145,7 +146,7 @@ private fun AppContent(model: ZeronModel, colors: ZeronColors) {
             Spacer(Modifier.height(16.dp))
             Text("Try the demo", color = colors.background, modifier = Modifier.clip(RoundedCornerShape(20.dp)).background(colors.text).clickable { model.enterDemo() }.padding(horizontal = 18.dp, vertical = 12.dp))
             Spacer(Modifier.height(10.dp))
-            Text("Machines…", color = colors.text, modifier = Modifier.clip(RoundedCornerShape(20.dp)).background(colors.controlFill).clickable { model.showMachines = true }.padding(horizontal = 18.dp, vertical = 12.dp))
+            Text("Accounts & Computers…", color = colors.text, modifier = Modifier.clip(RoundedCornerShape(20.dp)).background(colors.controlFill).clickable { model.showMachines = true }.padding(horizontal = 18.dp, vertical = 12.dp))
         }
         phase is ZeronModel.Phase.SignedOut || model.showSignIn -> SignInScreen(model)
         else -> Shell(model, colors)
@@ -880,7 +881,7 @@ private fun SettingsScreen(model: ZeronModel, colors: ZeronColors) {
                 Text("Settings", color = colors.text, fontFamily = ZeronType.Sans, fontWeight = FontWeight.SemiBold, fontSize = 17.sp)
             }
         }
-        item { GroupLabel(colors, "Machine") }
+        item { GroupLabel(colors, "Account") }
         item {
             val conn = model.connectivity
             val sub = when {
@@ -888,12 +889,13 @@ private fun SettingsScreen(model: ZeronModel, colors: ZeronColors) {
                 model.client?.isDirect() == true -> directSummary(model.directStatus).replaceFirstChar { it.uppercase() }
                 else -> "Signed in · ${model.client?.orgId()}"
             }
-            SettingRow(colors, model.activeTitle(), sub, onClick = { model.showMachines = true }, trailing = {
+            SettingRow(colors, "Accounts & Computers", "${model.activeTitle()} · $sub", onClick = { model.showMachines = true }, trailing = {
                 val online = model.client?.isDemo() == true ||
                     (if (model.client?.isDirect() == true) model.directStatus?.phase == uniffi.zeron_core.DirectPhase.LIVE else conn?.state == uniffi.zeron_core.ConnectivityState.CONNECTED)
                 Box(Modifier.size(8.dp).clip(CircleShape).background(if (online) colors.success else colors.tertiary))
             })
         }
+        item { SettingRow(colors, "Add Computer (SSH)…", "Connect straight to Zeron on your PC over SSH", onClick = { model.editMachine = Machine() }) }
         if (model.client?.isDirect() == true) {
             item { SettingRow(colors, "Connection Details", "Link state, engine version, streams and log", onClick = { model.showLinkDetails = true }) }
         }
