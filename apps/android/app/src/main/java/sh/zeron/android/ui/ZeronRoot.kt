@@ -300,14 +300,24 @@ private fun RowMenusOverlay(model: ZeronModel, colors: ZeronColors, menus: RowMe
         }
         AnchoredMenu(colors, target.anchor, title = null, entries = entries, above = target.anchor.center.y > screenHeight * 0.55f) { menus.row = null }
     }
-    menus.header?.let { (section, anchor) ->
-        val entries = listOf(
-            MenuEntry("Rename Section…", icon = { c -> Glyph(Glyphs.Rename, 17.dp, c) }) {
-                onPrompt(Prompt("Rename Section", section.name, "Rename") { value -> if (value.isNotEmpty()) model.renameSection(section.id, value) })
-            },
-            MenuEntry("Delete Section", destructive = true, icon = { c -> Glyph(Glyphs.Archive, 17.dp, c) }) { model.deleteSection(section.id) },
-        )
-        AnchoredMenu(colors, anchor, title = section.name, entries = entries, above = anchor.center.y > screenHeight * 0.55f) { menus.header = null }
+    menus.header?.let { target ->
+        // iOS headerMenu: Pinned gets Open + Reorder… (the folder screen), a
+        // section gets Open + Rename/Delete. "Recent" never opens a menu.
+        val entries = buildList {
+            add(MenuEntry("Open", icon = { c -> Glyph(Glyphs.Folder, 17.dp, c) }) { model.openFolder(target.id, target.title) })
+            val section = target.section
+            if (section == null) {
+                add(MenuEntry("Reorder…", icon = { c -> Glyph(Glyphs.ArrowUp, 17.dp, c) }) { model.openFolder(target.id, target.title) })
+            } else {
+                add(
+                    MenuEntry("Rename Section…", icon = { c -> Glyph(Glyphs.Rename, 17.dp, c) }) {
+                        onPrompt(Prompt("Rename Section", section.name, "Rename") { value -> if (value.isNotEmpty()) model.renameSection(section.id, value) })
+                    },
+                )
+                add(MenuEntry("Delete Section", destructive = true, icon = { c -> Glyph(Glyphs.Archive, 17.dp, c) }) { model.deleteSection(section.id) })
+            }
+        }
+        AnchoredMenu(colors, target.anchor, title = target.title, entries = entries, above = target.anchor.center.y > screenHeight * 0.55f) { menus.header = null }
     }
 }
 
@@ -418,9 +428,15 @@ private fun SessionsScreen(model: ZeronModel, colors: ZeronColors, onPrompt: (Pr
                                     title = group.title,
                                     count = group.rows.size,
                                     collapsed = folded,
-                                    working = folded && group.rows.any { it.indicator == ChatIndicator.WORKING },
+                                    live = when {
+                                        group.rows.any { it.indicator == ChatIndicator.WORKING } -> MarkKind.Spinner
+                                        group.rows.any { it.indicator == ChatIndicator.AWAITING_INPUT } -> MarkKind.Dot(colors.input)
+                                        else -> null
+                                    },
                                     onToggle = { model.toggleCollapsed(group.id) },
-                                    onLongPress = group.section?.let { section -> { rect: androidx.compose.ui.geometry.Rect -> menus.header = section to rect } },
+                                    onLongPress = if (group.id == "recent") null else { rect: androidx.compose.ui.geometry.Rect ->
+                                        menus.header = HeaderMenuTarget(group.id, group.title, group.section, rect)
+                                    },
                                 )
                             }
                         }
@@ -505,7 +521,7 @@ private fun GroupHeader(
     title: String,
     count: Int,
     collapsed: Boolean,
-    working: Boolean,
+    live: MarkKind?,
     onToggle: () -> Unit,
     onLongPress: ((androidx.compose.ui.geometry.Rect) -> Unit)?,
 ) {
@@ -526,9 +542,9 @@ private fun GroupHeader(
         Text(title, color = colors.secondary, fontFamily = ZeronType.Sans, fontWeight = FontWeight.SemiBold, fontSize = 13.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
         Spacer(Modifier.width(7.dp))
         Text("$count", color = colors.tertiary, fontFamily = ZeronType.Sans, fontWeight = FontWeight.Medium, fontSize = 13.5.sp)
-        if (working) {
+        if (live != null) {
             Spacer(Modifier.width(7.dp))
-            StatusMark(MarkKind.Spinner, colors, Modifier.padding(bottom = 3.dp).size(12.dp))
+            StatusMark(live, colors, Modifier.padding(bottom = 3.dp).size(12.dp))
         }
         Spacer(Modifier.weight(1f))
         ChevronMark(colors.tertiary, Modifier.padding(bottom = 4.dp).size(12.dp).graphicsLayer { rotationZ = if (collapsed) -90f else 0f }, expanded = true)

@@ -11,15 +11,18 @@ import uniffi.zeron_core.SectionView
 /** A long-pressed session row: its id (the menu re-reads the row when it opens) and bounds. */
 data class RowMenuTarget(val id: String, val archived: Boolean, val anchor: Rect)
 
+/** A long-pressed group header: Pinned (section == null) or a user section. */
+data class HeaderMenuTarget(val id: String, val title: String, val section: SectionView?, val anchor: Rect)
+
 /**
- * Long-press menus for session rows and section headers. Rows live inside
+ * Long-press menus for session rows and group headers. Rows live inside
  * lazy lists, so the menu itself is drawn once at screen level (a full-screen
  * AnchoredMenu inside an item would be clipped to that item).
  */
 @Stable
 class RowMenuHost {
     var row by mutableStateOf<RowMenuTarget?>(null)
-    var header by mutableStateOf<Pair<SectionView, Rect>?>(null)
+    var header by mutableStateOf<HeaderMenuTarget?>(null)
 }
 
 val LocalRowMenus = staticCompositionLocalOf { RowMenuHost() }
