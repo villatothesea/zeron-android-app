@@ -627,14 +627,18 @@ private fun GroupHeader(
             Box(Modifier.padding(bottom = 2.dp)) { ProjectTile(tile.first, tile.second, colors, 14.dp) }
             Spacer(Modifier.width(7.dp))
         }
-        Text(title, color = colors.secondary, fontFamily = ZeronType.Sans, fontWeight = FontWeight.SemiBold, fontSize = 13.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-        Spacer(Modifier.width(7.dp))
-        Text("$count", color = colors.tertiary, fontFamily = ZeronType.Sans, fontWeight = FontWeight.Medium, fontSize = 13.5.sp)
-        if (live != null) {
+        // Title, count and live mark share one weighted row so the chevron
+        // always sits at the right edge (two weights split the space and
+        // left it floating mid-row).
+        Row(Modifier.weight(1f), verticalAlignment = Alignment.Bottom) {
+            Text(title, color = colors.secondary, fontFamily = ZeronType.Sans, fontWeight = FontWeight.SemiBold, fontSize = 13.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
             Spacer(Modifier.width(7.dp))
-            StatusMark(live, colors, Modifier.padding(bottom = 3.dp).size(12.dp))
+            Text("$count", color = colors.tertiary, fontFamily = ZeronType.Sans, fontWeight = FontWeight.Medium, fontSize = 13.5.sp)
+            if (live != null) {
+                Spacer(Modifier.width(7.dp))
+                StatusMark(live, colors, Modifier.padding(bottom = 3.dp).size(12.dp))
+            }
         }
-        Spacer(Modifier.weight(1f))
         ChevronMark(colors.tertiary, Modifier.padding(bottom = 4.dp).size(12.dp).graphicsLayer { rotationZ = if (collapsed) -90f else 0f }, expanded = true)
     }
 }
