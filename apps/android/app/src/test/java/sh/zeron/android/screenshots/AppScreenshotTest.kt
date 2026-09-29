@@ -22,6 +22,9 @@ import sh.zeron.android.MainActivity
 import sh.zeron.android.core.Machine
 import sh.zeron.android.core.MachineStore
 import sh.zeron.android.core.ZeronModel
+import sh.zeron.android.schedule.ScheduleTime
+import sh.zeron.android.schedule.ScheduledAlarms
+import sh.zeron.android.schedule.ScheduledMessage
 import uniffi.zeron_core.AgentUsage
 import uniffi.zeron_core.BusyPolicy
 import uniffi.zeron_core.SendRequest
@@ -97,6 +100,24 @@ class AppScreenshotTest {
         capture("03-usage-sheet.png")
         pressBack(scenario)
         settle()
+
+        // A scheduled send for this chat: the chip above the composer.
+        val app2 = ApplicationProvider.getApplicationContext<Application>()
+        ScheduledAlarms.schedule(
+            app2,
+            ScheduledMessage(
+                workspace = model.activeMachine,
+                chatId = chat.id,
+                text = "Run the full veil test suite again and post the timings.",
+                atMs = ScheduleTime.next(1, 20, System.currentTimeMillis()),
+                chatTitle = chat.title,
+            ),
+        )
+        // Let the demo turn finish so the chip isn't sharing the space with the pill.
+        val quietBy = System.currentTimeMillis() + 45_000
+        while (handle.composer().live.turnRunning && System.currentTimeMillis() < quietBy) settle(500)
+        settle(1000)
+        capture("09-chat-scheduled.png")
         model.back()
         settle()
 
