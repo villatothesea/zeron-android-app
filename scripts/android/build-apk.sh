@@ -1,5 +1,8 @@
 #!/bin/bash
-# One-command debug APK (x86_64 + arm64-v8a), demo mode by default.
+# One-command APK (x86_64 + arm64-v8a), demo mode by default.
+#
+# With the release key present this builds the shipped `release` variant
+# (not debuggable, much faster UI); without it, a debug-key debug build.
 #
 #   scripts/android/build-apk.sh
 #
@@ -76,6 +79,11 @@ else
 fi
 [[ -n "${ZERON_VERSION_CODE:-}" ]] && GRADLE_ARGS+=("-PzeronVersionCode=$ZERON_VERSION_CODE")
 [[ -n "${ZERON_VERSION_NAME:-}" ]] && GRADLE_ARGS+=("-PzeronVersionName=$ZERON_VERSION_NAME")
-./gradlew :app:assembleDebug --no-daemon "${GRADLE_ARGS[@]}"
-APK="$ROOT/apps/android/app/build/outputs/apk/debug/app-debug.apk"
+if [[ -f "$KEYPROPS" ]]; then
+  ./gradlew :app:assembleRelease --no-daemon "${GRADLE_ARGS[@]}"
+  APK="$ROOT/apps/android/app/build/outputs/apk/release/app-release.apk"
+else
+  ./gradlew :app:assembleDebug --no-daemon "${GRADLE_ARGS[@]}"
+  APK="$ROOT/apps/android/app/build/outputs/apk/debug/app-debug.apk"
+fi
 echo "APK: $APK"

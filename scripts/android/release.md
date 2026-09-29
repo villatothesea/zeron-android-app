@@ -25,7 +25,8 @@ A release is picked up when:
 
 ```bash
 scripts/android/build-apk.sh
-cp apps/android/app/build/outputs/apk/debug/app-debug.apk /tmp/zeron-android-round6.apk
+# With the release key this is the non-debuggable release variant (round5-3 on).
+cp apps/android/app/build/outputs/apk/release/app-release.apk /tmp/zeron-android-round6.apk
 gh release create round6 /tmp/zeron-android-round6.apk \
   --repo villatothesea/zeron-android-app --title round6 \
   --notes $'What changed...\n\nversionCode: 600'

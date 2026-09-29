@@ -13,9 +13,9 @@ export ANDROID_HOME="$HOME/Android/Sdk"   # or %LOCALAPPDATA%\Android\Sdk on Win
 scripts/android/build-apk.sh
 ```
 
-The script builds `libzeron_mobile.so` for **arm64-v8a** and **x86_64**, generates the UniFFI Kotlin bindings, applies the small Kotlin 2 compatibility patch, and runs `./gradlew :app:assembleDebug`.
+The script builds `libzeron_mobile.so` for **arm64-v8a** and **x86_64**, generates the UniFFI Kotlin bindings, applies the small Kotlin 2 compatibility patch, and runs `./gradlew :app:assembleDebug` (or `:app:assembleRelease` when the release signing key is available; shipped builds are the non-debuggable release variant, which scrolls much more smoothly).
 
-The debug APK is:
+The APK is (release builds: `.../apk/release/app-release.apk`):
 
 ```text
 apps/android/app/build/outputs/apk/debug/app-debug.apk

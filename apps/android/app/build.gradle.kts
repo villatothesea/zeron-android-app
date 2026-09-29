@@ -33,6 +33,9 @@ android {
         targetSdk = 35
         versionCode = zeronVersionCode
         versionName = zeronVersionName
+        // Boot into the demo workspace when nothing is set up yet (both the
+        // shipped release build and local debug builds).
+        buildConfigField("boolean", "DEMO_BY_DEFAULT", "true")
         ndk {
             abiFilters += listOf("arm64-v8a", "x86_64")
         }
@@ -50,6 +53,10 @@ android {
     }
 
     buildTypes {
+        // Shipped builds are `release`: not debuggable, so ART compiles the
+        // app normally and applies the Compose baseline profiles. A debuggable
+        // build runs Compose several times slower (scrolling stuttered).
+        // R8 stays off for now: JNA/UniFFI rely on reflection.
         release {
             isMinifyEnabled = false
             signingConfigs.findByName("zeron")?.let { signingConfig = it }

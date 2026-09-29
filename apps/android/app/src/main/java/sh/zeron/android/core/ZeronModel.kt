@@ -243,7 +243,7 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
                 phase = Phase.SignedOut
                 showSignIn = true
             }
-            forced == "demo" || (BuildConfig.DEBUG && prefs.getString("account", null) == null) -> start(demoCredentials(), demo = true)
+            forced == "demo" || (BuildConfig.DEMO_BY_DEFAULT && prefs.getString("account", null) == null) -> start(demoCredentials(), demo = true)
             prefs.getString("account", null) != null -> start(storedCredentials() ?: demoCredentials(), demo = prefs.getString("account", null) == null)
             else -> {
                 phase = Phase.SignedOut
