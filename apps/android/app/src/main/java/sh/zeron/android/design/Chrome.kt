@@ -338,19 +338,28 @@ fun EllipsisMark(color: Color, modifier: Modifier = Modifier) {
 
 @Composable
 fun PrGlyph(color: Color, modifier: Modifier = Modifier) {
-    Canvas(modifier) {
-        val s = size.minDimension / 24f
-        val stroke = Stroke(width = (1.5f * s * 1.15f).coerceAtLeast(1f), cap = androidx.compose.ui.graphics.StrokeCap.Round, join = androidx.compose.ui.graphics.StrokeJoin.Round)
-        for (c in listOf(Offset(6f, 5f), Offset(6f, 19f), Offset(18f, 19f))) {
-            drawCircle(color, radius = 2.25f * s, center = Offset(c.x * s, c.y * s), style = stroke)
-        }
-        val p = Path().apply {
-            moveTo(6f * s, 7.25f * s); lineTo(6f * s, 16.75f * s)
-            moveTo(15f * s, 5f * s); lineTo(15.75f * s, 5f * s)
-            // quarter arc approximated
-            lineTo(18f * s, 7.25f * s); lineTo(18f * s, 16.75f * s)
-            moveTo(12.75f * s, 7.75f * s); lineTo(15.25f * s, 5f * s); lineTo(12.75f * s, 2.25f * s)
-        }
-        drawPath(p, color, style = stroke)
+    Canvas(modifier) { drawPrIcon(color) }
+}
+
+/** The desktop's pull-request icon tinted (iOS `PRIcon.image`), for the PR badge. */
+@Composable
+fun PullRequestIcon(tint: Color, size: Dp, modifier: Modifier = Modifier) {
+    Canvas(modifier.size(size)) { drawPrIcon(tint) }
+}
+
+/** `pull-request.svg` on a 24-unit grid: three node circles, the bent connector and the arrowhead, one 1.5-unit stroke. */
+private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawPrIcon(color: Color) {
+    val s = size.minDimension / 24f
+    val stroke = Stroke(width = (1.5f * s * 1.15f).coerceAtLeast(1f), cap = androidx.compose.ui.graphics.StrokeCap.Round, join = androidx.compose.ui.graphics.StrokeJoin.Round)
+    for (c in listOf(Offset(6f, 5f), Offset(6f, 19f), Offset(18f, 19f))) {
+        drawCircle(color, radius = 2.25f * s, center = Offset(c.x * s, c.y * s), style = stroke)
     }
+    val p = Path().apply {
+        moveTo(6f * s, 7.25f * s); lineTo(6f * s, 16.75f * s)
+        moveTo(15f * s, 5f * s); lineTo(15.75f * s, 5f * s)
+        arcTo(androidx.compose.ui.geometry.Rect(13.5f * s, 5f * s, 18f * s, 9.5f * s), -90f, 90f, false)
+        lineTo(18f * s, 16.75f * s)
+        moveTo(12.75f * s, 7.75f * s); lineTo(15.25f * s, 5f * s); lineTo(12.75f * s, 2.25f * s)
+    }
+    drawPath(p, color, style = stroke)
 }

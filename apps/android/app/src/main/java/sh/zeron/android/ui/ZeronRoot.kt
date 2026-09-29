@@ -96,6 +96,8 @@ import sh.zeron.android.design.LocalZeronColors
 import sh.zeron.android.design.MarkKind
 import sh.zeron.android.design.PlusMark
 import sh.zeron.android.design.ProfileMark
+import sh.zeron.android.design.ProjectTile
+import sh.zeron.android.design.PullRequestIcon
 import sh.zeron.android.design.StatusMark
 import sh.zeron.android.design.ZeronColors
 import sh.zeron.android.design.ZeronDark
@@ -104,6 +106,7 @@ import sh.zeron.android.design.ZeronType
 import sh.zeron.android.design.glassSurface
 import uniffi.zeron_core.ChatIndicator
 import uniffi.zeron_core.ProjectView
+import uniffi.zeron_core.PullRequest
 import uniffi.zeron_core.PullRequestState
 import uniffi.zeron_core.SectionView
 import uniffi.zeron_core.SendState
@@ -413,6 +416,8 @@ private fun SessionsScreen(model: ZeronModel, colors: ZeronColors, onNewSpace: (
         }
     }
     DisposableEffect(listState) { onDispose { model.scrolling = false } }
+    // Rows show relative times; LocalNow ticks every 30 s.
+    NowProvider {
     Box(Modifier.fillMaxSize()) {
         val pullState = androidx.compose.material3.pulltorefresh.rememberPullToRefreshState()
         val headerBottom = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + ListHeaderHeight
@@ -564,6 +569,7 @@ private fun SessionsScreen(model: ZeronModel, colors: ZeronColors, onNewSpace: (
             }
         }
     }
+    }
 }
 
 @Composable
@@ -649,6 +655,8 @@ private fun SessionRowView(
     val backdrop = if (colors.dark) SessionsBackdrop else colors.background
     var bounds by remember { mutableStateOf(androidx.compose.ui.geometry.Rect.Zero) }
     val latestRow by rememberUpdatedState(row)
+    // The snapshot's `timeLabel` goes stale; re-derive it against LocalNow.
+    val timeLabel = RelativeTime.label(row.lastActivityMs, LocalNow.current)
     // iOS: leading Pin/Unpin (accent), trailing Archive (red) or Unarchive.
     val leading = if (archived) null else SwipeAction(
         title = if (row.pinned) "Unpin" else "Pin",
@@ -664,7 +672,7 @@ private fun SessionRowView(
     }
     SwipeRow(
         id = if (archived) "arch-${row.id}" else row.id,
-        height = if (archived) 46.dp else 74.dp,
+        height = if (archived) 46.dp else 62.dp,
         coordinator = swipe,
         leading = leading,
         trailing = trailing,
@@ -699,82 +707,103 @@ private fun SessionRowView(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
-                Text(row.timeLabel, color = colors.time, fontFamily = ZeronType.Sans, fontSize = 13.sp)
+                Text(timeLabel, color = colors.time, fontFamily = ZeronType.Sans, fontSize = 13.sp)
             } else {
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        val project = row.project?.name ?: "No project"
-                        val host = row.deviceName
+                // iOS SessionCell: the agent mark is centred on the title line;
+                // line 1 is title + status-or-time, line 2 is tile + project ·
+                // branch + PR badge.
+                BrandMark(
+                    row.harness ?: "claude-code",
+                    colors,
+                    20.dp,
+                    Modifier.align(Alignment.Top).padding(top = 11.dp),
+                )
+                Spacer(Modifier.width(14.dp))
+                Column(Modifier.weight(1f).align(Alignment.Top).padding(top = 10.dp)) {
+                    Row(Modifier.height(22.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            if (host.isNullOrBlank()) project else "$project @ $host",
-                            color = colors.secondary,
+                            row.title,
+                            color = if (row.unseen || row.indicator != ChatIndicator.IDLE || corner != null) colors.text else colors.text.copy(alpha = 0.88f),
                             fontFamily = ZeronType.Sans,
-                            fontSize = 13.5.sp,
+                            fontWeight = if (row.unseen) FontWeight.SemiBold else FontWeight.Medium,
+                            fontSize = 16.5.sp,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f),
                         )
-                        if (row.pinned) {
-                            // Pinned rows carry a quiet pin beside the time.
-                            Glyph(Glyphs.Pin, 12.dp, colors.tertiary, Modifier.graphicsLayer { rotationZ = 30f })
-                            Spacer(Modifier.width(4.dp))
-                        }
+                        Spacer(Modifier.width(10.dp))
                         if (corner != null) {
                             StatusMark(corner.mark, colors, Modifier.size(12.dp))
-                            Spacer(Modifier.width(4.dp))
+                            Spacer(Modifier.width(5.dp))
                             Text(corner.word, color = corner.color, fontFamily = ZeronType.Sans, fontWeight = FontWeight.Medium, fontSize = 13.sp)
                         } else {
-                            Text(row.timeLabel, color = colors.time, fontFamily = ZeronType.Sans, fontWeight = FontWeight.Medium, fontSize = 13.sp)
+                            Text(timeLabel, color = colors.time, fontFamily = ZeronType.Sans, fontWeight = FontWeight.Medium, fontSize = 13.sp)
                         }
                     }
-                    Text(
-                        row.title,
-                        color = colors.text.copy(alpha = if (row.unseen || corner != null) 1f else 0.88f),
-                        fontFamily = ZeronType.Sans,
-                        fontWeight = FontWeight.Normal,
-                        fontSize = 16.5.sp,
-                        lineHeight = 20.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        BrandMark(row.harness, colors, 14.dp)
-                        val branch = row.branch?.takeIf { it.isNotEmpty() }
-                        if (branch != null) {
-                            Spacer(Modifier.width(6.dp))
-                            AssetIcon("tool-git-branch", 12.dp, colors.subline)
-                            Spacer(Modifier.width(4.dp))
-                            Text(
-                                branch,
-                                color = colors.subline,
-                                fontFamily = ZeronType.Sans,
-                                fontSize = 12.5.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f),
-                            )
-                        } else {
-                            Spacer(Modifier.weight(1f))
+                    Row(Modifier.padding(top = 3.dp).height(18.dp), verticalAlignment = Alignment.CenterVertically) {
+                        val project = row.project?.name ?: row.deviceName ?: "No project"
+                        // Project-less sessions tile as "H" in the home tone.
+                        ProjectTile(
+                            name = row.project?.name ?: "Home",
+                            colorIndex = row.project?.colorIndex?.toInt() ?: model.homeColorIndex(),
+                            colors = colors,
+                            size = 14.dp,
+                        )
+                        Spacer(Modifier.width(7.dp))
+                        Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                            Text(project, color = colors.secondary, fontFamily = ZeronType.Sans, fontSize = 13.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            val branch = row.branch?.takeIf { it.isNotEmpty() }
+                            if (branch != null) {
+                                Spacer(Modifier.width(10.dp))
+                                AssetIcon("tool-git-branch", 12.dp, colors.subline)
+                                Spacer(Modifier.width(4.dp))
+                                Text(
+                                    branch,
+                                    color = colors.subline,
+                                    fontFamily = ZeronType.Sans,
+                                    fontSize = 12.5.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f),
+                                )
+                            }
                         }
                         row.pullRequest?.let { pr ->
-                            Spacer(Modifier.width(8.dp))
-                            val tone = when (pr.state) {
-                                PullRequestState.MERGED -> colors.accent
-                                PullRequestState.CLOSED -> colors.danger
-                                else -> colors.success
-                            }
-                            Text(
-                                "#${pr.number}",
-                                color = tone.copy(alpha = 0.9f),
-                                fontFamily = ZeronType.Mono,
-                                fontSize = 11.sp,
-                                modifier = Modifier.clip(RoundedCornerShape(5.dp)).background(tone.copy(alpha = 0.14f)).padding(horizontal = 5.dp, vertical = 1.dp),
-                            )
+                            Spacer(Modifier.width(10.dp))
+                            PrBadge(pr, colors)
                         }
                     }
                 }
             }
         }
+    }
+}
+
+/** iOS `PRBadgeView`: tone @ 0.08 pill, the PR glyph and the bare number @ 0.85. */
+@Composable
+internal fun PrBadge(pr: PullRequest, colors: ZeronColors) {
+    val tone = when (pr.state) {
+        PullRequestState.MERGED -> colors.accent
+        PullRequestState.CLOSED -> colors.danger
+        else -> colors.success
+    }
+    Row(
+        Modifier
+            .height(18.dp)
+            .clip(RoundedCornerShape(5.dp))
+            .background(tone.copy(alpha = 0.08f))
+            .padding(horizontal = 5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        PullRequestIcon(tone.copy(alpha = 0.85f), 11.dp)
+        Spacer(Modifier.width(3.dp))
+        Text(
+            "${pr.number}",
+            color = tone.copy(alpha = 0.85f),
+            fontFamily = ZeronType.Mono,
+            fontWeight = FontWeight.Medium,
+            fontSize = 11.sp,
+        )
     }
 }
 
@@ -797,6 +826,7 @@ private fun statusCorner(sendState: SendState?, indicator: ChatIndicator, colors
 private fun FolderScreen(model: ZeronModel, colors: ZeronColors, folder: ZeronModel.Route.Folder) {
     val rows = model.sessionsIn(folder.id)
     val archived = folder.id == "archived"
+    NowProvider {
     Column(Modifier.fillMaxSize().statusBarsPadding()) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
             Box(
@@ -818,11 +848,13 @@ private fun FolderScreen(model: ZeronModel, colors: ZeronColors, folder: ZeronMo
             }
         }
     }
+    }
 }
 
 @Composable
 private fun SearchScreen(model: ZeronModel, colors: ZeronColors) {
     val results = model.search(model.searchQuery)
+    NowProvider {
     Column(Modifier.fillMaxSize().statusBarsPadding().padding(horizontal = 16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 6.dp, bottom = 12.dp)) {
             Box(
@@ -856,6 +888,7 @@ private fun SearchScreen(model: ZeronModel, colors: ZeronColors) {
                 }
             }
         }
+    }
     }
 }
 
