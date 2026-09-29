@@ -349,7 +349,7 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
             phase = Phase.Failed(it.message ?: "Couldn't read this machine's key")
             return
         }
-        start(uniffi.zeron_core.Credentials.Direct(target), demo = false, dir = "direct-${machine.id}", active = machine.id)
+        start(uniffi.zeron_core.Credentials.Direct(target), demo = false, dir = CoreConnect.dataDirName(machine.id), active = machine.id)
     }
 
     private fun resetNavigation() {
@@ -470,14 +470,7 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
         showToast("Signed out")
     }
 
-    private fun demoCredentials() = Credentials.Demo(
-        DemoOptions(
-            fixture = DemoFixture.STANDARD,
-            transcriptScale = TranscriptScale.Normal,
-            streamSpeed = StreamSpeed.REALISTIC,
-            longReply = false,
-        ),
-    )
+    private fun demoCredentials() = CoreConnect.demoCredentials()
 
     private fun start(credentials: Credentials, demo: Boolean, dir: String? = null, active: String? = null) {
         phase = Phase.Loading
@@ -485,7 +478,7 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch(Dispatchers.Default) {
             try {
                 val app = getApplication<Application>()
-                val dir = File(app.filesDir, dir ?: if (demo) "demo" else "core").apply { mkdirs() }
+                val dir = File(app.filesDir, dir ?: CoreConnect.dataDirName(if (demo) CoreConnect.DEMO else CoreConnect.CLOUD)).apply { mkdirs() }
                 if (text == null) {
                     val bytes = faces.map { (role, _) ->
                         val name = FACE_FILES.getValue(role)
@@ -493,17 +486,7 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
                     }
                     text = TextSystem(bytes, AndroidMeasurer(faces))
                 }
-                val id = prefs.getString("deviceId", null) ?: ("android-" + UUID.randomUUID().toString().take(8)).also {
-                    prefs.edit().putString("deviceId", it).apply()
-                }
-                val config = CoreConfig(
-                    edgeUrl = authProductionEdgeUrl(),
-                    dataDir = dir.absolutePath,
-                    deviceId = id,
-                    deviceName = android.os.Build.MODEL ?: "Android",
-                    platform = "android",
-                    appVersion = BuildConfig.VERSION_NAME ?: "0.2.94",
-                )
+                val config = CoreConnect.config(app, dir)
                 val created = CoreClient(config, credentials, object : ClientListener {
                     override fun onEvent(event: ClientEvent) {
                         // Must name the model's handler: a bare `onEvent(event)`
@@ -519,6 +502,7 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
                     // `client` was still null were dropped (a direct machine
                     // can finish its first sync in ~100 ms).
                     client = created
+                    CoreConnect.live = CoreConnect.Live(activeMachine, created)
                     workspace = created.workspace()
                     connectivity = created.connectivity()
                     epoch++
@@ -623,6 +607,7 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
         epochJob?.cancel()
         epochJob = null
         directStatus = null
+        if (client != null && CoreConnect.live?.client === client) CoreConnect.live = null
         runCatching { client?.shutdown() }
         runCatching { client?.close() }
         client = null
@@ -846,16 +831,7 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
         )
     }
 
-    private fun storedCredentials(): Credentials? {
-        val raw = prefs.getString("account", null) ?: return null
-        val parts = raw.split('\n')
-        if (parts.size < 4) return null
-        return Credentials.WorkOs(
-            parts[0],
-            parts[1],
-            uniffi.zeron_core.AuthTokens(parts[2], parts[3]),
-        )
-    }
+    private fun storedCredentials(): Credentials? = CoreConnect.storedCredentials(getApplication())
 
     // ── wallpaper ─────────────────────────────────────────────────────────
 
