@@ -81,6 +81,24 @@ android {
         buildConfig = true
     }
 
+    testOptions {
+        unitTests {
+            // Robolectric screenshot tests read the app's assets (fonts).
+            isIncludeAndroidResources = true
+            all { test ->
+                // Screenshot renders (src/test/.../screenshots) run only with
+                // -PzeronScreenshots=true and need the HOST build of the Rust
+                // core (see README): JNA loads it from target/mobile.
+                test.systemProperty("jna.library.path", rootProject.file("../../target/mobile").absolutePath)
+                test.systemProperty("zeron.screenshots", (findProperty("zeronScreenshots") as String?) ?: "false")
+                test.systemProperty("zeron.screenshots.dir", (findProperty("zeronScreenshotsDir") as String?) ?: layout.buildDirectory.dir("screenshots").get().asFile.absolutePath)
+                test.systemProperty("roborazzi.test.record", "true")
+                test.systemProperty("robolectric.pixelCopyRenderMode", "hardware")
+                test.maxHeapSize = "3g"
+            }
+        }
+    }
+
     packaging {
         jniLibs {
             // JNA dlopens libzeron_mobile.so from the extracted native dir.
@@ -114,4 +132,15 @@ dependencies {
     implementation("androidx.browser:browser:1.8.0")
     debugImplementation("androidx.compose.ui:ui-tooling")
     testImplementation("junit:junit:4.13.2")
+    // JVM screenshot renders (Robolectric + Roborazzi), see README.
+    testImplementation(composeBom)
+    testImplementation("androidx.compose.ui:ui-test-junit4")
+    testImplementation("org.robolectric:robolectric:4.14.1")
+    testImplementation("io.github.takahirom.roborazzi:roborazzi:1.39.0")
+    testImplementation("io.github.takahirom.roborazzi:roborazzi-compose:1.39.0")
+    testImplementation("io.github.takahirom.roborazzi:roborazzi-junit-rule:1.39.0")
+    testImplementation("androidx.test.ext:junit:1.2.1")
+    // Desktop JNA (linux-x86-64 libjnidispatch) for the host Rust core.
+    testImplementation("net.java.dev.jna:jna:5.17.0")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
 }
