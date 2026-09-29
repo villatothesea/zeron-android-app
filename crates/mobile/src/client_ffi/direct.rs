@@ -144,6 +144,8 @@ pub struct DirectStreamStat {
     pub frames: u64,
     pub rows: u32,
     pub skipped_rows: u32,
+    /// Rows kept after dropping/defaulting values this app doesn't know.
+    pub repaired_rows: u32,
     pub last_frame_ms: Option<i64>,
     pub error: Option<String>,
 }
@@ -163,6 +165,8 @@ pub struct DirectStatus {
     pub retry_at_ms: Option<i64>,
     pub engine_version: Option<String>,
     pub engine_device_id: Option<String>,
+    /// Non-blocking note (e.g. the engine is a newer minor version).
+    pub notice: Option<String>,
     pub connected_at_ms: Option<i64>,
     pub synced_at_ms: Option<i64>,
     pub streams: Vec<DirectStreamStat>,
@@ -182,6 +186,7 @@ impl From<zd::DirectStatus> for DirectStatus {
             retry_at_ms: s.retry_at_ms,
             engine_version: s.engine_version,
             engine_device_id: s.engine_device_id,
+            notice: s.notice,
             connected_at_ms: s.connected_at_ms,
             synced_at_ms: s.synced_at_ms,
             streams: s
@@ -192,6 +197,7 @@ impl From<zd::DirectStatus> for DirectStatus {
                     frames: t.frames,
                     rows: t.rows,
                     skipped_rows: t.skipped_rows,
+                    repaired_rows: t.repaired_rows,
                     last_frame_ms: t.last_frame_ms,
                     error: t.error,
                 })
