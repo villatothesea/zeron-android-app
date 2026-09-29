@@ -63,6 +63,24 @@ adb shell am start -n sh.zeron.android/.MainActivity \
 
 `route` is `settings`, `search`, `new`, `spaces` (space-filter menu), `session` (with `--es chat <id>`), or `signin`. `theme` is `light`, `dark`, or `system`. A fresh install defaults to dark.
 
+### Screenshots on the JVM (no emulator)
+
+`app/src/test/java/sh/zeron/android/screenshots/` renders real screens with Robolectric + Roborazzi: `MainActivity` running the Demo workspace (DemoFixture.STANDARD) through a host build of the Rust core, plus two fixture SSH machines and fixture plan usage (`ZeronModel.agentUsageSource`). Build the host library once from the repo root (Linux x86_64):
+
+```bash
+cargo build --locked -p zeron-mobile --lib --profile mobile   # -> target/mobile/libzeron_mobile.so
+```
+
+Then from `apps/android`:
+
+```bash
+./gradlew :app:testDebugUnitTest -PzeronScreenshots=true \
+  --tests 'sh.zeron.android.screenshots.*' \
+  -PzeronScreenshotsDir=/tmp/zeron-renders      # default: app/build/screenshots
+```
+
+It writes `01a-home-by-project.png`, `01b-home-by-activity.png`, `02-chat-usage-rings.png` (a live demo turn, so the pill shows the timer), `03-usage-sheet.png`, `04-settings.png`, `05-machines.png`, `06-machine-editor.png`, `07-new-session.png` and `08-working-timer.png` at 411×891 dp, xxhdpi, dark. Without `-PzeronScreenshots=true` (or without the host library) these tests are skipped, so the normal unit-test run stays fast. The host `.so` must match the checked-in UniFFI bindings; rebuild it after changing the core.
+
 ## Approximations
 
 iOS uses system Liquid Glass. Recording the Compose hierarchy into a `RenderNode` and blurring it with `RenderEffect` crashes the emulator GPU. Drawing that same hierarchy into a software canvas from the app process is not used either. Capsules sample a 1/8-scale `PixelCopy` of the window, box-blurred on the CPU. If that copy fails, or a previous attempt died before writing its success file in the app cache, the capsule stays a frosted `#1E1E1E` fill with a hairline. On the flat demo backdrop the blurred sample and the fill measure almost the same.
