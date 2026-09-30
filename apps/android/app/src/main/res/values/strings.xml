@@ -436,8 +436,8 @@
     <string name="update_reason_tls">secure connection failed</string>
     <string name="update_downloading_from">Downloading from %1$s… %2$d%% · %3$s/s</string>
     <string name="update_downloading_from_size">Downloading from %1$s… %2$s · %3$s/s</string>
-    <string name="update_open_browser">Download in Browser</string>
-    <string name="update_copy_link">Copy Download Link</string>
+    <string name="update_open_browser">Open in Browser</string>
+    <string name="update_copy_link">Copy Link</string>
     <string name="update_no_browser">No browser to open the link</string>
     <string name="update_sources_hint">If GitHub is slow or unreachable, the app switches to public GitHub mirrors (ghfast.top, gh-proxy.com, gh.llkk.cc) by itself. Every download is checked against the release checksum and signing key before installing.</string>
 </resources>
