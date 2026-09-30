@@ -492,4 +492,15 @@
     <string name="badge_ready_desc">Update %1$s ready. Tap to install.</string>
     <string name="badge_details">Update details</string>
     <string name="badge_download_failed">Couldn’t download the update. Tap the arrow to try again.</string>
+
+    <!-- Scheduled send: relative ("After") mode and day labels -->
+    <string name="schedule_tab_at">At time</string>
+    <string name="schedule_tab_after">After</string>
+    <string name="schedule_minutes_short">%1$d min</string>
+    <string name="schedule_hours_short">%1$d hr</string>
+    <string name="schedule_hours_unit">hr</string>
+    <string name="schedule_minutes_unit">min</string>
+    <string name="schedule_custom">Custom</string>
+    <string name="schedule_when_tomorrow">tomorrow %1$s</string>
+    <string name="schedule_when_date">%1$s %2$s</string>
 </resources>

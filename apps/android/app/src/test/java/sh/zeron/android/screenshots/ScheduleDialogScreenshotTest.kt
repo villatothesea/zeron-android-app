@@ -19,6 +19,8 @@ import sh.zeron.android.design.GlassFrameLayout
 import sh.zeron.android.design.LocalZeronColors
 import sh.zeron.android.design.ZeronDark
 import sh.zeron.android.design.ZeronMaterialTheme
+import sh.zeron.android.design.ZeronLight
+import sh.zeron.android.ui.ScheduleMode
 import sh.zeron.android.ui.ScheduleSendDialog
 
 /** The Schedule send time picker (long-press Send). */
@@ -41,17 +43,31 @@ open class ScheduleDialogScreenshotTest {
 
     @OptIn(ExperimentalRoborazziApi::class)
     @Test
-    fun schedulePicker() {
-        val colors = ZeronDark
+    fun schedulePicker() = render(ZeronDark, ScheduleMode.AT, "10-schedule-picker.png")
+
+    @OptIn(ExperimentalRoborazziApi::class)
+    @Test
+    fun schedulePickerAfter() = render(ZeronDark, ScheduleMode.AFTER, "10b-schedule-picker-after.png")
+
+    @OptIn(ExperimentalRoborazziApi::class)
+    @Test
+    fun schedulePickerLight() = render(ZeronLight, ScheduleMode.AT, "10c-schedule-picker-light.png")
+
+    @OptIn(ExperimentalRoborazziApi::class)
+    @Test
+    fun schedulePickerAfterLight() = render(ZeronLight, ScheduleMode.AFTER, "10d-schedule-picker-after-light.png")
+
+    @OptIn(ExperimentalRoborazziApi::class)
+    private fun render(colors: sh.zeron.android.design.ZeronColors, mode: ScheduleMode, name: String) {
         compose.setContent {
             CompositionLocalProvider(LocalZeronColors provides colors) {
                 ZeronMaterialTheme(colors) {
                     Box(Modifier.fillMaxSize().background(colors.background))
-                    ScheduleSendDialog(colors, onDismiss = {}) { }
+                    ScheduleSendDialog(colors, initialMode = mode, onDismiss = {}) { }
                 }
             }
         }
         compose.waitForIdle()
-        captureScreenRoboImage(Screenshots.path(subdir + "10-schedule-picker.png"))
+        captureScreenRoboImage(Screenshots.path(subdir + name))
     }
 }

@@ -487,4 +487,15 @@
     <string name="badge_ready_desc">新版本 %1$s 已就绪，轻点安装。</string>
     <string name="badge_details">更新详情</string>
     <string name="badge_download_failed">更新下载失败，轻点箭头重试。</string>
+
+    <!-- Scheduled send: relative ("After") mode and day labels -->
+    <string name="schedule_tab_at">指定时间</string>
+    <string name="schedule_tab_after">多久后</string>
+    <string name="schedule_minutes_short">%1$d分钟</string>
+    <string name="schedule_hours_short">%1$d小时</string>
+    <string name="schedule_hours_unit">小时</string>
+    <string name="schedule_minutes_unit">分钟</string>
+    <string name="schedule_custom">自定义</string>
+    <string name="schedule_when_tomorrow">明天 %1$s</string>
+    <string name="schedule_when_date">%1$s %2$s</string>
 </resources>

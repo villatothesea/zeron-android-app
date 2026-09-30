@@ -533,7 +533,7 @@ fun SessionScreen(model: ZeronModel, chatId: String) {
                     )
                     sh.zeron.android.schedule.ScheduledAlarms.schedule(context, message)
                     draft = ""
-                    model.showToast(context.getString(sh.zeron.android.R.string.schedule_toast, sh.zeron.android.schedule.ScheduleTime.clock(atMs)))
+                    model.showToast(context.getString(sh.zeron.android.R.string.schedule_toast, scheduleWhenText(context, atMs)))
                     if (android.os.Build.VERSION.SDK_INT >= 33 &&
                         androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED
                     ) {

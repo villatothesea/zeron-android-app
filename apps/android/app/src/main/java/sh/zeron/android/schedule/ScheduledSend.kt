@@ -62,6 +62,21 @@ object ScheduleTime {
         return a.get(Calendar.YEAR) == b.get(Calendar.YEAR) && a.get(Calendar.DAY_OF_YEAR) == b.get(Calendar.DAY_OF_YEAR)
     }
 
+    /** "After" mode: [minutes] from [nowMs], to the millisecond (the alarm is exact when allowed). */
+    fun after(minutes: Int, nowMs: Long): Long = nowMs + minutes.coerceAtLeast(0) * 60_000L
+
+    /** Calendar days from [nowMs]'s date to [atMs]'s date: 0 today, 1 tomorrow… */
+    fun daysFrom(atMs: Long, nowMs: Long, zone: TimeZone = TimeZone.getDefault()): Int {
+        fun dayStart(ms: Long) = Calendar.getInstance(zone).apply {
+            timeInMillis = ms
+            set(Calendar.HOUR_OF_DAY, 12) // noon: DST-safe day arithmetic
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
+        return Math.round((dayStart(atMs) - dayStart(nowMs)) / 86_400_000.0).toInt()
+    }
+
     /** "01:20" in 24-hour time (the chip's format). */
     fun clock(ms: Long, zone: TimeZone = TimeZone.getDefault()): String {
         val c = Calendar.getInstance(zone).apply { timeInMillis = ms }
