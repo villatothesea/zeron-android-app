@@ -23,6 +23,8 @@ object ConnectionState {
         val retryAtMs: Long? = null,
         /** The workspace id: a machine id, "cloud" or "demo". */
         val id: String = "",
+        /** Which of the computer's addresses the link runs over (LAN, Tailscale…), when connected. */
+        val route: EndpointKind? = null,
     )
 
     fun dot(workspace: Workspace, loading: Boolean, direct: DirectPhase?, cloud: ConnectivityState?): Dot = when {

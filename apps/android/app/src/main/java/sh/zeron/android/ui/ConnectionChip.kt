@@ -61,6 +61,7 @@ import kotlinx.coroutines.delay
 import sh.zeron.android.R
 import sh.zeron.android.core.ConnectionIssue
 import sh.zeron.android.core.ConnectionState
+import sh.zeron.android.core.EndpointKind
 import sh.zeron.android.core.Machine
 import sh.zeron.android.core.ZeronModel
 import sh.zeron.android.design.ChevronMark
@@ -129,9 +130,37 @@ internal fun ConnectionChip(model: ZeronModel, colors: ZeronColors, modifier: Mo
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f, fill = false),
         )
+        view.route?.let { route ->
+            Spacer(Modifier.width(5.dp))
+            RouteTag(colors, route)
+        }
         Spacer(Modifier.width(2.dp))
         ChevronMark(colors.secondary, Modifier.size(10.dp), expanded = true)
     }
+}
+
+@Composable
+internal fun EndpointKind.label(): String = stringResource(
+    when (this) {
+        EndpointKind.LAN -> R.string.route_lan
+        EndpointKind.TAILSCALE -> R.string.route_tailscale
+        EndpointKind.OTHER -> R.string.route_other
+    },
+)
+
+/** Small "局域网" / "Tailscale" tag: which address the link runs over. */
+@Composable
+internal fun RouteTag(colors: ZeronColors, route: EndpointKind, modifier: Modifier = Modifier) {
+    Text(
+        route.label(),
+        color = colors.secondary,
+        fontFamily = ZeronType.Sans,
+        fontWeight = FontWeight.Medium,
+        fontSize = 10.sp,
+        maxLines = 1,
+        modifier = modifier.clip(RoundedCornerShape(6.dp)).background(colors.hairline.copy(alpha = 0.5f))
+            .padding(horizontal = 5.dp, vertical = 1.dp).testTag("route-tag"),
+    )
 }
 
 /** Solid bottom sheet sliding up over a scrim (same look as the usage sheet). */
@@ -193,7 +222,7 @@ internal fun ConnectionSwitcherSheet(model: ZeronModel, colors: ZeronColors) {
             SwitcherRow(
                 colors,
                 title = machine.title(),
-                subtitle = if (active) view.dot.label() else "${machine.user}@${machine.host}",
+                subtitle = if (active) listOfNotNull(view.dot.label(), view.route?.label()).joinToString(" · ") else addressesLine(machine),
                 dot = if (active) view.dot else when (model.machineOnline[machine.id]) {
                     true -> ConnectionState.Dot.CONNECTED
                     false -> ConnectionState.Dot.FAILED
@@ -219,6 +248,13 @@ internal fun ConnectionSwitcherSheet(model: ZeronModel, colors: ZeronColors) {
         SheetLink(colors, stringResource(R.string.add_computer_ellipsis)) { close(); model.editMachine = Machine() }
         SheetLink(colors, stringResource(R.string.accounts_computers_ellipsis)) { close(); model.showMachines = true }
     }
+}
+
+/** "tx_vi@192.168.1.102 · 100.124.7.39": the sign-in and every address. */
+internal fun addressesLine(machine: Machine): String {
+    val list = machine.addresses()
+    val first = list.firstOrNull()?.display() ?: machine.host
+    return (listOf("${machine.user}@$first") + list.drop(1).map { it.display() }).joinToString(" · ")
 }
 
 @Composable
@@ -320,6 +356,19 @@ internal fun ConnectionFailureSheet(model: ZeronModel, colors: ZeronColors) {
             }
             Text(line, color = colors.tertiary, fontFamily = ZeronType.Sans, fontSize = 13.sp)
         }
+        val endpoints = model.directStatus?.endpoints.orEmpty()
+        if (endpoints.size > 1) {
+            Spacer(Modifier.height(12.dp))
+            Text(stringResource(R.string.conn_fail_per_address), color = colors.tertiary, fontFamily = ZeronType.Sans, fontSize = 12.sp)
+            Spacer(Modifier.height(4.dp))
+            Column(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(colors.controlFill).padding(horizontal = 12.dp, vertical = 8.dp)
+                    .testTag("failure-endpoints"),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                endpoints.forEach { e -> FailureEndpointRow(colors, e, several = true) }
+            }
+        }
         val raw = view.error
         if (!raw.isNullOrBlank()) {
             Spacer(Modifier.height(10.dp))
@@ -353,5 +402,35 @@ internal fun ConnectionFailureSheet(model: ZeronModel, colors: ZeronColors) {
             Spacer(Modifier.height(4.dp))
             SheetLink(colors, stringResource(R.string.edit_computer)) { close(); model.editMachine = machine }
         }
+    }
+}
+
+/** "局域网 192.168.1.102 — 连接超时" in the failure sheet. */
+@Composable
+private fun FailureEndpointRow(colors: ZeronColors, e: uniffi.zeron_core.DirectEndpointStat, several: Boolean) {
+    Row(verticalAlignment = Alignment.Top) {
+        RouteTag(colors, EndpointKind.fromWire(e.kind), Modifier.padding(top = 2.dp))
+        Spacer(Modifier.width(8.dp))
+        Column(Modifier.weight(1f)) {
+            Text(sh.zeron.android.core.Endpoint(e.host, e.port.toInt()).display(), color = colors.text, fontFamily = ZeronType.Mono, fontSize = 13.sp)
+            Text(endpointReason(e, several), color = colors.secondary, fontFamily = ZeronType.Sans, fontSize = 13.sp)
+        }
+    }
+}
+
+/** One address's last outcome in words (failure sheet, connection details). */
+@Composable
+internal fun endpointReason(e: uniffi.zeron_core.DirectEndpointStat, several: Boolean): String {
+    val error = e.lastError
+    return when {
+        e.active -> e.latencyMs?.let { stringResource(R.string.route_in_use_ms, it.toInt()) } ?: stringResource(R.string.route_in_use)
+        error != null -> {
+            val kind = ConnectionIssue.classify(error)
+            if (kind == ConnectionIssue.Kind.HOST_KEY_CHANGED && several) stringResource(R.string.route_stranger)
+            else stringResource(kind.titleRes())
+        }
+        e.lastOkMs != null -> stringResource(R.string.route_ok_at, java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date(e.lastOkMs!!)))
+        e.lastAttemptMs != null -> stringResource(R.string.route_trying)
+        else -> stringResource(R.string.route_untried)
     }
 }

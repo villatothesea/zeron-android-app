@@ -156,6 +156,7 @@ internal fun LinkDetailsScreen(model: ZeronModel) {
             status.lastError?.let { SettingRow(colors, stringResource(R.string.link_last_error), it) }
             status.notice?.let { SettingRow(colors, stringResource(R.string.link_note), it) }
             status.clockOffsetMs?.let { SettingRow(colors, stringResource(R.string.link_clock), clockOffsetText(it)) }
+            RoutesSection(model, colors, status)
             GroupLabel(colors, stringResource(R.string.link_streams))
             val res = context.resources
             for (st in status.streams) {
@@ -210,4 +211,48 @@ internal fun clockOffsetText(offsetMs: Long): String {
         offsetMs > 0 -> stringResource(R.string.link_clock_phone_ahead, secs.toInt())
         else -> stringResource(R.string.link_clock_phone_behind, secs.toInt())
     }
+}
+
+/**
+ * Connection details > 线路: the network the phone is on, then every
+ * address of the computer in the order it is tried, with the one in use
+ * and what each did last.
+ */
+@Composable
+private fun RoutesSection(model: ZeronModel, colors: ZeronColors, status: DirectStatus) {
+    if (status.endpoints.isEmpty()) return
+    GroupLabel(colors, stringResource(R.string.route_group))
+    SettingRow(colors, stringResource(R.string.route_network), networkText(model.network))
+    for (e in status.endpoints) {
+        val kind = sh.zeron.android.core.EndpointKind.fromWire(e.kind)
+        val title = "${kind.label()} · ${sh.zeron.android.core.Endpoint(e.host, e.port.toInt()).display()}"
+        val reason = endpointReason(e, several = status.endpoints.size > 1)
+        val detail = e.lastError?.takeIf { !e.active }
+        SettingRow(colors, title, listOfNotNull(reason, detail).joinToString("\n"))
+    }
+    Text(
+        stringResource(R.string.route_auto_hint),
+        color = colors.secondary, fontFamily = ZeronType.Sans, fontSize = 12.sp,
+        modifier = Modifier.padding(start = 4.dp, top = 4.dp, bottom = 4.dp),
+    )
+}
+
+/** "Wi-Fi 192.168.1.0/24 · Tailscale 已开启". */
+@Composable
+internal fun networkText(net: sh.zeron.android.core.NetworkSnapshot): String {
+    val subnet = net.localSubnets.firstOrNull()?.toString().orEmpty()
+    val where = when (net.transport) {
+        sh.zeron.android.core.NetworkSnapshot.Transport.WIFI -> stringResource(R.string.net_wifi, subnet).trim()
+        sh.zeron.android.core.NetworkSnapshot.Transport.ETHERNET -> stringResource(R.string.net_ethernet, subnet).trim()
+        sh.zeron.android.core.NetworkSnapshot.Transport.CELLULAR -> stringResource(R.string.net_cellular)
+        sh.zeron.android.core.NetworkSnapshot.Transport.NONE -> stringResource(R.string.net_none)
+        sh.zeron.android.core.NetworkSnapshot.Transport.OTHER -> stringResource(R.string.net_other)
+    }
+    val vpn = when (net.vpn) {
+        sh.zeron.android.core.NetworkSnapshot.Vpn.TAILSCALE -> stringResource(R.string.net_vpn_tailscale)
+        sh.zeron.android.core.NetworkSnapshot.Vpn.OTHER -> stringResource(R.string.net_vpn_other)
+        sh.zeron.android.core.NetworkSnapshot.Vpn.NONE -> stringResource(R.string.net_vpn_none)
+        sh.zeron.android.core.NetworkSnapshot.Vpn.UNKNOWN -> null
+    }
+    return listOfNotNull(where, vpn).joinToString(" · ")
 }

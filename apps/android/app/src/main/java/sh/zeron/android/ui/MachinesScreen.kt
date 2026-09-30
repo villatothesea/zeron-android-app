@@ -90,10 +90,11 @@ fun MachinesScreen(model: ZeronModel) {
                     active -> null
                     else -> model.machineOnline[machine.id]
                 }
-                val summary = if (active) directSummary(link) else ""
+                val route = if (active) model.activeRoute()?.label() else null
+                val summary = if (active) listOfNotNull(directSummary(link), route).joinToString(" · ") else ""
                 val unverified = stringResource(R.string.not_verified_yet)
                 val subtitle = buildString {
-                    append("${machine.user}@${machine.host}:${machine.port}")
+                    append(addressesLine(machine))
                     if (active) {
                         if (link?.phase == uniffi.zeron_core.DirectPhase.FAILED) append("\n$summary") else append("  ·  $summary")
                     } else if (machine.hostKey == null) {

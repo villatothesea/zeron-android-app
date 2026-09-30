@@ -461,6 +461,7 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
             error = status?.lastError?.takeIf { dot == ConnectionState.Dot.FAILED },
             retryAtMs = status?.retryAtMs?.takeIf { dot == ConnectionState.Dot.FAILED },
             id = activeMachine,
+            route = activeRoute()?.takeIf { dot == ConnectionState.Dot.CONNECTED },
         )
     }
 
@@ -1099,6 +1100,16 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
             appendLine("Zeron Android ${sh.zeron.android.BuildConfig.VERSION_NAME} (${sh.zeron.android.BuildConfig.VERSION_CODE})")
             m?.let { appendLine("Machine: ${it.user}@${it.host}:${it.port} → 127.0.0.1:${it.enginePort}") }
             appendLine("Phase: ${s.phase}")
+            appendLine("Network: ${network.key} (VPN ${network.vpn.name.lowercase()})")
+            for (e in s.endpoints) {
+                val what = when {
+                    e.active -> "in use" + (e.latencyMs?.let { " (${it} ms)" } ?: "")
+                    e.lastError != null -> "failed: ${e.lastError}"
+                    e.lastOkMs != null -> "worked at ${fmt.format(java.util.Date(e.lastOkMs!!))}"
+                    else -> "not tried"
+                }
+                appendLine("  ${e.kind} ${e.host}:${e.port} — $what")
+            }
             appendLine("Engine: ${s.engineVersion ?: "?"} (device ${s.engineDeviceId?.take(8) ?: "?"})")
             s.lastError?.let { appendLine("Last error: $it") }
             s.notice?.let { appendLine("Note: $it") }

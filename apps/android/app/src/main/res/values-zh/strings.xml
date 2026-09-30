@@ -542,4 +542,28 @@
 
     <!-- device groups: merge -->
     <string name="computers_merged">已合并为一台电脑。</string>
+
+    <!-- device groups: routes -->
+    <string name="route_lan">局域网</string>
+    <string name="route_tailscale">Tailscale</string>
+    <string name="route_other">其他地址</string>
+    <string name="route_group">线路</string>
+    <string name="route_auto_hint">按当前网络自动选择：在家里的 Wi-Fi 上走局域网，在外面走 Tailscale。按这个顺序尝试。</string>
+    <string name="route_network">当前网络</string>
+    <string name="net_wifi">Wi-Fi %1$s</string>
+    <string name="net_ethernet">有线网络 %1$s</string>
+    <string name="net_cellular">移动数据</string>
+    <string name="net_none">无网络</string>
+    <string name="net_other">其他网络</string>
+    <string name="net_vpn_tailscale">Tailscale 已开启</string>
+    <string name="net_vpn_other">开着其他 VPN（不是 Tailscale）</string>
+    <string name="net_vpn_none">未开 VPN</string>
+    <string name="route_in_use">正在使用</string>
+    <string name="route_in_use_ms">正在使用 · %1$d 毫秒连上</string>
+    <string name="route_ok_at">上次成功 %1$s</string>
+    <string name="route_failed">失败：%1$s</string>
+    <string name="route_untried">还没试过</string>
+    <string name="route_trying">正在尝试…</string>
+    <string name="route_stranger">这个地址上是另一台设备</string>
+    <string name="conn_fail_per_address">各地址</string>
 </resources>
