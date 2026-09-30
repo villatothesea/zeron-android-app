@@ -834,7 +834,7 @@ private fun SessionRowView(
                     Row(Modifier.height(22.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text(
                             row.title,
-                            color = if (row.unseen || row.indicator != ChatIndicator.IDLE || corner != null) colors.text else colors.text.copy(alpha = 0.88f),
+                            color = if (row.unseen || row.indicator != ChatIndicator.IDLE || row.sendState == SendState.FAILED) colors.text else colors.text.copy(alpha = 0.88f),
                             fontFamily = ZeronType.Sans,
                             fontWeight = if (row.unseen) FontWeight.SemiBold else FontWeight.Medium,
                             fontSize = 16.5.sp,
@@ -848,11 +848,15 @@ private fun SessionRowView(
                             Glyph(Glyphs.Pin, 12.dp, colors.tertiary, Modifier.graphicsLayer { rotationZ = 30f })
                             Spacer(Modifier.width(4.dp))
                         }
+                        // Icon-only status (no word beside it): the glyph
+                        // carries the state, TalkBack reads the word. Live
+                        // states show the glyph alone; outcomes keep the time.
                         if (corner != null) {
-                            StatusMark(corner.mark, colors, Modifier.size(12.dp))
-                            Spacer(Modifier.width(5.dp))
-                            Text(stringResource(corner.word), color = corner.color, fontFamily = ZeronType.Sans, fontWeight = FontWeight.Medium, fontSize = 13.sp)
-                        } else {
+                            val word = stringResource(corner.word)
+                            StatusMark(corner.mark, colors, Modifier.size(12.dp).testTag("row-status").semantics { contentDescription = word })
+                        }
+                        if (corner == null || corner.showTime) {
+                            if (corner != null) Spacer(Modifier.width(6.dp))
                             Text(timeLabel, color = colors.time, fontFamily = ZeronType.Sans, fontWeight = FontWeight.Medium, fontSize = 13.sp)
                         }
                     }
@@ -939,18 +943,29 @@ internal fun PrBadge(pr: PullRequest, colors: ZeronColors) {
     }
 }
 
-private data class Corner(@androidx.annotation.StringRes val word: Int, val color: Color, val mark: MarkKind)
+/** A row's status glyph, its TalkBack word, and whether the time stays beside it. */
+internal data class Corner(@androidx.annotation.StringRes val word: Int, val mark: MarkKind, val showTime: Boolean)
 
-private fun cornerOf(row: SessionRow, colors: ZeronColors): Corner? = statusCorner(row.sendState, row.indicator, colors, unseen = row.unseen)
+private fun cornerOf(row: SessionRow, colors: ZeronColors): Corner? = statusCorner(row.sendState, row.indicator, row.lastOutcome, colors)
 
-private fun statusCorner(sendState: SendState?, indicator: ChatIndicator, colors: ZeronColors, unseen: Boolean = false): Corner? {
-    if (sendState == SendState.FAILED) return Corner(R.string.status_failed, colors.danger, MarkKind.Dot(colors.danger))
-    return when (indicator) {
-        ChatIndicator.WORKING -> Corner(R.string.status_working, colors.working, MarkKind.Spinner)
-        ChatIndicator.AWAITING_INPUT -> Corner(R.string.status_input, colors.input, MarkKind.Dot(colors.input))
-        ChatIndicator.ERRORED -> Corner(R.string.status_failed, colors.failed, MarkKind.Dot(colors.failed))
-        ChatIndicator.COMPLETED -> if (unseen) Corner(R.string.status_done, colors.done, MarkKind.Check(colors.done)) else null
-        ChatIndicator.IDLE -> null
+/**
+ * Row status, icon-only: live states (the running dot-matrix, the input dot)
+ * from the live `indicator`; otherwise how the last run ended from
+ * `lastOutcome`, which the seen marker does not clear (a green check for
+ * done, a red dot for failed; unseen rows are told apart by the bold title).
+ * A chat that never ran shows just its time.
+ */
+internal fun statusCorner(sendState: SendState?, indicator: ChatIndicator, outcome: ChatIndicator, colors: ZeronColors): Corner? {
+    if (sendState == SendState.FAILED) return Corner(R.string.status_failed, MarkKind.Dot(colors.danger), showTime = true)
+    when (indicator) {
+        ChatIndicator.WORKING -> return Corner(R.string.status_working, MarkKind.Spinner, showTime = false)
+        ChatIndicator.AWAITING_INPUT -> return Corner(R.string.status_input, MarkKind.Dot(colors.input), showTime = false)
+        else -> {}
+    }
+    return when (if (indicator == ChatIndicator.ERRORED) ChatIndicator.ERRORED else outcome) {
+        ChatIndicator.ERRORED -> Corner(R.string.status_failed, MarkKind.Dot(colors.failed), showTime = true)
+        ChatIndicator.COMPLETED -> Corner(R.string.status_done, MarkKind.Check(colors.done), showTime = true)
+        else -> null
     }
 }
 

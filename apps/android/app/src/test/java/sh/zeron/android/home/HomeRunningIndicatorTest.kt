@@ -3,6 +3,7 @@ package sh.zeron.android.home
 import android.app.Application
 import android.os.Looper
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
+import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.lifecycle.ViewModelProvider
 import androidx.test.core.app.ActivityScenario
@@ -31,8 +32,8 @@ import uniffi.zeron_core.SendRequest
 
 /**
  * The home list marks running sessions: a session with a turn in flight reads
- * WORKING in the snapshot and its row shows the spinner + "Working" corner
- * (iOS SessionCell precedence), in both list views. Group headers show no
+ * WORKING in the snapshot and its row shows the dot-matrix alone (TalkBack: "Working"; no word
+ * beside it), in both list views. Group headers show no
  * spinner (only an input dot when a row waits for the user).
  */
 @RunWith(RobolectricTestRunner::class)
@@ -69,8 +70,11 @@ class HomeRunningIndicatorTest {
         for (mode in listOf(ZeronModel.ListMode.Project, ZeronModel.ListMode.Activity)) {
             model.applyListMode(mode)
             settle()
-            val shown = compose.onAllNodesWithText(working).fetchSemanticsNodes().size
-            assertTrue("$mode: expected a \"$working\" corner, found $shown", shown >= 1)
+            // Icon-only: the dot-matrix carries the state (TalkBack reads
+            // "Working"); no "Working" word beside it.
+            val shown = compose.onAllNodesWithContentDescription(working).fetchSemanticsNodes().size
+            assertTrue("$mode: expected a \"$working\" status glyph, found $shown", shown >= 1)
+            assertEquals("$mode: no \"$working\" text on rows", 0, compose.onAllNodesWithText(working).fetchSemanticsNodes().size)
         }
         scenario.close()
     }

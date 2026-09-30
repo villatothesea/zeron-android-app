@@ -64,7 +64,10 @@ data class HomeStats(val running: List<SessionRow>, val failed: List<SessionRow>
             return HomeStats(running, failed)
         }
 
-        fun isFailed(row: SessionRow): Boolean = row.sendState == SendState.FAILED || row.indicator == ChatIndicator.ERRORED
+        /** A failed send, or a last run that errored (seen or not), unless a new run is live. */
+        fun isFailed(row: SessionRow): Boolean = row.sendState == SendState.FAILED ||
+            row.indicator == ChatIndicator.ERRORED ||
+            (row.lastOutcome == ChatIndicator.ERRORED && row.indicator != ChatIndicator.WORKING && row.indicator != ChatIndicator.AWAITING_INPUT)
     }
 }
 
