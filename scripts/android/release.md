@@ -22,6 +22,12 @@ A release is picked up when:
    answers 403/429, the updater falls back to `github.com/<repo>/releases/latest`
    (a redirect to the latest tag) and the predictable asset URL
    `releases/download/<tag>/zeron-android-<tag>.apk`, so rules 1 and 2 matter.
+6. **Mirrors (round5-7 on):** when GitHub fails or is slow, the check and the
+   download go through public prefix proxies (`UpdateSources.BUILT_IN_MIRRORS`:
+   `https://ghfast.top/` etc. + the full GitHub URL). Nothing to publish there,
+   but the asset must be the release's only APK so its API `digest` (SHA-256)
+   matches what the mirror serves, and it must be signed with the release key:
+   the app rejects a download whose signing certificate differs from its own.
 
 ```bash
 scripts/android/build-apk.sh

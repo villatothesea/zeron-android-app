@@ -248,11 +248,14 @@ netstat -ano | findstr 27654
 
 **app 检查更新 / 下载更新失败**
 
-app 从本仓库的 GitHub Releases 检查和下载更新，**手机必须能访问 GitHub**（`api.github.com` 和 `github.com`）。访问不了时：
+app 从本仓库的 GitHub Releases 检查和下载更新。round5-7 起，GitHub 连不上或太慢时，app 会**自动依次改用公共 GitHub 镜像**（ghfast.top、gh-proxy.com、gh.llkk.cc），不用手动设置；下载可断点续传，换源时保留已下载的部分；安装前会核对发布的 SHA-256 校验值和签名密钥。失败时页面会列出每个下载源的失败原因（连接超时、速度太慢、HTTP 错误等）。
 
-- 临时打开手机上的代理再检查更新（记得安卓同时只能开一个 VPN，更新完再切回 Tailscale）；
-- 检查能通、下载很慢或中断：**设置 → 检查更新**，在 **软件更新** 页面点 **高级 → 下载镜像与 GitHub 令牌**，填一个下载镜像前缀（例如 `https://ghfast.top/`，第三方服务，自行判断是否可信）。镜像只用于下载 APK，检查更新本身仍然要访问 GitHub；
-- 或者在电脑上从 [Releases](https://github.com/villatothesea/zeron-android-app/releases) 下载 APK，传到手机上安装。
+如果仍然失败：
+
+- 在 **软件更新** 页面点 **在浏览器中下载**（浏览器可能有自己的代理或下载管理器），或点 **复制下载链接**，在电脑上下载后传到手机安装；
+- 临时打开手机上的代理再试（安卓同时只能开一个 VPN，更新完再切回 Tailscale）；
+- 想优先用某个镜像：**设置 → 检查更新 → 高级 → 下载镜像与 GitHub 令牌**，填镜像前缀（例如 `https://ghfast.top/`），它会最先尝试。镜像是第三方服务，但下载的文件必须和 GitHub 发布的校验值、签名一致才会安装；
+- round5-6 及更早的版本没有自动换源：检查更新需要能访问 `api.github.com` 或 `github.com`，下载只走 GitHub（或你手动填的镜像）。从这些版本升级时，建议先在上面的高级设置里填 `https://ghfast.top/`，或直接在电脑上从 [Releases](https://github.com/villatothesea/zeron-android-app/releases) 下载 APK 安装。
 
 更多细节见 [docs/ssh-direct.md](docs/ssh-direct.md)。
 
