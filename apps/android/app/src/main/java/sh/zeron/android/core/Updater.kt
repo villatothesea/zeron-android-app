@@ -68,8 +68,24 @@ class Updater(
         get() = prefs.getLong("lastCheck", 0)
         set(value) = prefs.edit().putLong("lastCheck", value).apply()
 
-    /** Background checks: at most every [QUIET_MS] (app start / return to foreground). */
-    fun dueForQuietCheck(now: Long = System.currentTimeMillis()) = now - lastCheckMs > QUIET_MS
+    /**
+     * When the last automatic check started, successful or not. Failed checks
+     * don't move [lastCheckMs], so without this an offline phone would retry
+     * on every return to the foreground.
+     */
+    var lastAttemptMs: Long
+        get() = prefs.getLong("lastAttempt", 0)
+        set(value) = prefs.edit().putLong("lastAttempt", value).apply()
+
+    /**
+     * Automatic checks run every [QUIET_MS]: on app start, on return to the
+     * foreground and periodically while in the foreground (ZeronModel).
+     */
+    fun dueForQuietCheck(now: Long = System.currentTimeMillis()) = msUntilQuietCheck(now) == 0L
+
+    /** How long until the next automatic check is due; 0 when it is. */
+    fun msUntilQuietCheck(now: Long = System.currentTimeMillis()): Long =
+        quietWaitMs(now, maxOf(lastCheckMs, lastAttemptMs))
 
     /**
      * Settings "Auto-check & download updates" (default on): download a newer
@@ -430,7 +446,33 @@ class Updater(
         const val WEB = "https://github.com"
         const val REPO = "villatothesea/zeron-android-app"
         const val API = "https://api.github.com"
-        const val QUIET_MS = 6L * 60 * 60 * 1000
+        /** Automatic update checks: every 30 minutes. */
+        const val QUIET_MS = 30L * 60 * 1000
+
+        /** Shortest nap of the foreground check loop, so it can never spin. */
+        const val MIN_LOOP_WAIT_MS = 60L * 1000
+
+        /**
+         * Wait from [now] until [QUIET_MS] after [last]. A [last] in the future
+         * (the clock was set back) counts as due rather than blocking checks
+         * until the clock catches up.
+         */
+        fun quietWaitMs(now: Long, last: Long): Long {
+            if (last <= 0 || last > now) return 0
+            return (QUIET_MS - (now - last)).coerceAtLeast(0)
+        }
+
+        /**
+         * The foreground check loop: [check] now, then again whenever
+         * [nextInMs] says one is due (at least [MIN_LOOP_WAIT_MS] apart).
+         * Runs until its coroutine is cancelled (the app went to background).
+         */
+        suspend fun repeatQuietChecks(nextInMs: () -> Long, check: () -> Unit): Nothing {
+            while (true) {
+                check()
+                kotlinx.coroutines.delay(nextInMs().coerceAtLeast(MIN_LOOP_WAIT_MS))
+            }
+        }
         val USER_AGENT = "zeron-android/${BuildConfig.VERSION_NAME}"
     }
 }
