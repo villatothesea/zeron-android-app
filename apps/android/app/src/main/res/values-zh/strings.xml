@@ -566,4 +566,22 @@
     <string name="route_trying">正在尝试…</string>
     <string name="route_stranger">这个地址上是另一台设备</string>
     <string name="conn_fail_per_address">各地址</string>
+
+    <!-- device groups: addresses editor -->
+    <string name="addresses_group">地址</string>
+    <string name="addresses_hint">同一台电脑的多个地址，比如局域网 IP 和 Tailscale IP。连接时按当前网络自动选择，连不上就换下一个；它们共用登录方式和主机密钥。端口不是 22 时写成 地址:2222。</string>
+    <string name="address_add_placeholder">192.168.1.102 或 100.x.y.z</string>
+    <string name="address_add">添加</string>
+    <string name="address_move_up">上移</string>
+    <string name="address_move_down">下移</string>
+    <string name="address_remove">移除</string>
+    <string name="address_split">拆分</string>
+    <string name="address_split_done">已拆成“%1$s”。</string>
+    <string name="address_test_ok">能连上 · %1$d 毫秒</string>
+    <string name="address_duplicate">这个地址已经在列表里了。</string>
+    <string name="address_invalid">地址格式不对。</string>
+    <string name="merge_computer">合并另一台电脑…</string>
+    <string name="merge_computer_sub">把它的地址并到这里（同一台电脑保存了两次时用）</string>
+    <string name="merge_pick_title">合并到“%1$s”</string>
+    <string name="merge_pick_body">它的地址会并到这台电脑，它自己从列表里移除。只合并同一台电脑：两者必须共用登录方式和主机密钥。</string>
 </resources>

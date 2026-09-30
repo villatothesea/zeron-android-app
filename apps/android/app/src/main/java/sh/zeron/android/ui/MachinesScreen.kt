@@ -55,7 +55,13 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.launch
+import sh.zeron.android.core.Endpoint
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import sh.zeron.android.core.Machine
 import sh.zeron.android.core.ZeronModel
 import sh.zeron.android.design.LocalZeronColors
@@ -200,7 +206,7 @@ private sealed interface TestState {
 }
 
 private sealed interface HostPrompt {
-    data class Unknown(val algorithm: String, val fingerprint: String) : HostPrompt
+    data class Unknown(val algorithm: String, val fingerprint: String, val at: Endpoint) : HostPrompt
     data class Changed(val algorithm: String, val expected: String, val actual: String) : HostPrompt
 }
 
@@ -213,8 +219,12 @@ fun MachineEditScreen(model: ZeronModel, initial: Machine) {
     val scope = rememberCoroutineScope()
     val existing = model.machines.any { it.id == initial.id }
     var name by remember(initial.id) { mutableStateOf(initial.name) }
-    var host by remember(initial.id) { mutableStateOf(initial.host) }
-    var port by remember(initial.id) { mutableStateOf(initial.port.toString()) }
+    val addresses = remember(initial.id) { androidx.compose.runtime.mutableStateListOf<Endpoint>().apply { addAll(initial.addresses()) } }
+    var newAddress by remember(initial.id) { mutableStateOf("") }
+    var addressNote by remember(initial.id) { mutableStateOf<String?>(null) }
+    /** Per-address outcome of the last Test: key -> text (null = reachable). */
+    var addressResults by remember(initial.id) { mutableStateOf<Map<String, String>>(emptyMap()) }
+    var mergePick by remember { mutableStateOf(false) }
     var user by remember(initial.id) { mutableStateOf(initial.user) }
     var auth by remember(initial.id) { mutableStateOf(initial.auth) }
     var secret by remember(initial.id) { mutableStateOf("") }
@@ -227,33 +237,69 @@ fun MachineEditScreen(model: ZeronModel, initial: Machine) {
 
     fun draft() = initial.copy(
         name = name.trim(),
-        host = host.trim(),
-        port = port.toIntOrNull() ?: 22,
         user = user.trim(),
         auth = auth,
         enginePort = enginePort.toIntOrNull() ?: 27654,
         hostKey = hostKey,
-    )
+    ).withAddresses(addresses.toList())
     val secretArg: String? = secret.takeIf { it.isNotEmpty() && auth != Machine.AUTH_PHONE }
-    val valid = host.isNotBlank() && user.isNotBlank() && (port.toIntOrNull() ?: 0) in 1..65535 &&
+    val valid = addresses.isNotEmpty() && user.isNotBlank() &&
         (auth == Machine.AUTH_PHONE || secret.isNotEmpty() || (existing && initial.auth == auth))
 
+    fun addAddress() {
+        val e = Endpoint.parse(newAddress)
+        addressNote = when {
+            e == null || e.host.isBlank() || e.port !in 1..65535 -> context.getString(R.string.address_invalid)
+            addresses.any { it.key == e.key } -> context.getString(R.string.address_duplicate)
+            else -> {
+                addresses.add(e)
+                newAddress = ""
+                null
+            }
+        }
+    }
+
+    /**
+     * Probes every address side by side (same sign-in and pin). The first
+     * that answers pins the key; an unknown key asks to trust it once for
+     * all of them; an address that shows another key is marked, not trusted.
+     */
     fun runTest(pin: String?, then: (() -> Unit)? = null) {
         test = TestState.Running
+        addressResults = emptyMap()
         scope.launch {
-            try {
-                val probe = model.testMachine(draft(), secretArg, pin)
-                hostKey = probe.hostKeyFingerprint
-                test = TestState.Ok(context.getString(R.string.test_ok, probe.engineVersion ?: context.getString(R.string.engine), probe.latencyMs.toInt()))
-                then?.invoke()
-            } catch (e: SshException.HostKeyUnknown) {
-                test = TestState.Idle
-                prompt = HostPrompt.Unknown(e.algorithm, e.fingerprint)
-            } catch (e: SshException.HostKeyMismatch) {
-                test = TestState.Failed(context.getString(R.string.host_key_changed_bang))
-                prompt = HostPrompt.Changed(e.algorithm, e.expected, e.actual)
-            } catch (t: Throwable) {
-                test = TestState.Failed(t.message ?: context.getString(R.string.couldnt_connect))
+            val base = draft()
+            val results = addresses.toList().map { a ->
+                async { a to runCatching { model.testMachine(base.withAddresses(listOf(a)), secretArg, pin) } }
+            }.awaitAll()
+            addressResults = results.associate { (a, r) ->
+                a.key to (
+                    r.exceptionOrNull()?.let { e ->
+                        if (e is SshException.HostKeyMismatch && results.size > 1) context.getString(R.string.route_stranger)
+                        else e.message ?: context.getString(R.string.couldnt_connect)
+                    } ?: context.getString(R.string.address_test_ok, r.getOrThrow().latencyMs.toInt())
+                )
+            }
+            val ok = results.firstNotNullOfOrNull { it.second.getOrNull() }
+            val unknown = results.firstNotNullOfOrNull { (a, r) -> (r.exceptionOrNull() as? SshException.HostKeyUnknown)?.let { a to it } }
+            val mismatch = results.map { it.second.exceptionOrNull() }.filterIsInstance<SshException.HostKeyMismatch>()
+            when {
+                ok != null -> {
+                    hostKey = ok.hostKeyFingerprint
+                    test = TestState.Ok(context.getString(R.string.test_ok, ok.engineVersion ?: context.getString(R.string.engine), ok.latencyMs.toInt()))
+                    then?.invoke()
+                }
+                unknown != null -> {
+                    test = TestState.Idle
+                    prompt = HostPrompt.Unknown(unknown.second.algorithm, unknown.second.fingerprint, unknown.first)
+                }
+                mismatch.size == results.size && mismatch.isNotEmpty() -> {
+                    test = TestState.Failed(context.getString(R.string.host_key_changed_bang))
+                    prompt = HostPrompt.Changed(mismatch[0].algorithm, mismatch[0].expected, mismatch[0].actual)
+                }
+                else -> test = TestState.Failed(
+                    results.firstNotNullOfOrNull { it.second.exceptionOrNull()?.message } ?: context.getString(R.string.couldnt_connect),
+                )
             }
         }
     }
@@ -283,13 +329,46 @@ fun MachineEditScreen(model: ZeronModel, initial: Machine) {
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
             GroupLabel(colors, stringResource(R.string.computer))
             Field(colors, stringResource(R.string.field_name), name, stringResource(R.string.name_hint)) { name = it }
-            Field(colors, stringResource(R.string.field_host), host, stringResource(R.string.host_hint), keyboard = KeyboardType.Uri) { host = it; hostKey = if (it.trim() == initial.host) initial.hostKey else null }
             Row {
-                Box(Modifier.weight(1f)) { Field(colors, stringResource(R.string.ssh_port), port, "22", keyboard = KeyboardType.Number) { port = it.filter(Char::isDigit).take(5) } }
+                Box(Modifier.weight(1f)) { Field(colors, stringResource(R.string.field_user), user, stringResource(R.string.user_hint)) { user = it } }
                 Spacer(Modifier.width(8.dp))
                 Box(Modifier.weight(1f)) { Field(colors, stringResource(R.string.zeron_port), enginePort, "27654", keyboard = KeyboardType.Number) { enginePort = it.filter(Char::isDigit).take(5) } }
             }
-            Field(colors, stringResource(R.string.field_user), user, stringResource(R.string.user_hint)) { user = it }
+            GroupLabel(colors, stringResource(R.string.addresses_group))
+            Column(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(colors.elevated).padding(vertical = 4.dp).testTag("addresses"),
+            ) {
+                addresses.forEachIndexed { i, a ->
+                    if (i > 0) androidx.compose.foundation.layout.Box(Modifier.fillMaxWidth().padding(start = 14.dp).height(0.5.dp).background(colors.hairline))
+                    AddressRow(
+                        colors,
+                        a,
+                        result = addressResults[a.key],
+                        canUp = i > 0,
+                        canDown = i < addresses.lastIndex,
+                        canRemove = addresses.size > 1,
+                        canSplit = existing && addresses.size > 1 && initial.addresses().any { it.key == a.key },
+                        onUp = { addresses.add(i - 1, addresses.removeAt(i)) },
+                        onDown = { addresses.add(i + 1, addresses.removeAt(i)) },
+                        onRemove = { addresses.removeAt(i) },
+                        onSplit = {
+                            model.splitAddress(initial, a)?.let { alone ->
+                                addresses.removeAt(i)
+                                model.showToast(context.getString(R.string.address_split_done, alone.title()))
+                            }
+                        },
+                    )
+                }
+                Row(Modifier.fillMaxWidth().padding(start = 10.dp, end = 10.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.weight(1f)) {
+                        Field(colors, "", newAddress, stringResource(R.string.address_add_placeholder), keyboard = KeyboardType.Uri) { newAddress = it; addressNote = null }
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    Pill(colors, stringResource(R.string.address_add), enabled = newAddress.isNotBlank()) { addAddress() }
+                }
+                addressNote?.let { Text(it, color = colors.danger, fontFamily = ZeronType.Sans, fontSize = 12.sp, modifier = Modifier.padding(start = 14.dp, bottom = 6.dp)) }
+            }
+            Text(stringResource(R.string.addresses_hint), color = colors.secondary, fontFamily = ZeronType.Sans, fontSize = 12.sp, modifier = Modifier.padding(start = 4.dp, top = 6.dp))
             GroupLabel(colors, stringResource(R.string.sign_in_with))
             Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(colors.controlFill).padding(3.dp)) {
                 listOf(Machine.AUTH_PHONE to stringResource(R.string.auth_phone), Machine.AUTH_KEY to stringResource(R.string.auth_import), Machine.AUTH_PASSWORD to stringResource(R.string.auth_password)).forEach { (kind, label) ->
@@ -345,6 +424,9 @@ fun MachineEditScreen(model: ZeronModel, initial: Machine) {
             }
             if (existing) {
                 Spacer(Modifier.height(18.dp))
+                if (model.machines.any { it.id != initial.id }) {
+                    SettingRow(colors, stringResource(R.string.merge_computer), stringResource(R.string.merge_computer_sub), onClick = { mergePick = true })
+                }
                 SettingRow(colors, stringResource(R.string.delete_machine), null, destructive = true, onClick = { confirmDelete = true })
             }
             Spacer(Modifier.height(40.dp))
@@ -357,7 +439,7 @@ fun MachineEditScreen(model: ZeronModel, initial: Machine) {
             title = { Text(stringResource(R.string.trust_machine_title)) },
             text = {
                 Column {
-                    Text(stringResource(R.string.trust_first, host.trim(), port), fontFamily = ZeronType.Sans, fontSize = 14.sp)
+                    Text(stringResource(R.string.trust_first, p.at.host.trim(), p.at.port.toString()), fontFamily = ZeronType.Sans, fontSize = 14.sp)
                     Spacer(Modifier.height(10.dp))
                     Text(p.algorithm, fontFamily = ZeronType.Mono, fontSize = 12.sp)
                     Text(p.fingerprint, fontFamily = ZeronType.Mono, fontSize = 13.sp)
@@ -384,6 +466,35 @@ fun MachineEditScreen(model: ZeronModel, initial: Machine) {
         )
         null -> Unit
     }
+    if (mergePick) {
+        AlertDialog(
+            onDismissRequest = { mergePick = false },
+            title = { Text(stringResource(R.string.merge_pick_title, initial.title())) },
+            text = {
+                Column {
+                    Text(stringResource(R.string.merge_pick_body), fontFamily = ZeronType.Sans, fontSize = 14.sp)
+                    Spacer(Modifier.height(8.dp))
+                    model.machines.filter { it.id != initial.id }.forEach { other ->
+                        Column(
+                            Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable {
+                                mergePick = false
+                                model.mergeMachines(initial.id, other.id)
+                                model.machines.firstOrNull { it.id == initial.id }?.let { merged ->
+                                    addresses.clear()
+                                    addresses.addAll(merged.addresses())
+                                }
+                            }.padding(vertical = 8.dp, horizontal = 4.dp),
+                        ) {
+                            Text(other.title(), fontFamily = ZeronType.Sans, fontWeight = FontWeight.Medium, fontSize = 15.sp)
+                            Text(addressesLine(other), fontFamily = ZeronType.Sans, fontSize = 12.sp, color = colors.secondary)
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = { TextButton(onClick = { mergePick = false }) { Text(stringResource(R.string.cancel)) } },
+        )
+    }
     if (confirmDelete) {
         AlertDialog(
             onDismissRequest = { confirmDelete = false },
@@ -392,6 +503,54 @@ fun MachineEditScreen(model: ZeronModel, initial: Machine) {
             confirmButton = { TextButton(onClick = { confirmDelete = false; model.editMachine = null; model.deleteMachine(initial.id) }) { Text(stringResource(R.string.delete), color = colors.danger) } },
             dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text(stringResource(R.string.cancel)) } },
         )
+    }
+}
+
+/** One address in the editor: kind tag, host, last test result, reorder / remove / split. */
+@Composable
+private fun AddressRow(
+    colors: ZeronColors,
+    address: Endpoint,
+    result: String?,
+    canUp: Boolean,
+    canDown: Boolean,
+    canRemove: Boolean,
+    canSplit: Boolean,
+    onUp: () -> Unit,
+    onDown: () -> Unit,
+    onRemove: () -> Unit,
+    onSplit: () -> Unit,
+) {
+    Row(Modifier.fillMaxWidth().padding(start = 14.dp, end = 6.dp, top = 8.dp, bottom = 8.dp).testTag("address-${address.key}"), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                RouteTag(colors, address.kind)
+                Spacer(Modifier.width(8.dp))
+                Text(address.display(), color = colors.text, fontFamily = ZeronType.Mono, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            if (result != null) Text(result, color = colors.secondary, fontFamily = ZeronType.Sans, fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 2.dp))
+            if (canSplit) {
+                Text(
+                    stringResource(R.string.address_split),
+                    color = colors.accent, fontFamily = ZeronType.Sans, fontSize = 12.sp,
+                    modifier = Modifier.padding(top = 2.dp).clip(RoundedCornerShape(6.dp)).clickable(onClick = onSplit).padding(vertical = 2.dp),
+                )
+            }
+        }
+        RowIcon(colors, "↑", stringResource(R.string.address_move_up), canUp, onUp)
+        RowIcon(colors, "↓", stringResource(R.string.address_move_down), canDown, onDown)
+        RowIcon(colors, "✕", stringResource(R.string.address_remove), canRemove, onRemove)
+    }
+}
+
+@Composable
+private fun RowIcon(colors: ZeronColors, glyph: String, label: String, enabled: Boolean, onClick: () -> Unit) {
+    Box(
+        Modifier.size(34.dp).clip(CircleShape).then(if (enabled) Modifier.clickable(onClick = onClick) else Modifier)
+            .semantics { contentDescription = label },
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(glyph, color = if (enabled) colors.secondary else colors.tertiary.copy(alpha = 0.4f), fontSize = 15.sp)
     }
 }
 
@@ -408,7 +567,7 @@ private fun Field(
     onChange: (String) -> Unit,
 ) {
     Column(Modifier.padding(vertical = 4.dp)) {
-        Text(label, color = colors.secondary, fontFamily = ZeronType.Sans, fontSize = 12.sp, modifier = Modifier.padding(start = 4.dp, bottom = 3.dp))
+        if (label.isNotEmpty()) Text(label, color = colors.secondary, fontFamily = ZeronType.Sans, fontSize = 12.sp, modifier = Modifier.padding(start = 4.dp, bottom = 3.dp))
         BasicTextField(
             value = value,
             onValueChange = onChange,

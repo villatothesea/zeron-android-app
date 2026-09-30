@@ -571,4 +571,22 @@
     <string name="route_trying">Trying…</string>
     <string name="route_stranger">Another device answered at this address</string>
     <string name="conn_fail_per_address">Each address</string>
+
+    <!-- device groups: addresses editor -->
+    <string name="addresses_group">Addresses</string>
+    <string name="addresses_hint">Several addresses of this one computer, e.g. its LAN IP and its Tailscale IP. The app picks one for the network you’re on and falls back to the next; they share the sign-in and host key. Add a port as host:2222.</string>
+    <string name="address_add_placeholder">192.168.1.102 or 100.x.y.z</string>
+    <string name="address_add">Add</string>
+    <string name="address_move_up">Move up</string>
+    <string name="address_move_down">Move down</string>
+    <string name="address_remove">Remove</string>
+    <string name="address_split">Split off</string>
+    <string name="address_split_done">Split off as “%1$s”.</string>
+    <string name="address_test_ok">Reachable · %1$d ms</string>
+    <string name="address_duplicate">That address is already listed.</string>
+    <string name="address_invalid">That isn’t an address.</string>
+    <string name="merge_computer">Merge another computer…</string>
+    <string name="merge_computer_sub">Adds its addresses here, for the same computer saved twice</string>
+    <string name="merge_pick_title">Merge into “%1$s”</string>
+    <string name="merge_pick_body">Its addresses join this computer and it leaves the list. Pick the same computer only: they must share the sign-in and host key.</string>
 </resources>
