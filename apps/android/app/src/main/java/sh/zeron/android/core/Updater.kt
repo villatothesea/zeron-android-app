@@ -13,7 +13,6 @@ import org.json.JSONObject
 import sh.zeron.android.BuildConfig
 import java.io.File
 import java.io.IOException
-import java.io.RandomAccessFile
 import java.net.HttpURLConnection
 import java.net.URL
 
@@ -25,7 +24,14 @@ import java.net.URL
  * release notes. Every release is signed with the same key, so the system
  * installer accepts it as an update.
  */
-class Updater(private val context: Context) {
+class Updater(
+    private val context: Context,
+    /** Overridable for tests (a local server); production uses GitHub. */
+    private val api: String = API,
+    private val web: String = WEB,
+    private val builtInMirrors: List<String> = UpdateSources.BUILT_IN_MIRRORS,
+    private val signatureCheck: ((File) -> Signature)? = null,
+) {
     data class Release(
         val tag: String,
         val name: String,
@@ -36,6 +42,8 @@ class Updater(private val context: Context) {
         val downloadUrl: String,
         val size: Long,
         val htmlUrl: String,
+        /** Asset SHA-256 from the API's `digest`; null via the web fallback. */
+        val sha256: String?,
     ) {
         val newer: Boolean get() = versionCode > BuildConfig.VERSION_CODE.toLong()
     }
@@ -62,45 +70,79 @@ class Updater(private val context: Context) {
 
     fun dueForQuietCheck(now: Long = System.currentTimeMillis()) = now - lastCheckMs > DAY_MS
 
+    /** Key of the download source that worked last ([UpdateSources.Source.key]). */
+    var preferredSource: String?
+        get() = prefs.getString("preferredSource", null)
+        set(value) = prefs.edit().putString("preferredSource", value).apply()
+
+    /**
+     * Latest release. Tries, in order: the API, the web redirect (no rate
+     * limit), then each mirror (API through the mirror, then its redirect).
+     * Any network failure moves on to the next; only a definite "no
+     * release" (404 from the API) or a rejected token stops early. When
+     * everything fails, the error lists what each source answered.
+     */
     suspend fun latest(): Release = withContext(Dispatchers.IO) {
-        val conn = open(URL("$API/repos/$REPO/releases/latest"), json = true, auth = true)
-        val release = try {
-            val code = conn.responseCode
-            if (code == 404) throw UpdateError(str(R.string.update_err_no_release))
-            if (code == 401) throw UpdateError(str(R.string.update_err_401))
-            if (code == 403 || code == 429) {
-                // The unauthenticated API allows 60 calls/hour per IP, and
-                // carrier NAT shares that IP widely. The web redirect has no
-                // such limit, so fall back to it before giving up.
-                if (!token.isNullOrBlank()) throw UpdateError(str(R.string.update_err_rate_token))
-                null
-            } else {
-                if (code !in 200..299) throw UpdateError(str(R.string.update_err_http, code))
-                parse(JSONObject(conn.inputStream.bufferedReader().use { it.readText() }))
+        val failures = mutableListOf<String>()
+        val apiPath = "$api/repos/$REPO/releases/latest"
+        val webPath = "$web/$REPO/releases/latest"
+        fun attempt(label: String, block: () -> Release): Release? = try {
+            block()
+        } catch (e: Stop) {
+            throw UpdateError(e.message.orEmpty())
+        } catch (e: IOException) {
+            failures += "$label: ${reason(e)}"
+            null
+        } catch (e: org.json.JSONException) {
+            failures += "$label: ${str(R.string.update_reason_bad_response)}"
+            null
+        }
+        val release = attempt(UpdateSources.label(api)) { viaApi(apiPath, direct = true) }
+            ?: attempt(UpdateSources.label(web)) { viaWeb(webPath) }
+            ?: UpdateSources.mirrors(mirror, builtInMirrors).firstNotNullOfOrNull { m ->
+                attempt(UpdateSources.label(m)) { viaApi(m + apiPath, direct = false) }
+                    ?: attempt(UpdateSources.label(m)) { viaWeb(m + webPath) }
             }
+            ?: throw UpdateError(str(R.string.update_err_check_all) + "\n" + failures.joinToString("\n") { "• $it" })
+        lastCheckMs = System.currentTimeMillis()
+        release
+    }
+
+    /** Ends the check early with this message (no point asking a mirror). */
+    private class Stop(message: String) : Exception(message)
+
+    private class HttpStatus(val code: Int) : IOException("HTTP $code")
+
+    private fun viaApi(url: String, direct: Boolean): Release {
+        val conn = open(URL(url), json = true, auth = direct, check = true)
+        try {
+            val code = conn.responseCode
+            if (direct && code == 404) throw Stop(str(R.string.update_err_no_release))
+            if (direct && code == 401 && !token.isNullOrBlank()) throw Stop(str(R.string.update_err_401))
+            if (code !in 200..299) throw HttpStatus(code)
+            return parse(JSONObject(conn.inputStream.bufferedReader().use { it.readText() }))
         } finally {
             conn.disconnect()
         }
-        (release ?: latestViaWeb()).also { lastCheckMs = System.currentTimeMillis() }
     }
 
     /**
      * No-API fallback: `github.com/<repo>/releases/latest` redirects to the
      * latest tag, and the asset URL is predictable from the contract. The
-     * version comes from the tag (`roundN[-P]` -> N*100 + P).
+     * version comes from the tag (`roundN[-P]` -> N*100 + P). Mirrors either
+     * pass the redirect on (ghfast.top rewrites it to a path on itself) or
+     * follow it themselves, in which case this source is skipped.
      */
-    private fun latestViaWeb(): Release {
-        val conn = open(URL("$WEB/$REPO/releases/latest"), json = false, auth = false)
+    private fun viaWeb(url: String): Release {
+        val conn = open(URL(url), json = false, auth = false, check = true)
         val location = try {
-            if (conn.responseCode !in 300..399) {
-                throw UpdateError(str(R.string.update_err_rate_redirect))
-            }
+            val code = conn.responseCode
+            if (code !in 300..399) throw HttpStatus(code)
             conn.getHeaderField("Location")
         } finally {
             conn.disconnect()
         }
-        val tag = location?.substringAfter("/releases/tag/", "")?.substringBefore('?')?.let { Uri.decode(it) }
-        if (tag.isNullOrBlank()) throw UpdateError(str(R.string.update_err_no_release))
+        val tag = UpdateSources.tagFromLocation(location) ?: throw IOException(str(R.string.update_reason_bad_response))
         val asset = "zeron-android-$tag.apk"
         return Release(
             tag = tag,
@@ -109,14 +151,16 @@ class Updater(private val context: Context) {
             versionCode = versionFromTag(tag),
             assetName = asset,
             assetApiUrl = "",
-            downloadUrl = "$WEB/$REPO/releases/download/$tag/$asset",
+            downloadUrl = "$web/$REPO/releases/download/$tag/$asset",
             size = 0,
-            htmlUrl = location,
+            htmlUrl = "$web/$REPO/releases/tag/$tag",
+            sha256 = null,
         )
     }
 
     private fun parse(o: JSONObject): Release {
         val tag = o.optString("tag_name")
+        if (tag.isBlank()) throw IOException(str(R.string.update_reason_bad_response))
         val notes = o.optString("body")
         val assets = o.optJSONArray("assets")
         var asset: JSONObject? = null
@@ -126,7 +170,7 @@ class Updater(private val context: Context) {
                 if (asset == null || a.optString("name") == "zeron-android-$tag.apk") asset = a
             }
         }
-        asset ?: throw UpdateError(str(R.string.update_err_no_apk, tag))
+        asset ?: throw Stop(str(R.string.update_err_no_apk, tag))
         val code = Regex("""versionCode\s*[:=]\s*(\d+)""").find(notes)?.groupValues?.get(1)?.toLongOrNull()
             ?: versionFromTag(tag)
         return Release(
@@ -139,20 +183,21 @@ class Updater(private val context: Context) {
             downloadUrl = asset.optString("browser_download_url"),
             size = asset.optLong("size"),
             htmlUrl = o.optString("html_url"),
+            sha256 = UpdateSources.sha256FromDigest(asset.optString("digest")),
         )
     }
 
-    private fun open(url: URL, json: Boolean, auth: Boolean, octet: Boolean = false): HttpURLConnection {
+    private fun open(url: URL, json: Boolean, auth: Boolean, check: Boolean): HttpURLConnection {
         val conn = url.openConnection() as HttpURLConnection
-        conn.connectTimeout = 30_000
-        conn.readTimeout = 60_000
+        // Checks are small: fail fast and move on to the next source.
+        conn.connectTimeout = if (check) 8_000 else 10_000
+        conn.readTimeout = if (check) 12_000 else 20_000
         conn.instanceFollowRedirects = false
-        conn.setRequestProperty("User-Agent", "zeron-android/${BuildConfig.VERSION_NAME}")
+        conn.setRequestProperty("User-Agent", USER_AGENT)
         if (json) {
             conn.setRequestProperty("Accept", "application/vnd.github+json")
             conn.setRequestProperty("X-GitHub-Api-Version", "2022-11-28")
         }
-        if (octet) conn.setRequestProperty("Accept", "application/octet-stream")
         val t = token
         if (auth && !t.isNullOrBlank() && url.host.endsWith("github.com")) {
             conn.setRequestProperty("Authorization", "Bearer $t")
@@ -160,97 +205,114 @@ class Updater(private val context: Context) {
         return conn
     }
 
+    private fun reason(e: IOException): String = when (e) {
+        is HttpStatus -> if (e.code == 403 || e.code == 429) str(R.string.update_reason_rate_limited, e.code) else str(R.string.update_reason_http, e.code.toString())
+        is java.net.SocketTimeoutException -> str(R.string.update_reason_timeout)
+        is java.net.UnknownHostException -> str(R.string.update_reason_dns)
+        is javax.net.ssl.SSLException -> str(R.string.update_reason_tls)
+        else -> e.message ?: e.javaClass.simpleName
+    }
+
+    private fun reason(f: UpdateDownloader.Failure): String = when (f.kind) {
+        UpdateDownloader.Kind.TIMEOUT -> str(R.string.update_reason_timeout)
+        UpdateDownloader.Kind.SLOW -> str(R.string.update_reason_slow, speed(f.detail.toLongOrNull() ?: 0))
+        UpdateDownloader.Kind.HTTP -> f.detail.toIntOrNull()?.let { str(R.string.update_reason_http, it.toString()) }
+            ?: str(R.string.update_reason_unexpected, f.detail)
+        UpdateDownloader.Kind.SIZE -> str(R.string.update_reason_size)
+        UpdateDownloader.Kind.DIGEST -> str(R.string.update_reason_digest)
+        UpdateDownloader.Kind.DNS -> str(R.string.update_reason_dns)
+        UpdateDownloader.Kind.TLS -> str(R.string.update_reason_tls)
+        UpdateDownloader.Kind.IO -> f.detail
+    }
+
+    /** "320 kB" (localized); used for speeds as "%s/s". */
+    fun speed(bytesPerSec: Long): String = android.text.format.Formatter.formatShortFileSize(context, bytesPerSec)
+
+    private val downloader = UpdateDownloader(USER_AGENT)
+
     /**
-     * Download the APK (resumable via Range) into the app cache. With a token
-     * the API asset endpoint is used; the redirect to GitHub's CDN is followed
-     * WITHOUT the token. A mirror prefix wraps the public download URL.
+     * Download the APK into the app cache, trying every source in turn and
+     * resuming across them. The result has the release's size and SHA-256
+     * (when GitHub's API gave them) and is signed with this app's key.
      */
-    suspend fun download(release: Release, progress: (Long, Long) -> Unit): File = withContext(Dispatchers.IO) {
+    suspend fun download(release: Release, progress: (UpdateDownloader.Progress) -> Unit): File = withContext(Dispatchers.IO) {
         val dir = File(context.cacheDir, "updates").apply { mkdirs() }
         dir.listFiles()?.filter { !it.name.startsWith(release.tag) }?.forEach { it.delete() }
         val done = File(dir, "${release.tag}.apk")
-        if (done.exists() && release.size > 0 && done.length() == release.size) return@withContext done
+        if (done.exists()) {
+            val sizeOk = release.size <= 0 || done.length() == release.size
+            val shaOk = release.sha256 == null || UpdateDownloader.sha256Of(done) == release.sha256
+            if (sizeOk && shaOk && checkSignature(done) != Signature.MISMATCH) return@withContext done
+            done.delete()
+        }
         val part = File(dir, "${release.tag}.apk.part")
-        val start: URL
-        val useToken: Boolean
-        val m = mirror
-        if (m != null) {
-            start = URL(m + release.downloadUrl)
-            useToken = false
-        } else if (!token.isNullOrBlank() && release.assetApiUrl.isNotEmpty()) {
-            start = URL(release.assetApiUrl)
-            useToken = true
-        } else {
-            start = URL(release.downloadUrl)
-            useToken = false
+        val sources = UpdateSources.downloadSources(release.downloadUrl, mirror, preferredSource, token, release.assetApiUrl, builtInMirrors)
+        val won = try {
+            downloader.download(sources, part, release.size, release.sha256, progress)
+        } catch (e: UpdateDownloader.Failed) {
+            throw UpdateError(str(R.string.update_err_download_all) + "\n" + e.failures.joinToString("\n") { "• ${it.source}: ${reason(it)}" })
         }
-        var attempt = 0
-        while (true) {
-            try {
-                fetch(start, useToken, part, release.size, progress)
-                break
-            } catch (e: IOException) {
-                if (e is UpdateError || ++attempt >= 4) {
-                    throw if (e is UpdateError) e else UpdateError(
-                        str(if (m == null) R.string.update_err_interrupted_mirror else R.string.update_err_interrupted, e.message ?: e.javaClass.simpleName),
-                    )
-                }
-                Thread.sleep(2_000L * attempt)
-            }
-        }
+        preferredSource = won.key
         if (!part.renameTo(done)) throw UpdateError(str(R.string.update_err_save))
+        if (checkSignature(done) == Signature.MISMATCH) {
+            done.delete()
+            throw UpdateError(str(R.string.update_err_signature, won.label))
+        }
         done
     }
 
-    private fun fetch(start: URL, useToken: Boolean, part: File, total: Long, progress: (Long, Long) -> Unit) {
-        var url = start
-        var auth = useToken
-        var hops = 0
-        while (true) {
-            val have = if (part.exists()) part.length() else 0L
-            if (total > 0 && have >= total) return
-            val conn = open(url, json = false, auth = auth, octet = auth)
-            if (have > 0) conn.setRequestProperty("Range", "bytes=$have-")
-            val code = conn.responseCode
-            if (code in 300..399) {
-                val next = conn.getHeaderField("Location") ?: throw UpdateError(str(R.string.update_err_redirect))
-                conn.disconnect()
-                url = URL(url, next)
-                auth = false // never send the token to the CDN
-                if (++hops > 6) throw UpdateError(str(R.string.update_err_redirects))
-                continue
-            }
-            if (code == 416) {
-                part.delete()
-                conn.disconnect()
-                continue
-            }
-            if (code !in 200..299) {
-                conn.disconnect()
-                throw UpdateError(str(R.string.update_err_download_http, code))
-            }
-            val append = code == 206
-            val base = if (append) have else 0L
-            val length = conn.contentLengthLong.let { if (it > 0) it + base else total }
-            RandomAccessFile(part, "rw").use { out ->
-                if (!append) out.setLength(0)
-                out.seek(base)
-                var written = base
-                val buf = ByteArray(64 * 1024)
-                conn.inputStream.use { input ->
-                    while (true) {
-                        val n = input.read(buf)
-                        if (n < 0) break
-                        out.write(buf, 0, n)
-                        written += n
-                        progress(written, length)
-                    }
-                }
-                if (length > 0 && written < length) throw IOException("connection closed early")
-            }
-            conn.disconnect()
-            return
+    /** Link for the browser / clipboard: through the mirror that worked last, if any. */
+    fun browserUrl(release: Release): String {
+        val m = preferredSource?.takeIf { it != UpdateSources.GITHUB } ?: UpdateSources.normalizeMirror(mirror)
+        return if (m != null) m + release.downloadUrl else release.downloadUrl
+    }
+
+    enum class Signature { MATCH, MISMATCH, UNKNOWN }
+
+    private fun checkSignature(apk: File): Signature = signatureCheck?.invoke(apk) ?: signature(apk)
+
+    /**
+     * Whether [apk] is this app, signed with the same certificate. A mirror
+     * can't slip in anything the installer would accept anyway (updates must
+     * match the installed signer), but checking first gives a clear message
+     * instead of the installer's "package conflicts". UNKNOWN (certs not
+     * readable on this Android version) leaves the decision to the installer.
+     */
+    fun signature(apk: File): Signature {
+        val pm = context.packageManager
+        val archive = runCatching { archiveInfo(pm, apk) }.getOrNull() ?: return Signature.MISMATCH
+        if (archive.packageName != context.packageName) return Signature.MISMATCH
+        val mine = runCatching { certs(installedInfo(pm)) }.getOrNull().orEmpty()
+        val theirs = certs(archive)
+        if (mine.isEmpty() || theirs.isEmpty()) return Signature.UNKNOWN
+        return if (mine == theirs) Signature.MATCH else Signature.MISMATCH
+    }
+
+    @Suppress("DEPRECATION")
+    private fun archiveInfo(pm: android.content.pm.PackageManager, apk: File): android.content.pm.PackageInfo? {
+        val flags = if (Build.VERSION.SDK_INT >= 28) android.content.pm.PackageManager.GET_SIGNING_CERTIFICATES else android.content.pm.PackageManager.GET_SIGNATURES
+        val info = pm.getPackageArchiveInfo(apk.path, flags) ?: return null
+        if (certs(info).isEmpty()) {
+            // Some Android versions leave signingInfo empty for archives; try the old field.
+            pm.getPackageArchiveInfo(apk.path, android.content.pm.PackageManager.GET_SIGNATURES)?.let { return it }
         }
+        return info
+    }
+
+    @Suppress("DEPRECATION")
+    private fun installedInfo(pm: android.content.pm.PackageManager): android.content.pm.PackageInfo {
+        val flags = if (Build.VERSION.SDK_INT >= 28) android.content.pm.PackageManager.GET_SIGNING_CERTIFICATES else android.content.pm.PackageManager.GET_SIGNATURES
+        return pm.getPackageInfo(context.packageName, flags)
+    }
+
+    @Suppress("DEPRECATION")
+    private fun certs(info: android.content.pm.PackageInfo): Set<String> {
+        val sigs = if (Build.VERSION.SDK_INT >= 28 && info.signingInfo != null) {
+            info.signingInfo!!.apkContentsSigners
+        } else {
+            info.signatures
+        }
+        return sigs.orEmpty().map { java.security.MessageDigest.getInstance("SHA-256").digest(it.toByteArray()).joinToString("") { b -> "%02x".format(b) } }.toSet()
     }
 
     /** Android 8+: the per-app "install unknown apps" switch. */
@@ -281,5 +343,6 @@ class Updater(private val context: Context) {
         const val REPO = "villatothesea/zeron-android-app"
         const val API = "https://api.github.com"
         const val DAY_MS = 24L * 60 * 60 * 1000
+        val USER_AGENT = "zeron-android/${BuildConfig.VERSION_NAME}"
     }
 }

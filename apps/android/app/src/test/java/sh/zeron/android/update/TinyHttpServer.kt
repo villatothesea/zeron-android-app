@@ -55,7 +55,9 @@ class TinyHttpServer {
                 if (h.isEmpty()) break
                 headers[h.substringBefore(':').trim().lowercase()] = h.substringAfter(':').trim()
             }
-            val handler = routes[path] ?: { _, r -> r.head(404, 0) }
+            // Exact path, else the longest route that prefixes it (mirror-style URLs).
+            val handler = routes[path] ?: routes.entries.filter { path.startsWith(it.key) }.maxByOrNull { it.key.length }?.value
+                ?: { _, r -> r.head(404, 0) }
             handler(Request(path, headers), Response(s.getOutputStream()))
         }
     }

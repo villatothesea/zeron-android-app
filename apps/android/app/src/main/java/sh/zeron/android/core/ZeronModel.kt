@@ -2,6 +2,7 @@ package sh.zeron.android.core
 
 import sh.zeron.android.R
 import android.app.Application
+import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.ConnectivityManager
@@ -140,6 +141,7 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
     var updateChecking by mutableStateOf(false)
     var updateProgress by mutableStateOf<Float?>(null)
     var updateError by mutableStateOf<String?>(null)
+    var updateStatus by mutableStateOf<UpdateStatus?>(null)
     var showUpdate by mutableStateOf(false)
     private var downloadedApk: File? = null
 
@@ -450,20 +452,44 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
         val release = updateRelease ?: return
         updateError = null
         updateProgress = 0f
+        updateStatus = null
         viewModelScope.launch {
             try {
-                val apk = updater.download(release) { done, total ->
-                    val f = if (total > 0) done.toFloat() / total else 0f
-                    main.post { updateProgress = f }
+                val apk = updater.download(release) { p ->
+                    val f = if (p.total > 0) p.done.toFloat() / p.total else 0f
+                    val status = UpdateStatus(p.source, p.done, p.total, p.bytesPerSec)
+                    main.post { updateProgress = f; updateStatus = status }
                 }
                 downloadedApk = apk
                 updateProgress = 1f
+                updateStatus = null
                 installUpdate()
             } catch (t: Throwable) {
                 updateProgress = null
+                updateStatus = null
                 updateError = t.message ?: str(R.string.update_download_failed)
             }
         }
+    }
+
+    /** Where the running download comes from and how fast (for the progress line). */
+    data class UpdateStatus(val source: String, val done: Long, val total: Long, val bytesPerSec: Long)
+
+    /** Hand the download to the browser (it may have its own proxy or download manager). */
+    fun openUpdateInBrowser() {
+        val release = updateRelease ?: return
+        runCatching {
+            getApplication<Application>().startActivity(
+                Intent(Intent.ACTION_VIEW, android.net.Uri.parse(updater.browserUrl(release))).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            )
+        }.onFailure { showToast(str(R.string.update_no_browser)) }
+    }
+
+    fun copyUpdateLink() {
+        val release = updateRelease ?: return
+        val cm = getApplication<Application>().getSystemService(android.content.ClipboardManager::class.java)
+        cm?.setPrimaryClip(android.content.ClipData.newPlainText("APK", updater.browserUrl(release)))
+        showToast(str(R.string.copied))
     }
 
     /** Needs the "install unknown apps" grant first; resumes on return. */

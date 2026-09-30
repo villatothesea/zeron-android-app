@@ -42,8 +42,8 @@ object UpdateSources {
     }
 
     /** User mirror first, then the built-in ones, without duplicates. */
-    fun mirrors(userMirror: String?): List<String> =
-        (listOfNotNull(normalizeMirror(userMirror)) + BUILT_IN_MIRRORS).distinct()
+    fun mirrors(userMirror: String?, builtIns: List<String> = BUILT_IN_MIRRORS): List<String> =
+        (listOfNotNull(normalizeMirror(userMirror)) + builtIns).distinct()
 
     fun label(mirror: String): String = runCatching { URI(mirror).host }.getOrNull() ?: mirror
 
@@ -59,6 +59,7 @@ object UpdateSources {
         preferred: String?,
         token: String? = null,
         apiAssetUrl: String? = null,
+        builtIns: List<String> = BUILT_IN_MIRRORS,
     ): List<Source> {
         val user = normalizeMirror(userMirror)
         val github = if (!token.isNullOrBlank() && !apiAssetUrl.isNullOrBlank()) {
@@ -69,7 +70,7 @@ object UpdateSources {
         val list = buildList {
             if (user != null) add(Source(label(user), user + githubUrl, user))
             add(github)
-            BUILT_IN_MIRRORS.forEach { add(Source(label(it), it + githubUrl, it)) }
+            builtIns.forEach { add(Source(label(it), it + githubUrl, it)) }
         }.distinctBy { it.key }
         val first = list.firstOrNull { it.key == preferred } ?: return list
         return listOf(first) + (list - first)

@@ -32,7 +32,7 @@ class UpdateDownloader(
 ) {
     data class Progress(val done: Long, val total: Long, val source: String, val bytesPerSec: Long)
 
-    enum class Kind { TIMEOUT, SLOW, HTTP, SIZE, DIGEST, IO }
+    enum class Kind { TIMEOUT, SLOW, HTTP, SIZE, DIGEST, DNS, TLS, IO }
 
     data class Failure(val source: String, val kind: Kind, val detail: String = "")
 
@@ -72,6 +72,12 @@ class UpdateDownloader(
                     break
                 } catch (e: InterruptedIOException) {
                     failures += Failure(source.label, Kind.TIMEOUT)
+                    break
+                } catch (e: java.net.UnknownHostException) {
+                    failures += Failure(source.label, Kind.DNS)
+                    break
+                } catch (e: javax.net.ssl.SSLException) {
+                    failures += Failure(source.label, Kind.TLS, e.message.orEmpty())
                     break
                 } catch (e: IOException) {
                     if (++attempt >= attemptsPerSource) {

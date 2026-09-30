@@ -375,23 +375,15 @@
     <string name="update_mirror_token">Download mirror &amp; GitHub token</string>
     <string name="update_mirror_value">Mirror: %1$s</string>
     <string name="off">Off</string>
-    <string name="update_mirror_hint">Mirror prefix (optional), e.g. https://ghfast.top/: it is put in front of the GitHub download URL.</string>
+    <string name="update_mirror_hint">Preferred mirror prefix (optional), e.g. https://ghfast.top/: tried first, before GitHub and the built-in mirrors.</string>
     <string name="update_token_hint">GitHub token (optional, read-only): only to avoid API rate limits.</string>
     <string name="saved">Saved</string>
     <string name="clear_token">Clear token</string>
     <string name="token_removed">Token removed</string>
     <string name="update_err_no_release">No release published yet.</string>
     <string name="update_err_401">GitHub rejected the token (401). Clear or replace it in Settings.</string>
-    <string name="update_err_rate_token">GitHub rate limit reached for this token. Try again later.</string>
-    <string name="update_err_http">GitHub answered HTTP %1$d. Try again.</string>
-    <string name="update_err_rate_redirect">GitHub rate limit reached and the release page didn\'t redirect. Try again later, or add a read-only token.</string>
     <string name="update_err_no_apk">Release %1$s has no APK attached.</string>
-    <string name="update_err_interrupted">Download interrupted (%1$s). Tap Download again to resume.</string>
-    <string name="update_err_interrupted_mirror">Download interrupted (%1$s). Tap Download again to resume, or set a download mirror in Settings.</string>
     <string name="update_err_save">Couldn\'t save the download.</string>
-    <string name="update_err_redirect">Bad redirect from GitHub.</string>
-    <string name="update_err_redirects">Too many redirects.</string>
-    <string name="update_err_download_http">Download failed: HTTP %1$d. Try again later.</string>
 
     <!-- Model toasts and errors raised by the app itself -->
     <string name="toast_pinned">Pinned</string>
@@ -427,4 +419,25 @@
 
     <!-- Accessibility labels -->
     <string name="more_options">More</string>
+
+    <!-- Software update: multi-source download (GitHub, then mirrors) -->
+    <string name="update_err_check_all">Couldn\'t reach GitHub or any mirror:</string>
+    <string name="update_err_download_all">Download failed from every source:</string>
+    <string name="update_err_signature">The file from %1$s isn\'t signed with the Zeron release key, so it won\'t be installed.</string>
+    <string name="update_reason_timeout">timed out</string>
+    <string name="update_reason_slow">too slow (%1$s/s)</string>
+    <string name="update_reason_http">HTTP %1$s</string>
+    <string name="update_reason_rate_limited">rate limited (HTTP %1$d)</string>
+    <string name="update_reason_unexpected">unexpected response (%1$s)</string>
+    <string name="update_reason_bad_response">unexpected response</string>
+    <string name="update_reason_size">incomplete file</string>
+    <string name="update_reason_digest">checksum doesn\'t match</string>
+    <string name="update_reason_dns">DNS lookup failed</string>
+    <string name="update_reason_tls">secure connection failed</string>
+    <string name="update_downloading_from">Downloading from %1$s… %2$d%% · %3$s/s</string>
+    <string name="update_downloading_from_size">Downloading from %1$s… %2$s · %3$s/s</string>
+    <string name="update_open_browser">Download in Browser</string>
+    <string name="update_copy_link">Copy Download Link</string>
+    <string name="update_no_browser">No browser to open the link</string>
+    <string name="update_sources_hint">If GitHub is slow or unreachable, the app switches to public GitHub mirrors (ghfast.top, gh-proxy.com, gh.llkk.cc) by itself. Every download is checked against the release checksum and signing key before installing.</string>
 </resources>

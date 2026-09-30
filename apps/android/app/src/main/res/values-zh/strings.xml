@@ -371,23 +371,15 @@
     <string name="update_mirror_token">下载镜像与 GitHub 令牌</string>
     <string name="update_mirror_value">镜像：%1$s</string>
     <string name="off">关闭</string>
-    <string name="update_mirror_hint">镜像前缀（可选），例如 https://ghfast.top/，会加在 GitHub 下载地址前面。</string>
+    <string name="update_mirror_hint">优先使用的镜像前缀（可选），例如 https://ghfast.top/：会先于 GitHub 和内置镜像尝试。</string>
     <string name="update_token_hint">GitHub 令牌（可选，只读）：仅用于避免 API 频率限制。</string>
     <string name="saved">已保存</string>
     <string name="clear_token">清除令牌</string>
     <string name="token_removed">已移除令牌</string>
     <string name="update_err_no_release">尚未发布任何版本。</string>
     <string name="update_err_401">GitHub 拒绝了该令牌（401）。请在设置中清除或更换。</string>
-    <string name="update_err_rate_token">该令牌已达 GitHub 频率限制，请稍后再试。</string>
-    <string name="update_err_http">GitHub 返回 HTTP %1$d，请重试。</string>
-    <string name="update_err_rate_redirect">已达 GitHub 频率限制，且发布页未跳转。请稍后再试，或添加只读令牌。</string>
     <string name="update_err_no_apk">版本 %1$s 未附带 APK。</string>
-    <string name="update_err_interrupted">下载中断（%1$s）。再次轻点“下载”可继续。</string>
-    <string name="update_err_interrupted_mirror">下载中断（%1$s）。再次轻点“下载”可继续，或在设置中配置下载镜像。</string>
     <string name="update_err_save">无法保存下载的文件。</string>
-    <string name="update_err_redirect">GitHub 返回了无效的跳转。</string>
-    <string name="update_err_redirects">跳转次数过多。</string>
-    <string name="update_err_download_http">下载失败：HTTP %1$d，请稍后再试。</string>
 
     <!-- Model toasts and errors raised by the app itself -->
     <string name="toast_pinned">已置顶</string>
@@ -422,4 +414,25 @@
 
     <!-- Accessibility labels -->
     <string name="more_options">更多</string>
+
+    <!-- Software update: multi-source download (GitHub, then mirrors) -->
+    <string name="update_err_check_all">无法连接 GitHub，镜像也都不可用：</string>
+    <string name="update_err_download_all">所有下载源都失败了：</string>
+    <string name="update_err_signature">来自 %1$s 的文件不是用 Zeron 发布密钥签名的，已停止安装。</string>
+    <string name="update_reason_timeout">连接超时</string>
+    <string name="update_reason_slow">速度太慢（%1$s/s）</string>
+    <string name="update_reason_http">HTTP %1$s</string>
+    <string name="update_reason_rate_limited">请求次数超限（HTTP %1$d）</string>
+    <string name="update_reason_unexpected">响应异常（%1$s）</string>
+    <string name="update_reason_bad_response">响应异常</string>
+    <string name="update_reason_size">文件不完整</string>
+    <string name="update_reason_digest">校验值不一致</string>
+    <string name="update_reason_dns">域名解析失败</string>
+    <string name="update_reason_tls">安全连接失败</string>
+    <string name="update_downloading_from">正在从 %1$s 下载… %2$d%% · %3$s/s</string>
+    <string name="update_downloading_from_size">正在从 %1$s 下载… %2$s · %3$s/s</string>
+    <string name="update_open_browser">在浏览器中下载</string>
+    <string name="update_copy_link">复制下载链接</string>
+    <string name="update_no_browser">没有可打开链接的浏览器</string>
+    <string name="update_sources_hint">GitHub 很慢或连不上时，app 会自动改用公共 GitHub 镜像（ghfast.top、gh-proxy.com、gh.llkk.cc）。每次下载在安装前都会核对发布的校验值和签名密钥。</string>
 </resources>
