@@ -1,5 +1,8 @@
 package sh.zeron.android.design
 
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.shape.RoundedCornerShape
 import sh.zeron.android.R
 import androidx.compose.ui.res.stringResource
 import androidx.activity.compose.BackHandler
@@ -49,8 +52,18 @@ data class MenuEntry(
     val checked: Boolean = false,
     val destructive: Boolean = false,
     val icon: (@Composable (Color) -> Unit)? = null,
-    /** An inline section start (UIMenu .displayInline): divider + small title, not tappable. */
+    /**
+     * An inline section start (UIMenu .displayInline): divider + small title.
+     * With an [icon] the icon sits at the header's trailing edge as a small
+     * button that runs [onClick] without closing the menu.
+     */
     val header: Boolean = false,
+    /** Runs [onClick] without closing the menu (drill-down rows, toggles). */
+    val keepOpen: Boolean = false,
+    /** A drill-down row: trailing chevron, opens a nested list in place (keeps the menu open). */
+    val submenu: Boolean = false,
+    /** The nested list's "up" row: leading back chevron + the parent's name. */
+    val back: Boolean = false,
     val onClick: () -> Unit,
 )
 
@@ -103,17 +116,41 @@ fun MenuPanel(
                 // A section is set off by the same hairline as the title (the
                 // title's own line already separates a leading section).
                 if (index > 0) MenuDivider(colors, Modifier.padding(vertical = 4.dp))
-                if (entry.title.isNotBlank()) {
-                    Text(
-                        entry.title,
-                        color = colors.secondary,
-                        fontFamily = ZeronType.Sans,
-                        fontSize = 13.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 6.dp, bottom = 2.dp),
-                    )
+                if (entry.title.isNotBlank() || entry.icon != null) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            entry.title,
+                            color = colors.secondary,
+                            fontFamily = ZeronType.Sans,
+                            fontSize = 13.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false).padding(start = 16.dp, end = 4.dp, top = 6.dp, bottom = 2.dp),
+                        )
+                        entry.icon?.let { icon ->
+                            Box(
+                                Modifier.size(32.dp).clip(RoundedCornerShape(8.dp)).clickable(onClick = entry.onClick),
+                                contentAlignment = Alignment.Center,
+                            ) { icon(colors.secondary) }
+                        }
+                    }
                 }
+                return@forEachIndexed
+            }
+            if (entry.back) {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 40.dp)
+                        .clickable(onClick = entry.onClick)
+                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    BackChevron(colors.accent, Modifier.size(18.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text(entry.title, color = colors.accent, fontFamily = ZeronType.Sans, fontWeight = FontWeight.Medium, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                MenuDivider(colors, Modifier.padding(bottom = 2.dp))
                 return@forEachIndexed
             }
             val tint = if (entry.destructive) colors.danger else colors.text
@@ -122,7 +159,7 @@ fun MenuPanel(
                     .fillMaxWidth()
                     .heightIn(min = 44.dp)
                     .clickable {
-                        onDismiss()
+                        if (!entry.keepOpen && !entry.submenu) onDismiss()
                         entry.onClick()
                     }
                     .padding(horizontal = 14.dp, vertical = 8.dp),
@@ -142,6 +179,10 @@ fun MenuPanel(
                 entry.icon?.let {
                     Spacer(Modifier.width(10.dp))
                     it(tint)
+                }
+                if (entry.submenu) {
+                    Spacer(Modifier.width(8.dp))
+                    BackChevron(colors.tertiary, Modifier.size(14.dp).graphicsLayer { rotationZ = 180f })
                 }
             }
         }

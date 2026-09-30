@@ -415,4 +415,10 @@
 
     <!-- Navigation -->
     <string name="nav_back">Back</string>
+
+    <!-- New Session: the two-level model picker -->
+    <plurals name="model_count">
+        <item quantity="one">%1$d model</item>
+        <item quantity="other">%1$d models</item>
+    </plurals>
 </resources>

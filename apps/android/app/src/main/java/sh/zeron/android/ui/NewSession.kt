@@ -1,5 +1,6 @@
 package sh.zeron.android.ui
 
+import androidx.compose.ui.res.pluralStringResource
 import sh.zeron.android.design.BackButton
 import sh.zeron.android.R
 import androidx.compose.ui.platform.LocalContext
@@ -114,6 +115,8 @@ fun NewSessionSheet(model: ZeronModel, onDismiss: () -> Unit) {
     var browsing by remember { mutableStateOf(false) }
     var addedNames by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var chipMenu by remember { mutableStateOf<Pair<String, Rect>?>(null) }
+    // Drill-down inside the open model menu: the chosen harness's models.
+    var modelHarness by remember { mutableStateOf<String?>(null) }
     var refs by remember { mutableStateOf<List<RepoRef>?>(null) }
     LaunchedEffect(Unit) { model.newSessionProject = null }
 
@@ -193,7 +196,10 @@ fun NewSessionSheet(model: ZeronModel, onDismiss: () -> Unit) {
                         focused = true,
                         onFocus = {},
                         chips = chips,
-                        onChip = { chip, rect -> chipMenu = chip.id to rect },
+                        onChip = { chip, rect ->
+                            modelHarness = null
+                            chipMenu = chip.id to rect
+                        },
                         images = emptyList(),
                         onRemoveImage = {},
                         onSend = send@{
@@ -274,8 +280,26 @@ fun NewSessionSheet(model: ZeronModel, onDismiss: () -> Unit) {
                     if (refs != null && list.isEmpty()) add(MenuEntry(stringResource(R.string.no_branches)) {})
                 }
                 "model" -> stringResource(R.string.model) to buildList {
-                    models.groupBy { it.harness }.entries.sortedBy { it.key }.forEach { (h, list) ->
-                        add(menuSection(list.first().harnessLabel))
+                    // Two levels: the CLIs first (the current one checked, its
+                    // model as the subtitle), then the chosen CLI's models.
+                    val byHarness = models.groupBy { it.harness }.entries.sortedBy { it.key }
+                    val open = modelHarness?.let { h -> byHarness.firstOrNull { it.key == h } }
+                    if (open == null) {
+                        byHarness.forEach { (h, list) ->
+                            val selected = h == harness
+                            add(
+                                MenuEntry(
+                                    list.first().harnessLabel,
+                                    subtitle = if (selected) current?.label else pluralStringResource(R.plurals.model_count, list.size, list.size),
+                                    checked = selected,
+                                    submenu = true,
+                                    icon = { _ -> BrandMark(h, colors, 16.dp) },
+                                ) { modelHarness = h },
+                            )
+                        }
+                    } else {
+                        val (h, list) = open
+                        add(MenuEntry(list.first().harnessLabel, back = true) { modelHarness = null })
                         list.forEach { m ->
                             add(MenuEntry(m.label, checked = m.harness == harness && m.id == modelId, icon = { _ -> BrandMark(h, colors, 16.dp) }) {
                                 harness = m.harness
@@ -307,3 +331,4 @@ fun NewSessionSheet(model: ZeronModel, onDismiss: () -> Unit) {
         }
     }
 }
+

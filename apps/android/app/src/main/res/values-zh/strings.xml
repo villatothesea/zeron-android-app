@@ -411,4 +411,9 @@
 
     <!-- Navigation -->
     <string name="nav_back">返回</string>
+
+    <!-- New Session: the two-level model picker -->
+    <plurals name="model_count">
+        <item quantity="other">%1$d 个模型</item>
+    </plurals>
 </resources>
