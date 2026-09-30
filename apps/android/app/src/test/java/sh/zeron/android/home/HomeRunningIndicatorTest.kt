@@ -7,7 +7,12 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.lifecycle.ViewModelProvider
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
+import androidx.compose.ui.graphics.Color
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import sh.zeron.android.design.MarkKind
+import sh.zeron.android.ui.groupHeaderMark
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -27,7 +32,8 @@ import uniffi.zeron_core.SendRequest
 /**
  * The home list marks running sessions: a session with a turn in flight reads
  * WORKING in the snapshot and its row shows the spinner + "Working" corner
- * (iOS SessionCell precedence), in both list views.
+ * (iOS SessionCell precedence), in both list views. Group headers show no
+ * spinner (only an input dot when a row waits for the user).
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], qualifiers = "w411dp-h891dp-xxhdpi")
@@ -52,6 +58,14 @@ class HomeRunningIndicatorTest {
         handle.send(SendRequest(text = "Run the checks.", attachments = emptyList(), worktree = null, busy = BusyPolicy.QUEUE))
         settleUntil("the row to read WORKING") { allRows(model).any { it.id == idle.id && it.indicator == ChatIndicator.WORKING } }
         val working = app.getString(R.string.status_working)
+        // Group headers carry no spinner: only an input dot, when a row waits.
+        val rows = allRows(model)
+        val workingOnly = rows.filter { it.indicator == ChatIndicator.WORKING }
+        assertTrue(workingOnly.isNotEmpty())
+        assertNull(groupHeaderMark(workingOnly + rows.filter { it.indicator == ChatIndicator.IDLE }, Color.Red))
+        rows.firstOrNull { it.indicator == ChatIndicator.AWAITING_INPUT }?.let { waiting ->
+            assertEquals(MarkKind.Dot(Color.Red), groupHeaderMark(workingOnly + waiting, Color.Red))
+        }
         for (mode in listOf(ZeronModel.ListMode.Project, ZeronModel.ListMode.Activity)) {
             model.applyListMode(mode)
             settle()

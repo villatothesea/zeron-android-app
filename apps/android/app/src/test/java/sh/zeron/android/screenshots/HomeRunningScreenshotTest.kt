@@ -25,8 +25,8 @@ import uniffi.zeron_core.ChatIndicator
 import uniffi.zeron_core.SendRequest
 
 /**
- * Home list with running sessions (spinner + 运行中 corners, group header
- * spinners), in Chinese: Zeron (default) and Catppuccin, dark + light, By
+ * Home list with running sessions (spinner + 运行中 corners on the rows;
+ * group headers stay plain), in Chinese: Zeron (default) and Catppuccin, dark + light, By
  * Project and By Activity. Output: home-running/ under the renders dir.
  */
 @RunWith(RobolectricTestRunner::class)

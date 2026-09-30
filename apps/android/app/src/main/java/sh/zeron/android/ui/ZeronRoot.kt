@@ -520,11 +520,7 @@ private fun SessionsScreen(model: ZeronModel, colors: ZeronColors, onPrompt: (Pr
                                     title = group.title,
                                     count = group.rows.size,
                                     collapsed = folded,
-                                    live = when {
-                                        group.rows.any { it.indicator == ChatIndicator.WORKING } -> MarkKind.Spinner
-                                        group.rows.any { it.indicator == ChatIndicator.AWAITING_INPUT } -> MarkKind.Dot(colors.input)
-                                        else -> null
-                                    },
+                                    live = groupHeaderMark(group.rows, colors.input),
                                     onToggle = { model.toggleCollapsed(group.id) },
                                     onLongPress = if (!group.menu) null else { rect: androidx.compose.ui.geometry.Rect ->
                                         menus.header = HeaderMenuTarget(group.id, group.title, group.section, rect)
@@ -634,6 +630,14 @@ private class ListGroup(
     val tile: Pair<String, Int>? = null,
     val menu: Boolean = true,
 )
+
+/**
+ * The mark after a group header's count: a dot while one of its sessions
+ * waits for input, else nothing. Running sessions show their spinner on
+ * their own rows only; a second one on the header was noise.
+ */
+internal fun groupHeaderMark(rows: List<SessionRow>, input: androidx.compose.ui.graphics.Color): MarkKind? =
+    if (rows.any { it.indicator == ChatIndicator.AWAITING_INPUT }) MarkKind.Dot(input) else null
 
 @Composable
 private fun GroupHeader(
