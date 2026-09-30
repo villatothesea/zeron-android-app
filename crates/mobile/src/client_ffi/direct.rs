@@ -26,6 +26,44 @@ pub struct SshTarget {
     pub engine_port: u16,
     /// Pinned host key (`SHA256:…`); `None` until the user trusts it.
     pub host_key_fingerprint: Option<String>,
+    /// Every address to try, in order; empty = just `host:port`.
+    pub endpoints: Vec<SshEndpoint>,
+}
+
+/// Another address of the same machine (LAN IP, Tailscale IP, …).
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct SshEndpoint {
+    pub host: String,
+    pub port: u16,
+    /// The app's name for it ("lan", "tailscale", …), echoed in the status.
+    pub kind: String,
+    /// Tried alone this long before the next address joins (0 = until it fails).
+    pub head_start_ms: u32,
+}
+
+impl From<SshEndpoint> for zd::SshEndpoint {
+    fn from(e: SshEndpoint) -> Self {
+        zd::SshEndpoint {
+            host: e.host,
+            port: e.port,
+            kind: e.kind,
+            head_start_ms: e.head_start_ms,
+        }
+    }
+}
+
+/// How one address last fared.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct DirectEndpointStat {
+    pub host: String,
+    pub port: u16,
+    pub kind: String,
+    /// The current link runs over it.
+    pub active: bool,
+    pub last_attempt_ms: Option<i64>,
+    pub last_ok_ms: Option<i64>,
+    pub last_error: Option<String>,
+    pub latency_ms: Option<u64>,
 }
 
 impl From<SshTarget> for zd::SshTarget {
@@ -46,6 +84,7 @@ impl From<SshTarget> for zd::SshTarget {
             },
             engine_port: t.engine_port,
             host_key_fingerprint: t.host_key_fingerprint,
+            endpoints: t.endpoints.into_iter().map(Into::into).collect(),
         }
     }
 }
@@ -173,6 +212,8 @@ pub struct DirectStatus {
     pub log: Vec<DirectLogLine>,
     /// Phone clock minus the computer's (ms), from session heartbeats.
     pub clock_offset_ms: Option<i64>,
+    /// The machine's addresses in dial order, with their last outcome.
+    pub endpoints: Vec<DirectEndpointStat>,
 }
 
 impl From<zd::DirectStatus> for DirectStatus {
@@ -213,6 +254,20 @@ impl From<zd::DirectStatus> for DirectStatus {
                 })
                 .collect(),
             clock_offset_ms: s.clock_offset_ms,
+            endpoints: s
+                .endpoints
+                .into_iter()
+                .map(|e| DirectEndpointStat {
+                    host: e.host,
+                    port: e.port,
+                    kind: e.kind,
+                    active: e.active,
+                    last_attempt_ms: e.last_attempt_ms,
+                    last_ok_ms: e.last_ok_ms,
+                    last_error: e.last_error,
+                    latency_ms: e.latency_ms,
+                })
+                .collect(),
         }
     }
 }

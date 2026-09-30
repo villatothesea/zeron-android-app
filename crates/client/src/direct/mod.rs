@@ -79,6 +79,25 @@ pub struct DirectStatus {
     /// Phone clock minus the computer's, measured from session heartbeats
     /// (receipt latency included). `None` until a running session beats.
     pub clock_offset_ms: Option<i64>,
+    /// Every address of the machine, in dial order, with how it last fared.
+    pub endpoints: Vec<EndpointStat>,
+}
+
+/// One address of the machine as the phone last saw it.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct EndpointStat {
+    pub host: String,
+    pub port: u16,
+    /// The app's name for the address ("lan", "tailscale", …), echoed back.
+    pub kind: String,
+    /// The current link runs over this address.
+    pub active: bool,
+    pub last_attempt_ms: Option<i64>,
+    pub last_ok_ms: Option<i64>,
+    /// Why the last attempt failed (`None` after a success, or never tried).
+    pub last_error: Option<String>,
+    /// SSH connect + auth time of the last success.
+    pub latency_ms: Option<u64>,
 }
 
 /// Default engine IPC port (`ZERON_IPC_PORT` on the machine overrides it).
@@ -96,6 +115,64 @@ pub struct SshTarget {
     /// Pinned host key (`SHA256:…`). `None` = not trusted yet: connecting
     /// fails with [`SshError::HostKeyUnknown`] so the UI can ask.
     pub host_key_fingerprint: Option<String>,
+    /// Every address to try, in order (LAN, Tailscale, …). Empty = just
+    /// `host:port`. They share the credentials and the pinned host key.
+    pub endpoints: Vec<SshEndpoint>,
+}
+
+/// Another address of the same SSH server (LAN IP, Tailscale IP, a DNS
+/// name). It must present the machine's pinned host key like the others.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SshEndpoint {
+    pub host: String,
+    pub port: u16,
+    /// The app's name for the address ("lan", "tailscale", …); shown back
+    /// in [`EndpointStat`] and the link log.
+    pub kind: String,
+    /// How long this address is tried alone before the next one is dialled
+    /// alongside it (Happy Eyeballs); 0 = only once this one has failed.
+    pub head_start_ms: u32,
+}
+
+impl SshEndpoint {
+    pub fn same_address(&self, host: &str, port: u16) -> bool {
+        self.port == port && self.host.trim().eq_ignore_ascii_case(host.trim())
+    }
+
+    pub(crate) fn describe(&self) -> String {
+        let at = format!("{}:{}", self.host.trim(), self.port);
+        if self.kind.is_empty() {
+            at
+        } else {
+            format!("{} {at}", self.kind)
+        }
+    }
+}
+
+impl SshTarget {
+    /// The addresses to dial, in order (never empty).
+    pub fn addresses(&self) -> Vec<SshEndpoint> {
+        if self.endpoints.is_empty() {
+            vec![SshEndpoint {
+                host: self.host.clone(),
+                port: self.port,
+                kind: String::new(),
+                head_start_ms: 0,
+            }]
+        } else {
+            self.endpoints.clone()
+        }
+    }
+
+    /// This target at one of its addresses.
+    pub(crate) fn at(&self, endpoint: &SshEndpoint) -> SshTarget {
+        SshTarget {
+            host: endpoint.host.clone(),
+            port: endpoint.port,
+            endpoints: Vec::new(),
+            ..self.clone()
+        }
+    }
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -145,6 +222,25 @@ pub enum SshError {
 }
 
 impl SshError {
+    /// Which of several addresses' failures to report for the whole dial
+    /// (earliest address wins a tie). Credentials and first-contact trust
+    /// come first: every address shares them. A host-key mismatch comes
+    /// last: away from home another device can own the LAN IP, so it only
+    /// counts (and asks the user) when every address answered with it.
+    pub(crate) fn most_telling(errors: Vec<(usize, SshError)>) -> Option<SshError> {
+        let rank = |e: &SshError| match e {
+            SshError::Auth(_) | SshError::Key(_) => 0,
+            SshError::HostKeyUnknown { .. } => 1,
+            SshError::Engine(_) => 2,
+            SshError::Connect(_) => 3,
+            SshError::HostKeyMismatch { .. } => 4,
+        };
+        errors
+            .into_iter()
+            .min_by_key(|(i, e)| (rank(e), *i))
+            .map(|(_, e)| e)
+    }
+
     /// Retrying won't help until the user acts (trust / fix credentials).
     pub fn needs_user(&self) -> bool {
         matches!(

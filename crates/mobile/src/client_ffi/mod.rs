@@ -110,6 +110,13 @@ impl CoreClient {
         self.client.reconnect_direct();
     }
 
+    /// Direct mode: the machine's addresses in a new dial order (network
+    /// changed). Keeps the current link; `reconnect_direct` moves now.
+    pub fn set_direct_endpoints(&self, endpoints: Vec<direct::SshEndpoint>) {
+        self.client
+            .set_direct_endpoints(endpoints.into_iter().map(Into::into).collect());
+    }
+
     pub fn device_id(&self) -> String {
         self.client.device_id().to_owned()
     }

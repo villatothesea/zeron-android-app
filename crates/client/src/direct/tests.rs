@@ -12,7 +12,7 @@ use zeron_rpc::{RpcError, RpcReply, RpcService};
 
 use super::host::{TEST_ENGINES, engine_notice};
 use super::lenient::{decode_rows, parse_version, sanitize_transcript_update, unsupported_text};
-use super::{DirectPhase, SshAuth, SshTarget};
+use super::{DirectPhase, SshAuth, SshEndpoint, SshError, SshTarget};
 use crate::events::NullListener;
 use crate::{Client, ClientConfig, Credentials, lock};
 
@@ -170,6 +170,19 @@ async fn start_engine(host: &str, mode: Mode) {
 }
 
 fn direct_client(host: &str, dir: &std::path::Path) -> Client {
+    direct_client_at(host, Vec::new(), dir)
+}
+
+fn endpoint(host: &str, kind: &str, head_start_ms: u32) -> SshEndpoint {
+    SshEndpoint {
+        host: host.into(),
+        port: 22,
+        kind: kind.into(),
+        head_start_ms,
+    }
+}
+
+fn direct_client_at(host: &str, endpoints: Vec<SshEndpoint>, dir: &std::path::Path) -> Client {
     let target = SshTarget {
         host: host.to_owned(),
         port: 22,
@@ -179,6 +192,7 @@ fn direct_client(host: &str, dir: &std::path::Path) -> Client {
         },
         engine_port: 27654,
         host_key_fingerprint: Some("SHA256:test".into()),
+        endpoints,
     };
     let mut config = ClientConfig::new("https://edge.invalid", dir);
     config.device_id = "android-test".into();
@@ -564,4 +578,190 @@ async fn a_computer_clock_behind_the_phone_still_reads_working() {
     })
     .await;
     client.shutdown();
+}
+
+// ── several addresses per machine ──────────────────────────────────────────
+
+fn active_kind(client: &Client) -> Option<String> {
+    client
+        .direct_status()?
+        .endpoints
+        .into_iter()
+        .find(|e| e.active)
+        .map(|e| e.kind)
+}
+
+fn test_double(host: &str, behaviour: &str) {
+    lock(&TEST_ENGINES)
+        .get_or_insert_with(Default::default)
+        .insert(host.to_owned(), behaviour.to_owned());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_silent_lan_address_hands_over_to_tailscale_after_its_head_start() {
+    test_double("lan-hang.test", "hang");
+    start_engine("ts-a.test", Mode::Real).await;
+    let dir = tempfile::tempdir().unwrap();
+    let client = direct_client_at(
+        "lan-hang.test",
+        vec![
+            endpoint("lan-hang.test", "lan", 150),
+            endpoint("ts-a.test", "tailscale", 0),
+        ],
+        dir.path(),
+    );
+    let started = std::time::Instant::now();
+    wait_for(&client, "live over tailscale", |c| {
+        c.direct_status()
+            .is_some_and(|s| s.phase == DirectPhase::Live)
+    })
+    .await;
+    assert!(started.elapsed() < Duration::from_secs(5));
+    assert_eq!(active_kind(&client).as_deref(), Some("tailscale"));
+    let status = client.direct_status().unwrap();
+    let lan = &status.endpoints[0];
+    assert!(lan.last_attempt_ms.is_some() && lan.last_ok_ms.is_none() && !lan.active);
+    assert!(status.endpoints[1].latency_ms.is_some());
+    client.shutdown();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_refused_address_moves_on_without_waiting_out_its_head_start() {
+    test_double("lan-refuse.test", "refuse");
+    start_engine("ts-b.test", Mode::Real).await;
+    let dir = tempfile::tempdir().unwrap();
+    let client = direct_client_at(
+        "lan-refuse.test",
+        vec![
+            endpoint("lan-refuse.test", "lan", 60_000),
+            endpoint("ts-b.test", "tailscale", 0),
+        ],
+        dir.path(),
+    );
+    wait_for(&client, "live over tailscale", |c| {
+        active_kind(c).as_deref() == Some("tailscale")
+    })
+    .await;
+    let status = client.direct_status().unwrap();
+    assert!(
+        status.endpoints[0]
+            .last_error
+            .as_deref()
+            .unwrap()
+            .contains("refused")
+    );
+    client.shutdown();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn another_device_on_the_lan_ip_is_not_reported_as_a_changed_host_key() {
+    test_double("lan-stranger.test", "stranger");
+    test_double("ts-down.test", "refuse");
+    let dir = tempfile::tempdir().unwrap();
+    let client = direct_client_at(
+        "lan-stranger.test",
+        vec![
+            endpoint("lan-stranger.test", "lan", 1_500),
+            endpoint("ts-down.test", "tailscale", 0),
+        ],
+        dir.path(),
+    );
+    wait_for(&client, "failed", |c| {
+        c.direct_status()
+            .is_some_and(|s| s.phase == DirectPhase::Failed)
+    })
+    .await;
+    let status = client.direct_status().unwrap();
+    let error = status.last_error.unwrap();
+    assert!(
+        error.contains("ts-down.test") && error.contains("refused"),
+        "{error}"
+    );
+    // Not a needs-the-user error: it keeps retrying.
+    assert!(status.retry_at_ms.is_some());
+    assert!(
+        status.endpoints[0]
+            .last_error
+            .as_deref()
+            .unwrap()
+            .contains("HOST KEY CHANGED")
+    );
+    client.shutdown();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_new_dial_order_applies_on_the_next_reconnect() {
+    start_engine("ts-c.test", Mode::Real).await;
+    start_engine("lan-c.test", Mode::Real).await;
+    let dir = tempfile::tempdir().unwrap();
+    let client = direct_client_at(
+        "ts-c.test",
+        vec![
+            endpoint("ts-c.test", "tailscale", 0),
+            endpoint("lan-c.test", "lan", 0),
+        ],
+        dir.path(),
+    );
+    wait_for(&client, "live over tailscale", |c| {
+        active_kind(c).as_deref() == Some("tailscale")
+            && c.direct_status()
+                .is_some_and(|s| s.phase == DirectPhase::Live)
+    })
+    .await;
+    // Home Wi-Fi: LAN first. The link in use stays until asked to move.
+    client.set_direct_endpoints(vec![
+        endpoint("lan-c.test", "lan", 1_500),
+        endpoint("ts-c.test", "tailscale", 0),
+    ]);
+    let status = client.direct_status().unwrap();
+    assert_eq!(
+        status
+            .endpoints
+            .iter()
+            .map(|e| e.kind.as_str())
+            .collect::<Vec<_>>(),
+        ["lan", "tailscale"]
+    );
+    assert!(
+        status.endpoints[1].active && status.endpoints[1].last_ok_ms.is_some(),
+        "stats follow the address"
+    );
+    client.reconnect_direct();
+    wait_for(&client, "live over lan", |c| {
+        active_kind(c).as_deref() == Some("lan")
+            && c.direct_status()
+                .is_some_and(|s| s.phase == DirectPhase::Live)
+    })
+    .await;
+    client.shutdown();
+}
+
+#[test]
+fn the_most_telling_error_wins() {
+    let connect = |h: &str| SshError::Connect(format!("can't reach {h}"));
+    let mismatch = SshError::HostKeyMismatch {
+        expected: "SHA256:a".into(),
+        actual: "SHA256:b".into(),
+        algorithm: "ssh-ed25519".into(),
+    };
+    // Wrong password / key: every address shares it.
+    assert!(matches!(
+        SshError::most_telling(vec![(0, connect("lan")), (1, SshError::Auth("no".into()))]),
+        Some(SshError::Auth(_))
+    ));
+    // A mismatch only when every address says so.
+    assert_eq!(
+        SshError::most_telling(vec![(0, mismatch.clone()), (1, connect("ts"))]),
+        Some(connect("ts"))
+    );
+    assert_eq!(
+        SshError::most_telling(vec![(0, mismatch.clone())]),
+        Some(mismatch)
+    );
+    // Same kind: the earlier address.
+    assert_eq!(
+        SshError::most_telling(vec![(1, connect("ts")), (0, connect("lan"))]),
+        Some(connect("lan"))
+    );
+    assert_eq!(SshError::most_telling(Vec::new()), None);
 }

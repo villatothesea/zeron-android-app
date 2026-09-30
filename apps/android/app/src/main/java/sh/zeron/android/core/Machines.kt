@@ -105,6 +105,7 @@ class MachineStore(context: Context) {
             auth = auth,
             enginePort = machine.enginePort.toUShort(),
             hostKeyFingerprint = hostKey,
+            endpoints = emptyList(),
         )
     }
 }

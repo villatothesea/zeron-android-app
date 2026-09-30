@@ -36,6 +36,7 @@ fn main() {
                 p.parse().unwrap()
             }),
         host_key_fingerprint: None,
+        endpoints: Vec::new(),
     };
     let rt = zeron_client::runtime::shared();
     // 1. TOFU: the first probe reports the unknown key.

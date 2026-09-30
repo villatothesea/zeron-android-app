@@ -744,6 +744,15 @@ impl Client {
         }
     }
 
+    /// Direct mode: the machine's addresses in their new dial order (the
+    /// network changed). The link in use stays up; pair with
+    /// [`Self::reconnect_direct`] to move to the new first choice now.
+    pub fn set_direct_endpoints(&self, endpoints: Vec<crate::direct::SshEndpoint>) {
+        if let Some(direct) = self.inner.direct() {
+            direct.set_endpoints(endpoints);
+        }
+    }
+
     pub fn device_id(&self) -> &str {
         &self.inner.config.device_id
     }

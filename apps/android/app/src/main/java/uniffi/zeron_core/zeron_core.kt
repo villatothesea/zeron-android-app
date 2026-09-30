@@ -930,6 +930,8 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_zeron_mobile_checksum_method_coreclient_session_row(
     ): Int
+    external fun uniffi_zeron_mobile_checksum_method_coreclient_set_direct_endpoints(
+    ): Int
     external fun uniffi_zeron_mobile_checksum_method_coreclient_set_network_online(
     ): Int
     external fun uniffi_zeron_mobile_checksum_method_coreclient_set_section_collapsed(
@@ -1186,6 +1188,8 @@ internal object UniffiLib {
     ): RustBuffer.ByValue
     external fun uniffi_zeron_mobile_fn_method_coreclient_session_row(`ptr`: Long,`chatId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
+    external fun uniffi_zeron_mobile_fn_method_coreclient_set_direct_endpoints(`ptr`: Long,`endpoints`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
     external fun uniffi_zeron_mobile_fn_method_coreclient_set_network_online(`ptr`: Long,`online`: Byte,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
     external fun uniffi_zeron_mobile_fn_method_coreclient_set_section_collapsed(`ptr`: Long,`sectionId`: RustBuffer.ByValue,`collapsed`: Byte,uniffi_out_err: UniffiRustCallStatus, 
@@ -1744,6 +1748,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_zeron_mobile_checksum_method_coreclient_session_row() and 0xFFFF) != 10938) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_zeron_mobile_checksum_method_coreclient_set_direct_endpoints() and 0xFFFF) != 17416) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_zeron_mobile_checksum_method_coreclient_set_network_online() and 0xFFFF) != 33835) {
@@ -3023,6 +3030,12 @@ public interface CoreClientInterface {
     fun `sessionRow`(`chatId`: kotlin.String): SessionRow?
     
     /**
+     * Direct mode: the machine's addresses in a new dial order (network
+     * changed). Keeps the current link; `reconnect_direct` moves now.
+     */
+    fun `setDirectEndpoints`(`endpoints`: List<SshEndpoint>)
+    
+    /**
      * OS network path: `false` only for a definitive "unsatisfied".
      */
     fun `setNetworkOnline`(`online`: kotlin.Boolean)
@@ -4027,6 +4040,23 @@ open class CoreClient: Disposable, AutoCloseable, CoreClientInterface
     }
     )
     }
+    
+
+    
+    /**
+     * Direct mode: the machine's addresses in a new dial order (network
+     * changed). Keeps the current link; `reconnect_direct` moves now.
+     */override fun `setDirectEndpoints`(`endpoints`: List<SshEndpoint>)
+        = 
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_zeron_mobile_fn_method_coreclient_set_direct_endpoints(
+        it,
+        
+        FfiConverterSequenceTypeSshEndpoint.lower(`endpoints`),_status)
+}
+    }
+    
     
 
     
@@ -8017,6 +8047,80 @@ public object FfiConverterTypeDeviceView: FfiConverterRustBuffer<DeviceView> {
 
 
 
+/**
+ * How one address last fared.
+ */
+data class DirectEndpointStat (
+    var `host`: kotlin.String
+    , 
+    var `port`: kotlin.UShort
+    , 
+    var `kind`: kotlin.String
+    , 
+    /**
+     * The current link runs over it.
+     */
+    var `active`: kotlin.Boolean
+    , 
+    var `lastAttemptMs`: kotlin.Long?
+    , 
+    var `lastOkMs`: kotlin.Long?
+    , 
+    var `lastError`: kotlin.String?
+    , 
+    var `latencyMs`: kotlin.ULong?
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeDirectEndpointStat: FfiConverterRustBuffer<DirectEndpointStat> {
+    override fun read(buf: ByteBuffer): DirectEndpointStat {
+        return DirectEndpointStat(
+            FfiConverterString.read(buf),
+            FfiConverterUShort.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterOptionalLong.read(buf),
+            FfiConverterOptionalLong.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalULong.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: DirectEndpointStat) = (
+            FfiConverterString.allocationSize(value.`host`) +
+            FfiConverterUShort.allocationSize(value.`port`) +
+            FfiConverterString.allocationSize(value.`kind`) +
+            FfiConverterBoolean.allocationSize(value.`active`) +
+            FfiConverterOptionalLong.allocationSize(value.`lastAttemptMs`) +
+            FfiConverterOptionalLong.allocationSize(value.`lastOkMs`) +
+            FfiConverterOptionalString.allocationSize(value.`lastError`) +
+            FfiConverterOptionalULong.allocationSize(value.`latencyMs`)
+    )
+
+    override fun write(value: DirectEndpointStat, buf: ByteBuffer) {
+            FfiConverterString.write(value.`host`, buf)
+            FfiConverterUShort.write(value.`port`, buf)
+            FfiConverterString.write(value.`kind`, buf)
+            FfiConverterBoolean.write(value.`active`, buf)
+            FfiConverterOptionalLong.write(value.`lastAttemptMs`, buf)
+            FfiConverterOptionalLong.write(value.`lastOkMs`, buf)
+            FfiConverterOptionalString.write(value.`lastError`, buf)
+            FfiConverterOptionalULong.write(value.`latencyMs`, buf)
+    }
+}
+
+
+
 data class DirectLogLine (
     var `atMs`: kotlin.Long
     , 
@@ -8087,6 +8191,11 @@ data class DirectStatus (
      * Phone clock minus the computer's (ms), from session heartbeats.
      */
     var `clockOffsetMs`: kotlin.Long?
+    , 
+    /**
+     * The machine's addresses in dial order, with their last outcome.
+     */
+    var `endpoints`: List<DirectEndpointStat>
     
 ){
     
@@ -8114,6 +8223,7 @@ public object FfiConverterTypeDirectStatus: FfiConverterRustBuffer<DirectStatus>
             FfiConverterSequenceTypeDirectStreamStat.read(buf),
             FfiConverterSequenceTypeDirectLogLine.read(buf),
             FfiConverterOptionalLong.read(buf),
+            FfiConverterSequenceTypeDirectEndpointStat.read(buf),
         )
     }
 
@@ -8128,7 +8238,8 @@ public object FfiConverterTypeDirectStatus: FfiConverterRustBuffer<DirectStatus>
             FfiConverterOptionalLong.allocationSize(value.`syncedAtMs`) +
             FfiConverterSequenceTypeDirectStreamStat.allocationSize(value.`streams`) +
             FfiConverterSequenceTypeDirectLogLine.allocationSize(value.`log`) +
-            FfiConverterOptionalLong.allocationSize(value.`clockOffsetMs`)
+            FfiConverterOptionalLong.allocationSize(value.`clockOffsetMs`) +
+            FfiConverterSequenceTypeDirectEndpointStat.allocationSize(value.`endpoints`)
     )
 
     override fun write(value: DirectStatus, buf: ByteBuffer) {
@@ -8143,6 +8254,7 @@ public object FfiConverterTypeDirectStatus: FfiConverterRustBuffer<DirectStatus>
             FfiConverterSequenceTypeDirectStreamStat.write(value.`streams`, buf)
             FfiConverterSequenceTypeDirectLogLine.write(value.`log`, buf)
             FfiConverterOptionalLong.write(value.`clockOffsetMs`, buf)
+            FfiConverterSequenceTypeDirectEndpointStat.write(value.`endpoints`, buf)
     }
 }
 
@@ -10388,6 +10500,63 @@ public object FfiConverterTypeSessionRow: FfiConverterRustBuffer<SessionRow> {
 
 
 
+/**
+ * Another address of the same machine (LAN IP, Tailscale IP, …).
+ */
+data class SshEndpoint (
+    var `host`: kotlin.String
+    , 
+    var `port`: kotlin.UShort
+    , 
+    /**
+     * The app's name for it ("lan", "tailscale", …), echoed in the status.
+     */
+    var `kind`: kotlin.String
+    , 
+    /**
+     * Tried alone this long before the next address joins (0 = until it fails).
+     */
+    var `headStartMs`: kotlin.UInt
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeSshEndpoint: FfiConverterRustBuffer<SshEndpoint> {
+    override fun read(buf: ByteBuffer): SshEndpoint {
+        return SshEndpoint(
+            FfiConverterString.read(buf),
+            FfiConverterUShort.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterUInt.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: SshEndpoint) = (
+            FfiConverterString.allocationSize(value.`host`) +
+            FfiConverterUShort.allocationSize(value.`port`) +
+            FfiConverterString.allocationSize(value.`kind`) +
+            FfiConverterUInt.allocationSize(value.`headStartMs`)
+    )
+
+    override fun write(value: SshEndpoint, buf: ByteBuffer) {
+            FfiConverterString.write(value.`host`, buf)
+            FfiConverterUShort.write(value.`port`, buf)
+            FfiConverterString.write(value.`kind`, buf)
+            FfiConverterUInt.write(value.`headStartMs`, buf)
+    }
+}
+
+
+
 data class SshKeyPair (
     var `privateOpenssh`: kotlin.String
     , 
@@ -10452,6 +10621,11 @@ data class SshTarget (
      * Pinned host key (`SHA256:…`); `None` until the user trusts it.
      */
     var `hostKeyFingerprint`: kotlin.String?
+    , 
+    /**
+     * Every address to try, in order; empty = just `host:port`.
+     */
+    var `endpoints`: List<SshEndpoint>
     
 ){
     
@@ -10474,6 +10648,7 @@ public object FfiConverterTypeSshTarget: FfiConverterRustBuffer<SshTarget> {
             FfiConverterTypeSshAuth.read(buf),
             FfiConverterUShort.read(buf),
             FfiConverterOptionalString.read(buf),
+            FfiConverterSequenceTypeSshEndpoint.read(buf),
         )
     }
 
@@ -10483,7 +10658,8 @@ public object FfiConverterTypeSshTarget: FfiConverterRustBuffer<SshTarget> {
             FfiConverterString.allocationSize(value.`user`) +
             FfiConverterTypeSshAuth.allocationSize(value.`auth`) +
             FfiConverterUShort.allocationSize(value.`enginePort`) +
-            FfiConverterOptionalString.allocationSize(value.`hostKeyFingerprint`)
+            FfiConverterOptionalString.allocationSize(value.`hostKeyFingerprint`) +
+            FfiConverterSequenceTypeSshEndpoint.allocationSize(value.`endpoints`)
     )
 
     override fun write(value: SshTarget, buf: ByteBuffer) {
@@ -10493,6 +10669,7 @@ public object FfiConverterTypeSshTarget: FfiConverterRustBuffer<SshTarget> {
             FfiConverterTypeSshAuth.write(value.`auth`, buf)
             FfiConverterUShort.write(value.`enginePort`, buf)
             FfiConverterOptionalString.write(value.`hostKeyFingerprint`, buf)
+            FfiConverterSequenceTypeSshEndpoint.write(value.`endpoints`, buf)
     }
 }
 
@@ -14890,6 +15067,34 @@ public object FfiConverterSequenceTypeDeviceView: FfiConverterRustBuffer<List<De
 /**
  * @suppress
  */
+public object FfiConverterSequenceTypeDirectEndpointStat: FfiConverterRustBuffer<List<DirectEndpointStat>> {
+    override fun read(buf: ByteBuffer): List<DirectEndpointStat> {
+        val len = buf.getInt()
+        return List<DirectEndpointStat>(len) {
+            FfiConverterTypeDirectEndpointStat.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<DirectEndpointStat>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeDirectEndpointStat.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<DirectEndpointStat>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeDirectEndpointStat.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterSequenceTypeDirectLogLine: FfiConverterRustBuffer<List<DirectLogLine>> {
     override fun read(buf: ByteBuffer): List<DirectLogLine> {
         val len = buf.getInt()
@@ -15496,6 +15701,34 @@ public object FfiConverterSequenceTypeSessionRow: FfiConverterRustBuffer<List<Se
         buf.putInt(value.size)
         value.iterator().forEach {
             FfiConverterTypeSessionRow.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeSshEndpoint: FfiConverterRustBuffer<List<SshEndpoint>> {
+    override fun read(buf: ByteBuffer): List<SshEndpoint> {
+        val len = buf.getInt()
+        return List<SshEndpoint>(len) {
+            FfiConverterTypeSshEndpoint.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<SshEndpoint>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeSshEndpoint.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<SshEndpoint>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeSshEndpoint.write(it, buf)
         }
     }
 }

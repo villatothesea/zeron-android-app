@@ -20,12 +20,16 @@ use super::lenient::{
     Substitution, decode_rows, parse_version, sanitize_transcript_update, short_id,
 };
 use super::ssh::{self, SshSession};
-use super::{DirectLogLine, DirectPhase, DirectStatus, SshError, SshTarget, StreamStat};
+use super::{
+    DirectLogLine, DirectPhase, DirectStatus, EndpointStat, SshEndpoint, SshError, SshTarget,
+    StreamStat,
+};
 use crate::client::ClientInner;
 use crate::demo::DemoServer;
 use crate::error::{ClientError, Result};
 use crate::session::SessionCore;
 use crate::{lock, now_ms};
+use futures::StreamExt;
 
 const BACKOFF_MIN: Duration = Duration::from_secs(1);
 const BACKOFF_MAX: Duration = Duration::from_secs(30);
@@ -71,7 +75,11 @@ struct Link {
 }
 
 pub(crate) struct DirectHost {
+    /// Credentials and pinned key; the addresses live in `endpoints`.
     target: SshTarget,
+    /// The machine's addresses in dial order (the app re-orders them when
+    /// the network changes).
+    endpoints: Mutex<Vec<SshEndpoint>>,
     client: Weak<ClientInner>,
     server: Mutex<DemoServer>,
     link: Mutex<Option<Arc<Link>>>,
@@ -88,19 +96,34 @@ pub(crate) struct DirectHost {
     cancel: Mutex<Option<CancellationToken>>,
 }
 
+fn fresh_stat(endpoint: &SshEndpoint) -> EndpointStat {
+    EndpointStat {
+        host: endpoint.host.trim().to_owned(),
+        port: endpoint.port,
+        kind: endpoint.kind.clone(),
+        ..EndpointStat::default()
+    }
+}
+
 fn doc_err(err: zeron_doc::DocError) -> ClientError {
     ClientError::Internal(err.to_string())
 }
 
 impl DirectHost {
     pub(crate) fn new(client: &Arc<ClientInner>, target: SshTarget) -> Arc<Self> {
+        let endpoints = target.addresses();
+        let status = DirectStatus {
+            endpoints: endpoints.iter().map(fresh_stat).collect(),
+            ..DirectStatus::default()
+        };
         Arc::new(Self {
             target,
+            endpoints: Mutex::new(endpoints),
             client: Arc::downgrade(client),
             server: Mutex::new(DemoServer::default()),
             link: Mutex::new(None),
             link_changed: tokio::sync::watch::channel(0).0,
-            status: Mutex::new(DirectStatus::default()),
+            status: Mutex::new(status),
             engine_device: Mutex::new(None),
             mirrors: Mutex::new(HashMap::new()),
             drains: Mutex::new(HashMap::new()),
@@ -142,6 +165,60 @@ impl DirectHost {
         let mut status = lock(&self.status).clone();
         status.clock_offset_ms = lock(&self.session_clock).offset_ms();
         status
+    }
+
+    /// New dial order (network changed, addresses edited). Keeps what each
+    /// address did before; the link in use is not dropped (see [Self::reconnect]).
+    pub(crate) fn set_endpoints(&self, endpoints: Vec<SshEndpoint>) {
+        if endpoints.is_empty() {
+            return;
+        }
+        let order = endpoints
+            .iter()
+            .map(SshEndpoint::describe)
+            .collect::<Vec<_>>()
+            .join(", ");
+        let changed = {
+            let mut current = lock(&self.endpoints);
+            let changed = *current != endpoints;
+            *current = endpoints.clone();
+            changed
+        };
+        if !changed {
+            return;
+        }
+        self.note(format!("addresses: {order}"));
+        self.set_status(|s| {
+            let old = std::mem::take(&mut s.endpoints);
+            s.endpoints = endpoints
+                .iter()
+                .map(|e| {
+                    let mut stat = old
+                        .iter()
+                        .find(|o| e.same_address(&o.host, o.port))
+                        .cloned()
+                        .unwrap_or_else(|| fresh_stat(e));
+                    stat.kind = e.kind.clone();
+                    stat
+                })
+                .collect();
+        });
+    }
+
+    fn endpoint_stat(&self, endpoint: &SshEndpoint, f: impl FnOnce(&mut EndpointStat)) {
+        self.set_status(|s| {
+            if let Some(stat) = s
+                .endpoints
+                .iter_mut()
+                .find(|st| endpoint.same_address(&st.host, st.port))
+            {
+                f(stat);
+            }
+        });
+    }
+
+    fn clear_active_endpoint(&self) {
+        self.set_status(|s| s.endpoints.iter_mut().for_each(|e| e.active = false));
     }
 
     /// Drop the current link (even a stalled one) and dial again now.
@@ -235,6 +312,7 @@ impl DirectHost {
             let wait = match attempt {
                 Ok(link) => {
                     let synced = self.run_link(link, &cancel).await;
+                    self.clear_active_endpoint();
                     if cancel.is_cancelled() {
                         return;
                     }
@@ -278,14 +356,7 @@ impl DirectHost {
     }
 
     async fn open_link(&self) -> std::result::Result<Link, SshError> {
-        let target = &self.target;
-        self.note(format!(
-            "connecting to {}@{}:{}",
-            target.user.trim(),
-            target.host.trim(),
-            target.port
-        ));
-        let (ssh, rpc) = self.dial().await?;
+        let (ssh, rpc) = self.dial_any().await?;
         let info = tokio::time::timeout(
             Duration::from_secs(20),
             rpc.call(zeron_rpc::methods::ENGINE_INFO, serde_json::json!({})),
@@ -329,15 +400,113 @@ impl DirectHost {
         })
     }
 
-    async fn dial(
+    /// Dial the machine's addresses Happy-Eyeballs style: the first alone
+    /// for its head start, then the next alongside it (or at once when one
+    /// fails), and so on; the first to finish SSH + tunnel wins and the
+    /// others are dropped. Each address's outcome lands in `endpoints`.
+    async fn dial_any(
         &self,
     ) -> std::result::Result<(Option<SshSession>, zeron_rpc::RpcClient), SshError> {
-        let target = &self.target;
+        let endpoints = lock(&self.endpoints).clone();
+        let n = endpoints.len();
+        let user = self.target.user.trim().to_owned();
+        let dial = |i: usize| {
+            let endpoint = endpoints[i].clone();
+            let target = self.target.at(&endpoint);
+            let user = user.clone();
+            async move {
+                self.note(format!("connecting to {user}@{}", endpoint.describe()));
+                self.endpoint_stat(&endpoint, |s| s.last_attempt_ms = Some(now_ms()));
+                let began = std::time::Instant::now();
+                let result = self.dial(&target).await;
+                (i, result, began.elapsed())
+            }
+        };
+        let head_start = |i: usize| Duration::from_millis(u64::from(endpoints[i].head_start_ms));
+        let mut racing = futures::stream::FuturesUnordered::new();
+        racing.push(dial(0));
+        let mut next = 1;
+        let timer = tokio::time::sleep(head_start(0));
+        tokio::pin!(timer);
+        let mut errors = Vec::new();
+        loop {
+            let staggered = next < n && endpoints[next - 1].head_start_ms > 0;
+            tokio::select! {
+                Some((i, result, took)) = racing.next() => {
+                    let endpoint = &endpoints[i];
+                    match result {
+                        Ok(pair) => {
+                            if n > 1 {
+                                self.note(format!("using {}", endpoint.describe()));
+                            }
+                            let latency = took.as_millis() as u64;
+                            self.set_status(|s| {
+                                for stat in s.endpoints.iter_mut() {
+                                    stat.active = endpoint.same_address(&stat.host, stat.port);
+                                    if stat.active {
+                                        stat.last_ok_ms = Some(now_ms());
+                                        stat.last_error = None;
+                                        stat.latency_ms = Some(latency);
+                                    }
+                                }
+                            });
+                            return Ok(pair);
+                        }
+                        Err(err) => {
+                            if n > 1 {
+                                self.note(format!("{} failed: {err}", endpoint.describe()));
+                            }
+                            let text = err.to_string();
+                            self.endpoint_stat(endpoint, |s| s.last_error = Some(text));
+                            errors.push((i, err));
+                            if next < n {
+                                racing.push(dial(next));
+                                timer.as_mut().reset(tokio::time::Instant::now() + head_start(next));
+                                next += 1;
+                            } else if racing.is_empty() {
+                                return Err(SshError::most_telling(errors)
+                                    .unwrap_or_else(|| SshError::Connect("no address to dial".into())));
+                            }
+                        }
+                    }
+                }
+                _ = &mut timer, if staggered => {
+                    racing.push(dial(next));
+                    timer.as_mut().reset(tokio::time::Instant::now() + head_start(next));
+                    next += 1;
+                }
+            }
+        }
+    }
+
+    async fn dial(
+        &self,
+        target: &SshTarget,
+    ) -> std::result::Result<(Option<SshSession>, zeron_rpc::RpcClient), SshError> {
         #[cfg(test)]
         {
             let url = lock(&TEST_ENGINES)
                 .as_ref()
                 .and_then(|m| m.get(&target.host).cloned());
+            match url.as_deref() {
+                // Test doubles: an address that never answers, one that
+                // refuses, one owned by some other SSH server.
+                Some("hang") => std::future::pending::<()>().await,
+                Some("refuse") => {
+                    return Err(SshError::Connect(format!(
+                        "{}:{} refused the connection",
+                        target.host, target.port
+                    )));
+                }
+                Some("stranger") => {
+                    return Err(SshError::HostKeyMismatch {
+                        expected: target.host_key_fingerprint.clone().unwrap_or_default(),
+                        actual: "SHA256:stranger".into(),
+                        algorithm: "ssh-ed25519".into(),
+                    });
+                }
+                _ => {}
+            }
             if let Some(url) = url {
                 let rpc = zeron_rpc::connect_ws(&url)
                     .await
