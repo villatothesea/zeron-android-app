@@ -44,6 +44,11 @@ import kotlin.math.sign
  * visible rows at those coordinates with the same Geist bytes the core measured.
  */
 class TranscriptListView(context: Context) : View(context) {
+    companion object {
+        /** How long a code block's copy button shows its check. */
+        const val COPIED_MS = 2_000L
+    }
+
     var engine: TranscriptView? = null
     var colors: ZeronColors? = null
     var faces: Map<FaceRole, Typeface> = emptyMap()
@@ -161,7 +166,9 @@ class TranscriptListView(context: Context) : View(context) {
     }
 
     fun onFrame() {
-        val next = engine?.frame() ?: return
+        // A frame posted just before the session screen closed its engine
+        // lands after the Rust object is gone: nothing to draw any more.
+        val next = runCatching { engine?.frame() }.getOrNull() ?: return
         if (next.rowCount() == 0u && next.totalHeight() == 0f && frame == null) {
             frame = next
             invalidate()
@@ -177,6 +184,19 @@ class TranscriptListView(context: Context) : View(context) {
         onDistanceFromBottom(maxScroll - scroll)
         onScroll(scroll)
         invalidate()
+    }
+
+    /** Glide so the row [key] sits just below the header (the navigator's tap). */
+    fun scrollToRow(key: ULong) {
+        val frame = frame ?: return
+        val index = frame.indexOf(key) ?: return
+        val placement = frame.placement(index) ?: return
+        val target = (placement.y * density - 8f * density).coerceIn(0f, maxScrollPx().toFloat())
+        following = false
+        scroller.forceFinished(true)
+        scroller.startScroll(0, scroll.toInt(), 0, (target - scroll).toInt(), 320)
+        savedScroll = target
+        postInvalidateOnAnimation()
     }
 
     private fun reclamp() {
@@ -455,10 +475,7 @@ class TranscriptListView(context: Context) : View(context) {
         val kind = w.kind
         var animate = false
         when (kind) {
-            WidgetKind.CopyCode -> drawMiniIcon(canvas, w, colors.tertiary.toArgb()) { c, r ->
-                c.drawRoundRect(r.left, r.top + r.height() * 0.18f, r.right - r.width() * 0.18f, r.bottom, 2f, 2f, stroke(colors.tertiary.toArgb()))
-                c.drawRoundRect(r.left + r.width() * 0.18f, r.top, r.right, r.bottom - r.height() * 0.18f, 2f, 2f, stroke(colors.tertiary.toArgb()))
-            }
+            WidgetKind.CopyCode -> drawCopyButton(canvas, w, colors, copied = copiedCode == copyKey(display, w))
             is WidgetKind.Disclosure -> Unit
             is WidgetKind.Chevron -> {
                 val px = max(w.w, w.h) * density
@@ -612,6 +629,88 @@ class TranscriptListView(context: Context) : View(context) {
         strokeWidth = width
         strokeCap = Paint.Cap.ROUND
         strokeJoin = Paint.Join.ROUND
+    }
+
+    /**
+     * The code block's copy control: a square icon button (the layout hands a
+     * 44 x 32 header cell, which the old inset-based glyph stretched into a
+     * flat, wide pair of boxes). Idle it is a two-sheet copy glyph on a faint
+     * rounded tile; for [COPIED_MS] after a tap it turns into a check on a
+     * success-tinted tile, then back (desktop `code_copy_button`).
+     */
+    private fun drawCopyButton(canvas: Canvas, w: Widget, colors: ZeronColors, copied: Boolean) {
+        val r = copyButtonRect(w)
+        val tone = if (copied) colors.success else colors.tertiary
+        boxPaint.style = Paint.Style.FILL
+        boxPaint.color = (if (copied) colors.success.copy(alpha = 0.14f) else colors.text.copy(alpha = 0.06f)).toArgb()
+        canvas.drawRoundRect(r, 7f, 7f, boxPaint)
+        val cx = r.centerX()
+        val cy = r.centerY()
+        if (copied) {
+            val path = Path()
+            path.moveTo(cx - 4.5f, cy + 0.2f); path.lineTo(cx - 1.3f, cy + 3.4f); path.lineTo(cx + 4.8f, cy - 3.6f)
+            canvas.drawPath(path, stroke(tone.toArgb(), 1.7f))
+        } else {
+            // Two 8.5 x 8.5 sheets offset by 3: the back one peeks top-right.
+            val g = 8.5f
+            val o = 3f
+            val left = cx - (g + o) / 2f
+            val top = cy - (g + o) / 2f
+            val paint = stroke(tone.toArgb(), 1.4f)
+            canvas.save()
+            canvas.clipOutRect(left - 1.4f, top + o - 1.4f, left + g + 1.4f, top + o + g + 1.4f)
+            canvas.drawRoundRect(left + o, top, left + o + g, top + g, 2f, 2f, paint)
+            canvas.restore()
+            canvas.drawRoundRect(left, top + o, left + g, top + o + g, 2f, 2f, paint)
+        }
+    }
+
+    /** The visible button inside the (larger, tappable) header cell: 26 x 26, right-aligned. */
+    private fun copyButtonRect(w: Widget): RectF {
+        val side = min(26f, w.h - 4f).coerceAtLeast(12f)
+        val right = w.x + w.w - 5f
+        val top = w.y + (w.h - side) / 2f
+        return RectF(right - side, top, right, top + side)
+    }
+
+    private fun copyKey(display: RowDisplay, w: Widget) = "${display.key}:${w.x.toInt()}:${w.y.toInt()}"
+
+    /** Which code block's button shows the check right now (`row key:x:y`), if any. */
+    internal var copiedCode: String? = null
+        private set
+    private val clearCopied = Runnable { copiedCode = null; invalidate() }
+
+    private fun markCopied(key: String) {
+        copiedCode = key
+        removeCallbacks(clearCopied)
+        postDelayed(clearCopied, COPIED_MS)
+        invalidate()
+    }
+
+    /** Keys of rows holding a code block's copy button, top first (tests, screenshots). */
+    internal fun codeRowKeys(): List<ULong> {
+        val frame = frame ?: return emptyList()
+        return frame.rowsIn(0f, frame.totalHeight() + 1f).filter { row ->
+            frame.display(row.index)?.widgets?.any { it.kind == WidgetKind.CopyCode } == true
+        }.map { it.key }
+    }
+
+    /** Centres (view px) of the code-copy buttons on screen, top first (tests, screenshots). */
+    internal fun copyButtonCenters(): List<android.graphics.PointF> {
+        val frame = frame ?: return emptyList()
+        val d = density
+        val y0 = (scroll - topInsetPx) / d
+        val out = ArrayList<android.graphics.PointF>()
+        for (row in frame.rowsIn(y0, y0 + height / d)) {
+            val display = displayFor(row) ?: continue
+            for (w in display.widgets) {
+                if (w.kind != WidgetKind.CopyCode) continue
+                val r = copyButtonRect(w)
+                val y = (row.y + r.centerY()) * d - scroll + topInsetPx
+                if (y > topInsetPx && y < height - bottomInsetPx) out += android.graphics.PointF(r.centerX() * d, y)
+            }
+        }
+        return out
     }
 
     private fun drawMiniIcon(canvas: Canvas, w: Widget, color: Int, block: (Canvas, RectF) -> Unit) {
@@ -774,6 +873,7 @@ class TranscriptListView(context: Context) : View(context) {
                     }
                     WidgetKind.CopyCode -> {
                         onCopy(w.payload ?: "")
+                        markCopied(copyKey(display, w))
                         return
                     }
                     is WidgetKind.Detail -> {
