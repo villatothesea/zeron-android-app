@@ -683,20 +683,28 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
             }
         }
 
-    /**
-     * App start and every return to the foreground. Checks at most every few
-     * hours (Updater.QUIET_MS), remembers what it found, drops stale APKs,
-     * picks up an APK that's already downloaded, and with auto-update on
-     * downloads a newer release while on an unmetered network. Never installs.
-     */
     /** The start-up / foreground update check (and its cache sweep) is still running. */
     internal val updateCheckRunning: Boolean get() = checkJob?.isActive == true
 
+    /**
+     * App start, every return to the foreground, and every Updater.QUIET_MS
+     * (30 min) while in the foreground ([startForegroundChecks]). With
+     * auto-update on and a check due, asks for the latest release and
+     * remembers it; auto-update off makes no automatic check at all (Settings
+     * > Check for updates still does), though what an earlier check found
+     * still shows. Then drops stale APKs, picks up an APK that's already
+     * downloaded, and with auto-update on downloads a newer release while on
+     * an unmetered network. Never installs.
+     */
     private fun quietUpdateCheck() {
         if (checkJob?.isActive == true) return
+        val check = autoUpdate && updater.dueForQuietCheck()
+        // Stamped before trying: a failed check waits the same 30 minutes
+        // instead of retrying on every return to the foreground.
+        if (check) updater.lastAttemptMs = System.currentTimeMillis()
         checkJob = viewModelScope.launch {
             if (updateRelease == null) updateRelease = updater.lastKnown()?.takeIf { it.newer }
-            if (updater.dueForQuietCheck()) {
+            if (check) {
                 runCatching { updater.latest() }.onSuccess { found ->
                     // The check screen may have loaded something newer meanwhile.
                     if (updateRelease == null || found.versionCode >= updateRelease!!.versionCode) updateRelease = found
@@ -1443,9 +1451,32 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
     fun onForeground() {
         client?.onForeground()
         if (awaitingInstallGrant && updater.canInstall()) installUpdate()
-        quietUpdateCheck()
+        startForegroundChecks()
     }
-    fun onBackground() { client?.onBackground() }
+    fun onBackground() {
+        client?.onBackground()
+        foregroundChecks?.cancel()
+        foregroundChecks = null
+    }
+
+    /** Update checks while the app is in the foreground; cancelled in [onBackground]. */
+    private var foregroundChecks: Job? = null
+    internal val foregroundChecksRunning: Boolean get() = foregroundChecks?.isActive == true
+
+    /**
+     * A quiet check now, then whenever the next one falls due (every
+     * Updater.QUIET_MS) until the app leaves the foreground. No background
+     * work: nothing is scheduled while the app is not visible.
+     */
+    private fun startForegroundChecks() {
+        foregroundChecks?.cancel()
+        foregroundChecks = viewModelScope.launch {
+            Updater.repeatQuietChecks(
+                nextInMs = { if (autoUpdate) updater.msUntilQuietCheck() else Updater.QUIET_MS },
+                check = ::quietUpdateCheck,
+            )
+        }
+    }
 
     /** Screenshot / deep-link routes, analogous to the iOS `-route` argument. */
     fun applyLaunch(route: String?, chat: String?, theme: String?, query: String?) {

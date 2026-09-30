@@ -90,8 +90,8 @@ class Updater(
     /**
      * Settings "Auto-check & download updates" (default on): download a newer
      * release in the background on an unmetered network, so the title-bar
-     * badge turns straight into "ready to install". Off: the background check
-     * still runs and the badge offers the download. Never installs by itself.
+     * badge turns straight into "ready to install". Off: no automatic checks
+     * at all; "Check for updates" still works. Never installs by itself.
      */
     var autoUpdate: Boolean
         get() = prefs.getBoolean("autoUpdate", true)

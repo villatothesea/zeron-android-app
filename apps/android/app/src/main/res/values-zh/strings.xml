@@ -480,8 +480,8 @@
 
     <!-- Auto-update: settings toggle and title-bar badge -->
     <string name="auto_update">自动检查并下载更新</string>
-    <string name="auto_update_sub_on">每隔几小时检查一次，连 Wi-Fi 时自动下载新版本；安装前仍需你确认。</string>
-    <string name="auto_update_sub_off">仍会在后台检查；轻点标题栏的箭头再下载。</string>
+    <string name="auto_update_sub_on">App 在前台时每 30 分钟检查一次，连 Wi-Fi 时自动下载新版本；安装前仍需你确认。</string>
+    <string name="auto_update_sub_off">不会自动检查；可在「检查更新」里手动检查。</string>
     <string name="badge_available_desc">有新版本 %1$s，轻点下载。</string>
     <string name="badge_downloading_desc">正在下载更新，%1$d%%</string>
     <string name="badge_ready_desc">新版本 %1$s 已就绪，轻点安装。</string>

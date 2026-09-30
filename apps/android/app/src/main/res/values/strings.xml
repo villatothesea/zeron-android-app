@@ -485,8 +485,8 @@
 
     <!-- Auto-update: settings toggle and title-bar badge -->
     <string name="auto_update">Auto-check &amp; download updates</string>
-    <string name="auto_update_sub_on">Checks every few hours and downloads new versions on Wi-Fi. You still confirm the install.</string>
-    <string name="auto_update_sub_off">Still checks in the background; tap the arrow in the title bar to download.</string>
+    <string name="auto_update_sub_on">Checks every 30 minutes while the app is open and downloads new versions on Wi-Fi. You still confirm the install.</string>
+    <string name="auto_update_sub_off">No automatic checks; use Check for Updates to check by hand.</string>
     <string name="badge_available_desc">Update %1$s available. Tap to download.</string>
     <string name="badge_downloading_desc">Downloading update, %1$d%%</string>
     <string name="badge_ready_desc">Update %1$s ready. Tap to install.</string>
