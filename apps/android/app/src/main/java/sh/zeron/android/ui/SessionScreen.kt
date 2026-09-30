@@ -2,6 +2,7 @@
 
 package sh.zeron.android.ui
 
+import androidx.compose.ui.platform.testTag
 import sh.zeron.android.design.BackButton
 import sh.zeron.android.R
 import androidx.compose.ui.res.stringResource
@@ -831,6 +832,7 @@ private fun ChipView(chip: Chip, colors: ZeronColors, onTap: (Rect) -> Unit) {
     Row(
         Modifier
             .onGloballyPositioned { bounds = it.boundsInRoot() }
+            .testTag("chip-${chip.id}")
             .clip(RoundedCornerShape(14.dp))
             .background(tone?.copy(alpha = 0.1f) ?: colors.controlFill)
             .clickable { onTap(bounds) }

@@ -5,6 +5,9 @@
 
 package sh.zeron.android.ui
 
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.platform.testTag
 import sh.zeron.android.design.BackButton
 import sh.zeron.android.R
 import androidx.compose.ui.res.stringResource
@@ -547,8 +550,10 @@ private fun SessionsScreen(model: ZeronModel, colors: ZeronColors, onPrompt: (Pr
                 Modifier.height(44.dp).glassSurface(colors, 22.dp).padding(horizontal = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                val moreLabel = stringResource(R.string.more_options)
                 Box(
-                    Modifier.size(40.dp).onGloballyPositioned { menuAnchor = it.boundsInRoot() }.clickable { menu = true },
+                    Modifier.size(40.dp).onGloballyPositioned { menuAnchor = it.boundsInRoot() }.testTag("home-more")
+                        .semantics { contentDescription = moreLabel }.clickable { menu = true },
                     contentAlignment = Alignment.Center,
                 ) {
                     EllipsisMark(colors.text, Modifier.size(18.dp))

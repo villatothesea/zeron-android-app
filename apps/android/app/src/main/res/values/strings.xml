@@ -424,4 +424,7 @@
         <item quantity="one">%1$d model</item>
         <item quantity="other">%1$d models</item>
     </plurals>
+
+    <!-- Accessibility labels -->
+    <string name="more_options">More</string>
 </resources>

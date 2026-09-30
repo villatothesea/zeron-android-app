@@ -12,7 +12,7 @@ internal object Screenshots {
     val outDir: File
         get() = File(System.getProperty("zeron.screenshots.dir") ?: "build/screenshots").apply { mkdirs() }
 
-    fun path(name: String): String = File(outDir, name).absolutePath
+    fun path(name: String): String = File(outDir, name).apply { parentFile?.mkdirs() }.absolutePath
 
     fun assumeEnabled() {
         assumeTrue("screenshots off (pass -PzeronScreenshots=true)", System.getProperty("zeron.screenshots") == "true")

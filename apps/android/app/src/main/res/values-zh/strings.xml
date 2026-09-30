@@ -419,4 +419,7 @@
     <plurals name="model_count">
         <item quantity="other">%1$d 个模型</item>
     </plurals>
+
+    <!-- Accessibility labels -->
+    <string name="more_options">更多</string>
 </resources>

@@ -25,7 +25,9 @@ import sh.zeron.android.ui.ScheduleSendDialog
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(sdk = [34], qualifiers = "w411dp-h891dp-night-xxhdpi")
-class ScheduleDialogScreenshotTest {
+open class ScheduleDialogScreenshotTest {
+    protected open val subdir: String = ""
+
     @get:Rule
     val compose = createComposeRule()
 
@@ -50,6 +52,6 @@ class ScheduleDialogScreenshotTest {
             }
         }
         compose.waitForIdle()
-        captureScreenRoboImage(Screenshots.path("10-schedule-picker.png"))
+        captureScreenRoboImage(Screenshots.path(subdir + "10-schedule-picker.png"))
     }
 }

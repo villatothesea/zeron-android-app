@@ -2,8 +2,16 @@ package sh.zeron.android.screenshots
 
 import android.app.Application
 import android.os.Looper
+import androidx.compose.ui.test.hasClickAction
+import androidx.compose.ui.test.hasScrollAction
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
+import androidx.compose.ui.test.onAllNodesWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.performScrollToNode
+import sh.zeron.android.R
 import androidx.compose.ui.test.onFirst
+import androidx.compose.ui.test.onLast
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.lifecycle.ViewModelProvider
@@ -39,7 +47,10 @@ import uniffi.zeron_core.UsageWindow
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(sdk = [34], qualifiers = "w411dp-h891dp-night-xxhdpi")
-class AppScreenshotTest {
+open class AppScreenshotTest {
+    /** Subdirectory of the output dir ("" = English at the top level). */
+    protected open val subdir: String = ""
+
     @get:Rule
     val compose = createEmptyComposeRule()
 
@@ -88,6 +99,12 @@ class AppScreenshotTest {
         model.applyListMode(ZeronModel.ListMode.Project)
         settle()
         capture("01c-home-by-project-light.png")
+        // The ⋯ menu (View: By Project / By Activity …) with its hairline dividers.
+        compose.onNodeWithTag("home-more").performClick()
+        settle()
+        capture("01e-home-menu-light.png")
+        pressBack(scenario)
+        settle()
         model.applyAppearance(2)
         settle()
 
@@ -132,6 +149,10 @@ class AppScreenshotTest {
         model.tab = ZeronModel.Tab.Settings
         settle()
         capture("04-settings.png")
+        // Scrolled to the Language group.
+        compose.onNode(hasScrollAction()).performScrollToNode(hasText(app.getString(R.string.language_chinese)))
+        settle()
+        capture("04b-settings-language.png")
 
         model.showMachines = true
         settle()
@@ -148,6 +169,24 @@ class AppScreenshotTest {
         model.showNewSession = true
         settle(2000)
         capture("07-new-session.png")
+        // Project picker: computer header with the sort button, hairlines only.
+        compose.onNodeWithTag("chip-project").performClick()
+        settle()
+        capture("07b-new-session-projects.png")
+        compose.onAllNodesWithContentDescription(app.getString(R.string.sort_projects)).onFirst().performClick()
+        settle()
+        capture("07c-new-session-project-sort.png")
+        pressBack(scenario)
+        settle()
+        // Model picker: CLIs first, then the chosen CLI's models.
+        compose.onNodeWithTag("chip-model").performClick()
+        settle(1500)
+        capture("07d-new-session-model-clis.png")
+        compose.onAllNodes(hasText(uniffi.zeron_core.harnessLabel("claude-code")) and hasClickAction()).onLast().performClick()
+        settle()
+        capture("07e-new-session-models.png")
+        pressBack(scenario)
+        settle()
         model.showNewSession = false
         settle()
         scenario.close()
@@ -204,7 +243,7 @@ class AppScreenshotTest {
     }
 
     private fun capture(name: String) {
-        compose.onRoot().captureRoboImage(Screenshots.path(name))
+        compose.onRoot().captureRoboImage(Screenshots.path(subdir + name))
     }
 
     /** Let the core's background work post back and Compose draw, for ~[ms]. */
