@@ -31,6 +31,10 @@ pub(crate) struct SessionClock {
 }
 
 impl SessionClock {
+    pub(crate) fn offset_ms(&self) -> Option<i64> {
+        self.offset.map(|o| o.num_milliseconds())
+    }
+
     pub(crate) fn rebase(&mut self, rows: Vec<Session>, now: DateTime<Utc>) -> Vec<Session> {
         let mut next = HashMap::with_capacity(rows.len());
         let mut out = Vec::with_capacity(rows.len());

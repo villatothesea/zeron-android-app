@@ -8082,6 +8082,11 @@ data class DirectStatus (
     var `streams`: List<DirectStreamStat>
     , 
     var `log`: List<DirectLogLine>
+    , 
+    /**
+     * Phone clock minus the computer's (ms), from session heartbeats.
+     */
+    var `clockOffsetMs`: kotlin.Long?
     
 ){
     
@@ -8108,6 +8113,7 @@ public object FfiConverterTypeDirectStatus: FfiConverterRustBuffer<DirectStatus>
             FfiConverterOptionalLong.read(buf),
             FfiConverterSequenceTypeDirectStreamStat.read(buf),
             FfiConverterSequenceTypeDirectLogLine.read(buf),
+            FfiConverterOptionalLong.read(buf),
         )
     }
 
@@ -8121,7 +8127,8 @@ public object FfiConverterTypeDirectStatus: FfiConverterRustBuffer<DirectStatus>
             FfiConverterOptionalLong.allocationSize(value.`connectedAtMs`) +
             FfiConverterOptionalLong.allocationSize(value.`syncedAtMs`) +
             FfiConverterSequenceTypeDirectStreamStat.allocationSize(value.`streams`) +
-            FfiConverterSequenceTypeDirectLogLine.allocationSize(value.`log`)
+            FfiConverterSequenceTypeDirectLogLine.allocationSize(value.`log`) +
+            FfiConverterOptionalLong.allocationSize(value.`clockOffsetMs`)
     )
 
     override fun write(value: DirectStatus, buf: ByteBuffer) {
@@ -8135,6 +8142,7 @@ public object FfiConverterTypeDirectStatus: FfiConverterRustBuffer<DirectStatus>
             FfiConverterOptionalLong.write(value.`syncedAtMs`, buf)
             FfiConverterSequenceTypeDirectStreamStat.write(value.`streams`, buf)
             FfiConverterSequenceTypeDirectLogLine.write(value.`log`, buf)
+            FfiConverterOptionalLong.write(value.`clockOffsetMs`, buf)
     }
 }
 

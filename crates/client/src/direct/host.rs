@@ -139,7 +139,9 @@ impl DirectHost {
     }
 
     pub(crate) fn status(&self) -> DirectStatus {
-        lock(&self.status).clone()
+        let mut status = lock(&self.status).clone();
+        status.clock_offset_ms = lock(&self.session_clock).offset_ms();
+        status
     }
 
     /// Drop the current link (even a stalled one) and dial again now.

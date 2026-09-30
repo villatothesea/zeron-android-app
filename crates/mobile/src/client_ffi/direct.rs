@@ -171,6 +171,8 @@ pub struct DirectStatus {
     pub synced_at_ms: Option<i64>,
     pub streams: Vec<DirectStreamStat>,
     pub log: Vec<DirectLogLine>,
+    /// Phone clock minus the computer's (ms), from session heartbeats.
+    pub clock_offset_ms: Option<i64>,
 }
 
 impl From<zd::DirectStatus> for DirectStatus {
@@ -210,6 +212,7 @@ impl From<zd::DirectStatus> for DirectStatus {
                     message: l.message,
                 })
                 .collect(),
+            clock_offset_ms: s.clock_offset_ms,
         }
     }
 }

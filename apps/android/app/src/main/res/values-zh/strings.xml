@@ -511,4 +511,10 @@
     <string name="theme_dark_sub">应用处于深色外观时使用。</string>
     <string name="accent_color">强调色</string>
     <string name="accent_theme_default">跟随主题</string>
+
+    <!-- Connection details: clock offset -->
+    <string name="link_clock">时钟</string>
+    <string name="link_clock_in_sync">手机与电脑时间一致</string>
+    <string name="link_clock_phone_ahead">手机比电脑快 %1$d 秒</string>
+    <string name="link_clock_phone_behind">手机比电脑慢 %1$d 秒</string>
 </resources>

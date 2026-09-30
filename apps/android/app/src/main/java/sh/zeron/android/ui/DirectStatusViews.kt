@@ -155,6 +155,7 @@ internal fun LinkDetailsScreen(model: ZeronModel) {
             SettingRow(colors, stringResource(R.string.link_engine), listOfNotNull(status.engineVersion, status.engineDeviceId?.let { stringResource(R.string.link_device, it.take(8)) }).joinToString(" · ").ifEmpty { stringResource(R.string.link_not_reached) })
             status.lastError?.let { SettingRow(colors, stringResource(R.string.link_last_error), it) }
             status.notice?.let { SettingRow(colors, stringResource(R.string.link_note), it) }
+            status.clockOffsetMs?.let { SettingRow(colors, stringResource(R.string.link_clock), clockOffsetText(it)) }
             GroupLabel(colors, stringResource(R.string.link_streams))
             val res = context.resources
             for (st in status.streams) {
@@ -194,5 +195,19 @@ internal fun LinkDetailsScreen(model: ZeronModel) {
             }
             Spacer(Modifier.height(40.dp))
         }
+    }
+}
+
+/**
+ * Phone clock vs the computer's, from session heartbeats: within a couple of
+ * seconds reads "in sync", otherwise which side is ahead and by how much.
+ */
+@Composable
+internal fun clockOffsetText(offsetMs: Long): String {
+    val secs = kotlin.math.abs(offsetMs) / 1000
+    return when {
+        secs < 3 -> stringResource(R.string.link_clock_in_sync)
+        offsetMs > 0 -> stringResource(R.string.link_clock_phone_ahead, secs.toInt())
+        else -> stringResource(R.string.link_clock_phone_behind, secs.toInt())
     }
 }

@@ -76,6 +76,9 @@ pub struct DirectStatus {
     pub synced_at_ms: Option<i64>,
     pub streams: Vec<StreamStat>,
     pub log: Vec<DirectLogLine>,
+    /// Phone clock minus the computer's, measured from session heartbeats
+    /// (receipt latency included). `None` until a running session beats.
+    pub clock_offset_ms: Option<i64>,
 }
 
 /// Default engine IPC port (`ZERON_IPC_PORT` on the machine overrides it).
