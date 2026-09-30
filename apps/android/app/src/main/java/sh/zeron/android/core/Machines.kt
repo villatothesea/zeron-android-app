@@ -20,13 +20,29 @@ data class Machine(
     val enginePort: Int = 27654,
     /** Pinned `SHA256:…` host key (TOFU). */
     val hostKey: String? = null,
+    /**
+     * Every address of this computer in the user's order (LAN IP, Tailscale
+     * IP, …); [host]/[port] mirror the first. Empty on computers saved
+     * before addresses existed: then [host]:[port] is the only one.
+     */
+    val endpoints: List<Endpoint> = emptyList(),
 ) {
     fun title() = name.ifBlank { host }
+
+    /** The addresses to try (never empty for a saved computer). */
+    fun addresses(): List<Endpoint> = endpoints.ifEmpty { if (host.isBlank()) emptyList() else listOf(Endpoint(host.trim(), port)) }
+
+    /** This computer with [list] as its addresses (first one mirrored into host/port). */
+    fun withAddresses(list: List<Endpoint>): Machine {
+        val first = list.firstOrNull() ?: return copy(endpoints = emptyList())
+        return copy(host = first.host.trim(), port = first.port, endpoints = list)
+    }
 
     fun toJson(): JSONObject = JSONObject()
         .put("id", id).put("name", name).put("host", host).put("port", port)
         .put("user", user).put("auth", auth).put("enginePort", enginePort)
         .put("hostKey", hostKey ?: JSONObject.NULL)
+        .put("endpoints", JSONArray().apply { endpoints.forEach { put(it.toJson()) } })
 
     companion object {
         const val AUTH_PHONE = "phone"
@@ -42,6 +58,9 @@ data class Machine(
             auth = o.optString("auth", AUTH_PHONE),
             enginePort = o.optInt("enginePort", 27654),
             hostKey = if (o.isNull("hostKey")) null else o.optString("hostKey").ifBlank { null },
+            endpoints = o.optJSONArray("endpoints")?.let { arr ->
+                (0 until arr.length()).map { Endpoint.fromJson(arr.getJSONObject(it)) }.filter { it.host.isNotBlank() }
+            }.orEmpty(),
         )
     }
 }
@@ -80,6 +99,51 @@ class MachineStore(context: Context) {
 
     fun secret(id: String): String? = secrets.get("machine:$id")
 
+    /**
+     * One-time grouping of computers saved twice (LAN IP and Tailscale IP
+     * as separate entries): see [MachineGroups]. Returns merged-away id ->
+     * kept id so the caller can re-point what referred to them.
+     */
+    fun groupDuplicates(): Map<String, String> {
+        if (prefs.getBoolean("grouped-v1", false)) return emptyMap()
+        val result = MachineGroups.merge(list())
+        if (result.mergedInto.isNotEmpty()) {
+            for ((gone, kept) in result.mergedInto) moveSecret(gone, kept)
+            write(result.machines)
+        }
+        prefs.edit().putBoolean("grouped-v1", true).apply()
+        return result.mergedInto
+    }
+
+    /** Accounts & Computers "merge": [otherId]'s addresses join [intoId]; [otherId] goes. */
+    fun merge(intoId: String, otherId: String): Machine? {
+        val all = list()
+        val into = all.firstOrNull { it.id == intoId } ?: return null
+        val other = all.firstOrNull { it.id == otherId } ?: return null
+        val merged = MachineGroups.combine(into, other)
+        moveSecret(otherId, intoId)
+        write(all.filter { it.id != otherId }.map { if (it.id == intoId) merged else it })
+        return merged
+    }
+
+    /** "Split off": [endpoint] leaves [id] and becomes a computer of its own (same sign-in). */
+    fun split(id: String, endpoint: Endpoint, name: String): Machine? {
+        val all = list()
+        val from = all.firstOrNull { it.id == id } ?: return null
+        val rest = from.addresses().filter { it.key != endpoint.key }
+        if (rest.isEmpty()) return null
+        val alone = from.copy(id = UUID.randomUUID().toString(), name = name).withAddresses(listOf(endpoint))
+        write(all.map { if (it.id == id) from.withAddresses(rest) else it } + alone)
+        secret(id)?.let { secrets.put("machine:${alone.id}", it) }
+        return alone
+    }
+
+    private fun moveSecret(from: String, to: String) {
+        val moved = secret(from)
+        if (moved != null && secret(to) == null) secrets.put("machine:$to", moved)
+        secrets.remove("machine:$from")
+    }
+
     /** This phone's SSH identity (ed25519), generated once. Pair = (private, public). */
     fun phoneKey(): Pair<String, String> {
         val priv = secrets.get("phone-key")
@@ -92,20 +156,35 @@ class MachineStore(context: Context) {
         return pair.privateOpenssh to pair.publicOpenssh
     }
 
-    fun target(machine: Machine, hostKey: String? = machine.hostKey, secretOverride: String? = null): SshTarget {
+    /**
+     * [route]: the addresses in dial order (see [RoutePlanner]); by default
+     * the saved order with no head starts, i.e. one after another.
+     */
+    fun target(
+        machine: Machine,
+        hostKey: String? = machine.hostKey,
+        secretOverride: String? = null,
+        route: List<RoutePlanner.Planned>? = null,
+    ): SshTarget {
         val auth = when (machine.auth) {
             Machine.AUTH_PASSWORD -> SshAuth.Password(secretOverride ?: secret(machine.id).orEmpty())
             Machine.AUTH_KEY -> SshAuth.Key(secretOverride ?: secret(machine.id).orEmpty(), null)
             else -> SshAuth.Key(phoneKey().first, null)
         }
+        val first = route?.firstOrNull()?.endpoint ?: machine.addresses().firstOrNull() ?: Endpoint(machine.host, machine.port)
         return SshTarget(
-            host = machine.host.trim(),
-            port = machine.port.toUShort(),
+            host = first.host.trim(),
+            port = first.port.toUShort(),
             user = machine.user.trim(),
             auth = auth,
             enginePort = machine.enginePort.toUShort(),
             hostKeyFingerprint = hostKey,
-            endpoints = emptyList(),
+            endpoints = sshEndpoints(route ?: machine.addresses().map { RoutePlanner.Planned(it, it.kind, 0, 0) }),
         )
     }
+}
+
+/** Planned addresses as the core's dial list. */
+fun sshEndpoints(route: List<RoutePlanner.Planned>): List<uniffi.zeron_core.SshEndpoint> = route.map {
+    uniffi.zeron_core.SshEndpoint(it.endpoint.host.trim(), it.endpoint.port.toUShort(), it.kind.wire, it.headStartMs.toUInt())
 }
