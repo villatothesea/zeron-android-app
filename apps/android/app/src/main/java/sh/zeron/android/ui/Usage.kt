@@ -243,7 +243,8 @@ private fun resets(ms: Long, res: android.content.res.Resources, locale: Locale)
         else -> "MMMd"
     }
     val pattern = android.text.format.DateFormat.getBestDateTimePattern(locale, skeleton)
-    return res.getString(R.string.usage_resets, SimpleDateFormat(pattern, locale).format(Date(ms)))
+    // ICU's formatter: best patterns can use standalone fields (ccc, LLL).
+    return res.getString(R.string.usage_resets, android.icu.text.SimpleDateFormat(pattern, locale).format(Date(ms)))
 }
 
 private fun ago(ms: Long, res: android.content.res.Resources): String {
