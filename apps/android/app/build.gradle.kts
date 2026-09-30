@@ -58,9 +58,14 @@ android {
         // Shipped builds are `release`: not debuggable, so ART compiles the
         // app normally and applies the Compose baseline profiles. A debuggable
         // build runs Compose several times slower (scrolling stuttered).
-        // R8 stays off for now: JNA/UniFFI rely on reflection.
+        // R8 + resource shrinking for release only (debug stays readable and
+        // fast to build). JNA / UniFFI work by reflection: see
+        // proguard-rules.pro. The mapping file is in
+        // build/outputs/mapping/release/ (build-apk.sh keeps a copy).
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             signingConfigs.findByName("zeron")?.let { signingConfig = it }
             ndk { abiFilters += releaseAbis }
         }

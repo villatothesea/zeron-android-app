@@ -89,6 +89,16 @@ fi
 if [[ -f "$KEYPROPS" ]]; then
   ./gradlew :app:assembleRelease --no-daemon "${GRADLE_ARGS[@]}"
   APK="$ROOT/apps/android/app/build/outputs/apk/release/app-release.apk"
+  # R8's mapping, to read crash stack traces; kept beside the signing key,
+  # never published.
+  MAPPING="$ROOT/apps/android/app/build/outputs/mapping/release/mapping.txt"
+  if [[ -f "$MAPPING" ]]; then
+    NAME="${ZERON_VERSION_NAME:-$(sed -n 's/^versionName=//p' "$ROOT/apps/android/version.properties")}"
+    MAPDIR="${ZERON_MAPPING_DIR:-$HOME/zeron-keys/mappings}"
+    mkdir -p "$MAPDIR"
+    cp "$MAPPING" "$MAPDIR/$NAME-mapping.txt"
+    echo "R8 mapping: $MAPDIR/$NAME-mapping.txt"
+  fi
 else
   ./gradlew :app:assembleDebug --no-daemon "${GRADLE_ARGS[@]}"
   APK="$ROOT/apps/android/app/build/outputs/apk/debug/app-debug.apk"
