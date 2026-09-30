@@ -132,6 +132,17 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
     /** Direct link phase/errors/counters, polled while a machine is active. */
     var directStatus by mutableStateOf<uniffi.zeron_core.DirectStatus?>(null)
         private set
+
+    // ── connection chip (home title bar) ─────────────────────────────────
+    enum class ConnectionSheet { SWITCHER, FAILURE }
+
+    /** Bottom sheet over the home screen: the quick switcher or the failure reason. */
+    var connectionSheet by mutableStateOf<ConnectionSheet?>(null)
+
+    /** Screenshots only: a fixed chip state instead of the live one. */
+    internal var previewConnection by mutableStateOf<ConnectionState.View?>(null)
+
+    private val episodes = ConnectionState.Episodes()
     var showLinkDetails by mutableStateOf(false)
     private var directJob: Job? = null
 
@@ -386,6 +397,57 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
         showLinkDetails = false
     }
 
+    /** What the chip shows; reads Compose state, so composables update with the link. */
+    fun connectionView(): ConnectionState.View {
+        previewConnection?.let { return it }
+        val workspaceKind = when (activeMachine) {
+            "demo" -> ConnectionState.Workspace.DEMO
+            "cloud" -> ConnectionState.Workspace.CLOUD
+            else -> ConnectionState.Workspace.DIRECT
+        }
+        val status = directStatus
+        val dot = ConnectionState.dot(workspaceKind, phase is Phase.Loading, status?.phase, connectivity?.state)
+        return ConnectionState.View(
+            title = activeTitle(),
+            workspace = workspaceKind,
+            dot = dot,
+            error = status?.lastError?.takeIf { dot == ConnectionState.Dot.FAILED },
+            retryAtMs = status?.retryAtMs?.takeIf { dot == ConnectionState.Dot.FAILED },
+        )
+    }
+
+    /** Pops the failure sheet once per failure episode; closes it once connected. */
+    private fun noteConnection() {
+        val dot = connectionView().dot
+        if (episodes.update(dot) && connectionSheet == null) connectionSheet = ConnectionSheet.FAILURE
+        if (dot == ConnectionState.Dot.CONNECTED && connectionSheet == ConnectionSheet.FAILURE) connectionSheet = null
+    }
+
+    /** Chip tap: the failure reason while red, else the quick switcher. */
+    fun openConnectionChip() {
+        connectionSheet = if (connectionView().dot == ConnectionState.Dot.FAILED) ConnectionSheet.FAILURE else ConnectionSheet.SWITCHER
+    }
+
+    /** Switcher pick: "demo", "cloud" or a machine id. The current one retries if it's down. */
+    fun switchConnection(target: String) {
+        connectionSheet = null
+        if (target == activeMachine) {
+            if (connectionView().dot == ConnectionState.Dot.FAILED) retryConnection()
+            return
+        }
+        when (target) {
+            "demo" -> enterDemo()
+            "cloud" -> useCloud()
+            else -> machines.firstOrNull { it.id == target }?.let { connectMachine(it) }
+        }
+    }
+
+    /** Failure sheet "Retry": redial now (direct) or re-open the workspace. */
+    fun retryConnection() {
+        connectionSheet = null
+        if (client?.isDirect() == true) retryDirect() else refreshPull()
+    }
+
     fun activeTitle(): String = when (activeMachine) {
         "demo" -> str(R.string.demo)
         "cloud" -> "Zeron Cloud"
@@ -632,7 +694,10 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
                 lastRefreshAt = SystemClock.uptimeMillis()
                 if (read != null) {
                     if (read.second) workspace = read.first
-                    if (read.third != connectivity) connectivity = read.third
+                    if (read.third != connectivity) {
+                        connectivity = read.third
+                        noteConnection()
+                    }
                     epoch++
                 }
             } while (refreshAgain)
@@ -648,6 +713,8 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun shutdownClient() {
+        episodes.reset()
+        if (connectionSheet == ConnectionSheet.FAILURE) connectionSheet = null
         directJob?.cancel()
         directJob = null
         refreshJob?.cancel()
@@ -674,7 +741,10 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
             while (client === created) {
                 val status = withContext(Dispatchers.Default) { runCatching { created.directStatus() }.getOrNull() }
                 if (client !== created) break
-                if (status != directStatus) directStatus = status
+                if (status != directStatus) {
+                    directStatus = status
+                    noteConnection()
+                }
                 val frames = status?.streams?.sumOf { it.frames.toLong() } ?: 0L
                 if (frames != lastFrames) {
                     lastFrames = frames
