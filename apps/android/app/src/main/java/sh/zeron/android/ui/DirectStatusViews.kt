@@ -67,7 +67,6 @@ private fun retryLabel(status: DirectStatus): String? {
 internal fun DirectBanner(model: ZeronModel, colors: ZeronColors, modifier: Modifier = Modifier) {
     if (model.client?.isDirect() != true) return
     val status = model.directStatus
-    val machine = model.activeTitle()
     val skipped = status?.streams?.sumOf { it.skippedRows.toInt() } ?: 0
     val notice = status?.notice?.takeIf { status.phase == DirectPhase.LIVE && !model.noticeDismissed(it) }
     if (notice != null && skipped == 0) {
@@ -82,16 +81,12 @@ internal fun DirectBanner(model: ZeronModel, colors: ZeronColors, modifier: Modi
         }
         return
     }
-    val (title, detail, danger) = when {
-        status == null || status.phase == DirectPhase.CONNECTING ->
-            Triple(stringResource(R.string.banner_connecting, machine), status?.log?.lastOrNull()?.message, false)
-        status.phase == DirectPhase.SYNCING ->
-            Triple(stringResource(R.string.banner_syncing, machine), status.lastError ?: status.log.lastOrNull()?.message, status.lastError != null)
-        status.phase == DirectPhase.FAILED ->
-            Triple(stringResource(R.string.banner_cant_load, machine), listOfNotNull(status.lastError, retryLabel(status)).joinToString("\n"), true)
-        skipped > 0 -> Triple(stringResource(R.string.banner_skipped_title), pluralStringResource(R.plurals.banner_skipped_detail, skipped, skipped, status.engineVersion ?: ""), false)
-        else -> return
-    }
+    // Connecting / syncing / failed live in the title-bar chip and the
+    // failure sheet now; only the engine's skipped-rows warning stays here.
+    if (status?.phase != DirectPhase.LIVE || skipped == 0) return
+    val title = stringResource(R.string.banner_skipped_title)
+    val detail = pluralStringResource(R.plurals.banner_skipped_detail, skipped, skipped, status.engineVersion ?: "")
+    val danger = false
     Column(
         modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp).clip(RoundedCornerShape(14.dp)).background(colors.elevated).padding(14.dp),
     ) {

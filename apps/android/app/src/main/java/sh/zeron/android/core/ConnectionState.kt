@@ -21,6 +21,8 @@ object ConnectionState {
         val error: String? = null,
         /** When the core retries next (epoch ms), if it will. */
         val retryAtMs: Long? = null,
+        /** The workspace id: a machine id, "cloud" or "demo". */
+        val id: String = "",
     )
 
     fun dot(workspace: Workspace, loading: Boolean, direct: DirectPhase?, cloud: ConnectivityState?): Dot = when {

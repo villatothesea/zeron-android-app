@@ -413,6 +413,7 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
             dot = dot,
             error = status?.lastError?.takeIf { dot == ConnectionState.Dot.FAILED },
             retryAtMs = status?.retryAtMs?.takeIf { dot == ConnectionState.Dot.FAILED },
+            id = activeMachine,
         )
     }
 

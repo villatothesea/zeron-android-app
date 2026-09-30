@@ -258,6 +258,7 @@ private fun Shell(model: ZeronModel, colors: ZeronColors) {
             model.tab == ZeronModel.Tab.Search -> SearchScreen(model, colors)
             else -> SessionsScreen(model, colors, onPrompt = { prompt = it })
         }
+        if (frontPage && !model.showNewSession) ConnectionSheetHost(model, colors)
         if (model.showNewSession) {
             Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.35f))) {
                 NewSessionSheet(model, onDismiss = { model.showNewSession = false })
@@ -541,16 +542,22 @@ private fun SessionsScreen(model: ZeronModel, colors: ZeronColors, onPrompt: (Pr
         Row(
             Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 16.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
         ) {
             Text(
                 stringResource(R.string.sessions),
                 color = colors.text,
                 fontFamily = ZeronType.Sans,
                 fontWeight = FontWeight.Bold,
-                fontSize = 30.sp,
+                fontSize = 28.sp,
                 maxLines = 1,
             )
+            Spacer(Modifier.width(6.dp))
+            // Current computer + link state; takes what's left between the
+            // title and the capsule, and ellipsizes rather than pushing it.
+            Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                ConnectionChip(model, colors, Modifier.weight(1f, fill = false))
+            }
+            Spacer(Modifier.width(6.dp))
             Row(
                 Modifier.height(44.dp).glassSurface(colors, 22.dp).padding(horizontal = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
