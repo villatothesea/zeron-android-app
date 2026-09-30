@@ -68,6 +68,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -143,6 +144,10 @@ fun ZeronApp(model: ZeronModel) {
         val controller = WindowCompat.getInsetsController(window, view)
         controller.isAppearanceLightStatusBars = !dark
         controller.isAppearanceLightNavigationBars = !dark
+        // The window shows through during any redraw of the whole view tree:
+        // keep it the app's background (the in-app Light/Dark choice can
+        // differ from the theme's day/night resource).
+        window.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(colors.background.toArgb()))
     }
     androidx.compose.runtime.CompositionLocalProvider(LocalZeronColors provides colors) {
         sh.zeron.android.design.ZeronMaterialTheme(colors) { AppContent(model, colors) }
