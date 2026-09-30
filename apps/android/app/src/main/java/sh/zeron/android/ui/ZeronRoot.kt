@@ -104,6 +104,7 @@ import sh.zeron.android.design.MarkKind
 import sh.zeron.android.design.PlusMark
 import sh.zeron.android.design.ProfileMark
 import sh.zeron.android.design.ProjectTile
+import sh.zeron.android.design.TileBesideLabel
 import sh.zeron.android.design.PullRequestIcon
 import sh.zeron.android.design.ReorderMark
 import sh.zeron.android.design.StatusMark
@@ -623,15 +624,25 @@ private fun GroupHeader(
             .padding(start = 12.dp, end = 12.dp, bottom = 6.dp),
         verticalAlignment = Alignment.Bottom,
     ) {
-        if (tile != null) {
-            Box(Modifier.padding(bottom = 2.dp)) { ProjectTile(tile.first, tile.second, colors, 14.dp) }
-            Spacer(Modifier.width(7.dp))
-        }
         // Title, count and live mark share one weighted row so the chevron
         // always sits at the right edge (two weights split the space and
         // left it floating mid-row).
         Row(Modifier.weight(1f), verticalAlignment = Alignment.Bottom) {
-            Text(title, color = colors.secondary, fontFamily = ZeronType.Sans, fontWeight = FontWeight.SemiBold, fontSize = 13.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+            val titleText = @Composable {
+                Text(title, color = colors.secondary, fontFamily = ZeronType.Sans, fontWeight = FontWeight.SemiBold, fontSize = 13.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            if (tile != null) {
+                // Tile centred on the title's x-height, like iOS.
+                TileBesideLabel(
+                    fontSize = 13.5.sp,
+                    gap = 7.dp,
+                    tile = { ProjectTile(tile.first, tile.second, colors, 14.dp) },
+                    modifier = Modifier.weight(1f, fill = false),
+                    label = titleText,
+                )
+            } else {
+                Box(Modifier.weight(1f, fill = false)) { titleText() }
+            }
             Spacer(Modifier.width(7.dp))
             Text("$count", color = colors.tertiary, fontFamily = ZeronType.Sans, fontWeight = FontWeight.Medium, fontSize = 13.5.sp)
             if (live != null) {
@@ -762,15 +773,22 @@ private fun SessionRowView(
                         val project = SessionGrouping.rowProjectLabel(row)
                         // Project-less sessions tile as "H" in the home tone and
                         // read "~", like their By Project group header.
-                        ProjectTile(
-                            name = row.project?.name ?: "Home",
-                            colorIndex = row.project?.colorIndex?.toInt() ?: model.homeColorIndex(),
-                            colors = colors,
-                            size = 14.dp,
-                        )
-                        Spacer(Modifier.width(7.dp))
                         Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
-                            Text(project, color = colors.secondary, fontFamily = ZeronType.Sans, fontSize = 13.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            // Tile centred on the name's x-height, like iOS.
+                            TileBesideLabel(
+                                fontSize = 13.5.sp,
+                                gap = 7.dp,
+                                tile = {
+                                    ProjectTile(
+                                        name = row.project?.name ?: "Home",
+                                        colorIndex = row.project?.colorIndex?.toInt() ?: model.homeColorIndex(),
+                                        colors = colors,
+                                        size = 14.dp,
+                                    )
+                                },
+                            ) {
+                                Text(project, color = colors.secondary, fontFamily = ZeronType.Sans, fontSize = 13.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
                             val branch = row.branch?.takeIf { it.isNotEmpty() }
                             if (branch != null) {
                                 Spacer(Modifier.width(10.dp))

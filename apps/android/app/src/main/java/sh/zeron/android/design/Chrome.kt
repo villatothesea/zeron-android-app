@@ -41,6 +41,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.caverock.androidsvg.SVG
 import kotlin.math.abs
+import kotlin.math.roundToInt
 
 @Composable
 fun StatusMark(kind: MarkKind, colors: ZeronColors, modifier: Modifier = Modifier.size(12.dp)) {
@@ -149,6 +150,59 @@ fun ProjectTile(name: String, colorIndex: Int, colors: ZeronColors, size: Dp) {
         val x = this.size.width / 2f - (glyph.left + glyph.right) / 2f
         val y = this.size.height / 2f - (glyph.top + glyph.bottom) / 2f
         drawContext.canvas.nativeCanvas.drawText(letter, x, y, paint)
+    }
+}
+
+/**
+ * Half the x-height of Geist Sans at [fontSize], in px: a project tile beside
+ * a label sits centred on the label's x-height (iOS `xHeightCenter`).
+ */
+@Composable
+fun rememberXHeightHalf(fontSize: androidx.compose.ui.unit.TextUnit): Float {
+    val context = LocalContext.current
+    val density = LocalDensity.current
+    return remember(fontSize, density) {
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            typeface = FontChain.face(context, uniffi.zeron_core.FaceRole.SANS)
+            textSize = with(density) { fontSize.toPx() }
+        }
+        val r = android.graphics.Rect()
+        paint.getTextBounds("x", 0, 1, r)
+        r.height() / 2f
+    }
+}
+
+/**
+ * [tile] then [label], with the tile's centre on the label's x-height centre
+ * (read from the label's first baseline), as the iOS session cell and
+ * section header place it. Plain `CenterVertically` centred the tile on the
+ * label's line box instead, which is not where the letters are.
+ */
+@Composable
+fun TileBesideLabel(
+    fontSize: androidx.compose.ui.unit.TextUnit,
+    gap: Dp,
+    tile: @Composable () -> Unit,
+    modifier: Modifier = Modifier,
+    label: @Composable () -> Unit,
+) {
+    val xHalf = rememberXHeightHalf(fontSize)
+    androidx.compose.ui.layout.Layout(content = { tile(); label() }, modifier = modifier) { measurables, c ->
+        val gapPx = gap.roundToPx()
+        val t = measurables[0].measure(androidx.compose.ui.unit.Constraints())
+        val labelMax = if (c.hasBoundedWidth) (c.maxWidth - t.width - gapPx).coerceAtLeast(0) else androidx.compose.ui.unit.Constraints.Infinity
+        val l = measurables[1].measure(c.copy(minWidth = 0, maxWidth = labelMax, minHeight = 0))
+        val baseline = l[androidx.compose.ui.layout.FirstBaseline].takeIf { it != androidx.compose.ui.layout.AlignmentLine.Unspecified }
+            ?: (l.height * 0.78f).toInt()
+        val tileY = (baseline - xHalf - t.height / 2f).roundToInt()
+        val top = minOf(0, tileY)
+        val height = maxOf(l.height, tileY + t.height) - top
+        val width = maxOf(c.minWidth, t.width + gapPx + l.width)
+        layout(width, maxOf(c.minHeight, height)) {
+            val dy = (maxOf(c.minHeight, height) - height) / 2
+            t.place(0, tileY - top + dy)
+            l.place(t.width + gapPx, -top + dy)
+        }
     }
 }
 
