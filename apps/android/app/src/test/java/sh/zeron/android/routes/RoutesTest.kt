@@ -81,6 +81,16 @@ class RoutesTest {
         assertEquals(listOf(public, ts, lan), order(cellClash, ts, lan, public))
     }
 
+    @Test fun manualRouteIsOnlyThePickedAddress() {
+        val one = RoutePlanner.manual(listOf(lan, ts), ts.key)
+        assertEquals(listOf(ts), one.map { it.endpoint })
+        assertEquals(0, one.single().headStartMs)
+        // Nothing picked yet, or the pick was removed: the first address alone.
+        assertEquals(listOf(lan), RoutePlanner.manual(listOf(lan, ts), null).map { it.endpoint })
+        assertEquals(listOf(lan), RoutePlanner.manual(listOf(lan, ts), "10.0.0.9:22").map { it.endpoint })
+        assertEquals(emptyList<RoutePlanner.Planned>(), RoutePlanner.manual(emptyList(), ts.key))
+    }
+
     @Test fun whatWorkedOnThisNetworkLastTimeGoesFirst() {
         val other = Endpoint("villa.example.com")
         assertEquals(listOf(other, ts, lan), order(cafe, lan, ts, other, remembered = other.key))

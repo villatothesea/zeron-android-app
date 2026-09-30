@@ -145,9 +145,26 @@ class MachineStore(context: Context) {
         if (rememberedRoute(id, networkKey) != endpointKey) prefs.edit().putString("route:$id:$networkKey", endpointKey).apply()
     }
 
-    /** [machine]'s addresses in dial order for [net]. */
+    /**
+     * 自动选择线路: on (default), the dial order follows the network (LAN at
+     * home, else Tailscale) and the link moves when the network changes; off,
+     * each computer uses only the address picked for it ([pinnedAddress]).
+     */
+    var autoRoute: Boolean
+        get() = prefs.getBoolean("auto-route", true)
+        set(value) { prefs.edit().putBoolean("auto-route", value).apply() }
+
+    /** The address picked by hand for [machine] (its first until one is picked). */
+    fun pinnedAddress(machine: Machine): Endpoint = RoutePlanner.manual(machine.addresses(), prefs.getString("pin:${machine.id}", null)).first().endpoint
+
+    fun pinAddress(id: String, endpointKey: String) {
+        prefs.edit().putString("pin:$id", endpointKey).apply()
+    }
+
+    /** [machine]'s addresses in dial order for [net] (just the picked one with auto-select off). */
     fun plan(machine: Machine, net: NetworkSnapshot): List<RoutePlanner.Planned> =
-        RoutePlanner.plan(machine.addresses(), net, rememberedRoute(machine.id, net.key))
+        if (autoRoute) RoutePlanner.plan(machine.addresses(), net, rememberedRoute(machine.id, net.key))
+        else RoutePlanner.manual(machine.addresses(), prefs.getString("pin:${machine.id}", null))
 
     private fun moveSecret(from: String, to: String) {
         val moved = secret(from)

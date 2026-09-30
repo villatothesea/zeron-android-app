@@ -79,4 +79,24 @@ class MachineStoreGroupingTest {
         // Default: saved order, one after another.
         assertEquals(listOf("100.124.7.39", "192.168.1.102"), store.target(villa).endpoints.map { it.host })
     }
+
+    @Test fun autoSelectOffUsesThePickedAddressOnEveryNetwork() {
+        val villa = Machine(id = "v", name = "Villa", user = "tx_vi", hostKey = "SHA256:v").withAddresses(listOf(lan, ts))
+        val home = NetworkSnapshot(NetworkSnapshot.Transport.WIFI, listOf(Subnet.of("192.168.1.5", 24)!!), NetworkSnapshot.Vpn.TAILSCALE)
+        val cell = NetworkSnapshot(NetworkSnapshot.Transport.CELLULAR, vpn = NetworkSnapshot.Vpn.TAILSCALE)
+        assertTrue("auto-select is on by default", store.autoRoute)
+        assertEquals(listOf(ts, lan), store.plan(villa, cell).map { it.endpoint })
+        store.autoRoute = false
+        // No pick yet: the first address, and only it (no fallback).
+        assertEquals(listOf(lan), store.plan(villa, cell).map { it.endpoint })
+        store.pinAddress(villa.id, ts.key)
+        assertEquals(listOf(ts), store.plan(villa, home).map { it.endpoint })
+        assertEquals(listOf(ts), store.plan(villa, cell).map { it.endpoint })
+        // Both the switch and the pick survive a restart.
+        val again = MachineStore(ApplicationProvider.getApplicationContext<Application>())
+        assertEquals(false, again.autoRoute)
+        assertEquals(ts, again.pinnedAddress(villa))
+        again.autoRoute = true
+        assertEquals(listOf(lan, ts), again.plan(villa, home).map { it.endpoint })
+    }
 }

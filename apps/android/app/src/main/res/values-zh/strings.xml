@@ -584,4 +584,15 @@
     <string name="merge_computer_sub">把它的地址并到这里（同一台电脑保存了两次时用）</string>
     <string name="merge_pick_title">合并到“%1$s”</string>
     <string name="merge_pick_body">它的地址会并到这台电脑，它自己从列表里移除。只合并同一台电脑：两者必须共用登录方式和主机密钥。</string>
+
+    <!-- manual route choice -->
+    <string name="auto_route">自动选择线路</string>
+    <string name="auto_route_sub_on">在同一局域网时直连电脑的局域网地址，否则自动走 Tailscale；网络变化时自动切换。</string>
+    <string name="auto_route_sub_off">已关闭：每台电脑只用你在“切换电脑”或“编辑电脑”里选的地址。</string>
+    <string name="route_manual_hint">自动选择线路已关闭：只使用你选的地址。可在“切换电脑”或“编辑电脑”里更换，或在设置中重新开启自动选择线路。</string>
+    <string name="route_picked">已改用 %1$s</string>
+    <string name="route_selected">正在使用</string>
+    <string name="route_use">使用</string>
+    <string name="conn_switch_route">换一条线路</string>
+    <string name="addresses_pick_hint">自动选择线路已关闭：点一个地址来使用它（只尝试这一个）。</string>
 </resources>

@@ -115,6 +115,7 @@ class DeviceGroupsScreenshotTest {
         settleUntil("demo workspace") { model.phase == ZeronModel.Phase.Ready && model.workspace != null }
         model.applyListMode(ZeronModel.ListMode.Project)
         check(model.machines.first { it.id == villa.id }.addresses() == listOf(lan, tailscale))
+        if (!model.autoRoute) model.applyAutoRoute(true)
 
         fun pin(dot: Dot, route: EndpointKind?, error: String? = null, retryAtMs: Long? = null) {
             model.previewConnection = ConnectionState.View("Villa", Workspace.DIRECT, dot, error, retryAtMs, id = villa.id, route = route)
@@ -192,6 +193,84 @@ class DeviceGroupsScreenshotTest {
             model.editMachine = null
             settle()
         }
+        model.previewConnection = null
+        model.directStatus = null
+        model.activeMachine = "demo"
+        model.applyAppearance(2)
+        scenario.close()
+    }
+
+    /** Settings > 自动选择线路, and with it off: picking the address by hand. */
+    @Test
+    fun manualRouteScreens() {
+        val app = ApplicationProvider.getApplicationContext<Application>()
+        org.robolectric.shadows.ShadowBuild.setModel("Pixel 8")
+        FakeAndroidKeyStore.install()
+        app.getSharedPreferences("zeron-update", 0).edit().putLong("lastCheck", System.currentTimeMillis()).putBoolean("autoUpdate", false).commit()
+        MachineStore(app).apply {
+            save(villa, null)
+            save(laptop, null)
+        }
+        val scenario = ActivityScenario.launch(MainActivity::class.java)
+        lateinit var model: ZeronModel
+        scenario.onActivity { model = ViewModelProvider(it)[ZeronModel::class.java] }
+        settleUntil("demo workspace") { model.phase == ZeronModel.Phase.Ready && model.workspace != null }
+        model.applyListMode(ZeronModel.ListMode.Project)
+        val away = listOf(
+            stat(lan, ago = 97_000, error = "timed out reaching 192.168.1.102:22"),
+            stat(tailscale, active = true, ago = 97_000, okAgo = 95_500, latency = 212),
+        )
+        val saved = model.machines.first { it.id == villa.id }
+
+        for ((mode, suffix) in listOf(2 to "dark", 1 to "light")) {
+            model.applyAppearance(mode)
+            model.activeMachine = villa.id
+            model.network = outside
+            model.directStatus = status(DirectPhase.LIVE, away)
+            model.previewConnection = ConnectionState.View("Villa", Workspace.DIRECT, Dot.CONNECTED, id = villa.id, route = EndpointKind.TAILSCALE)
+            if (!model.autoRoute) model.applyAutoRoute(true)
+
+            // Settings: the switch, on by default, then off with a tap.
+            model.tab = ZeronModel.Tab.Settings
+            settle()
+            check(model.autoRoute)
+            capture("09-settings-auto-route-on-$suffix.png")
+            compose.onNodeWithTag("auto-route").performClick()
+            settle()
+            check(!model.autoRoute)
+            check(!MachineStore(app).autoRoute) { "the switch persists" }
+            // Turning it off keeps the link where it was: Tailscale is now the pick.
+            check(model.pinnedAddress(saved) == tailscale)
+            capture("10-settings-auto-route-off-$suffix.png")
+            model.tab = ZeronModel.Tab.Sessions
+            settle()
+
+            // Switcher: Villa opens up into its addresses, the one in use ticked.
+            compose.onNodeWithTag("connection-chip").performClick()
+            settle()
+            compose.onNodeWithTag("switcher-routes-${villa.id}", useUnmergedTree = true).assertExists()
+            capture("11-switcher-manual-route-$suffix.png")
+            model.connectionSheet = null
+            settle()
+
+            // The picked address fails: the sheet offers the other route.
+            model.directStatus = status(DirectPhase.FAILED, listOf(stat(tailscale, ago = 8_000, error = "no route to host (os error 113) reaching 100.124.7.39:22")), error = "no route to host (os error 113) reaching 100.124.7.39:22", retryAtMs = System.currentTimeMillis() + 12_500)
+            model.previewConnection = ConnectionState.View("Villa", Workspace.DIRECT, Dot.FAILED, "no route to host (os error 113) reaching 100.124.7.39:22", System.currentTimeMillis() + 12_500, id = villa.id)
+            model.connectionSheet = ZeronModel.ConnectionSheet.FAILURE
+            settle()
+            compose.onNodeWithTag("failure-routes", useUnmergedTree = true).assertExists()
+            capture("12-failure-switch-route-$suffix.png")
+            model.connectionSheet = null
+            settle()
+
+            // Edit computer: the addresses become a radio list.
+            model.editMachine = saved
+            settle()
+            capture("13-edit-manual-route-$suffix.png")
+            model.editMachine = null
+            settle()
+        }
+        model.applyAutoRoute(true)
         model.previewConnection = null
         model.directStatus = null
         model.activeMachine = "demo"

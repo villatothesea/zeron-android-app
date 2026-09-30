@@ -61,6 +61,7 @@ import kotlinx.coroutines.delay
 import sh.zeron.android.R
 import sh.zeron.android.core.ConnectionIssue
 import sh.zeron.android.core.ConnectionState
+import sh.zeron.android.core.Endpoint
 import sh.zeron.android.core.EndpointKind
 import sh.zeron.android.core.Machine
 import sh.zeron.android.core.ZeronModel
@@ -237,6 +238,20 @@ internal fun ConnectionSwitcherSheet(model: ZeronModel, colors: ZeronColors) {
                     model.switchConnection(machine.id)
                 }
             }
+            // Auto-select route off: the computer opens up into its addresses.
+            val addresses = machine.addresses()
+            if (!model.autoRoute && addresses.size > 1) {
+                model.routePicks
+                val picked = model.pinnedAddress(machine)
+                Column(Modifier.padding(start = 34.dp, bottom = 4.dp).testTag("switcher-routes-${machine.id}")) {
+                    addresses.forEach { a ->
+                        RouteChoiceRow(colors, a, selected = a.key == picked.key) {
+                            close()
+                            model.pickRoute(machine, a)
+                        }
+                    }
+                }
+            }
         }
         val cloud = view.id == "cloud"
         SwitcherRow(colors, "Zeron Cloud", if (cloud) view.dot.label() else stringResource(R.string.cloud_sub), if (cloud) view.dot else null, cloud) { model.switchConnection("cloud") }
@@ -273,6 +288,21 @@ private fun SwitcherRow(colors: ZeronColors, title: String, subtitle: String, do
             Text(subtitle, color = colors.secondary, fontFamily = ZeronType.Sans, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         if (active) Text("✓", color = colors.accent, fontSize = 16.sp, modifier = Modifier.padding(start = 8.dp))
+    }
+}
+
+/** One address to pick by hand: kind tag, host, a tick on the one in use. */
+@Composable
+internal fun RouteChoiceRow(colors: ZeronColors, address: Endpoint, selected: Boolean, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 7.dp).testTag("route-choice-${address.key}"),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        RouteTag(colors, address.kind)
+        Spacer(Modifier.width(8.dp))
+        Text(address.display(), color = if (selected) colors.text else colors.secondary, fontFamily = ZeronType.Mono, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+        if (selected) Text(stringResource(R.string.route_selected), color = colors.accent, fontFamily = ZeronType.Sans, fontSize = 12.sp, modifier = Modifier.padding(start = 8.dp))
     }
 }
 
@@ -367,6 +397,24 @@ internal fun ConnectionFailureSheet(model: ZeronModel, colors: ZeronColors) {
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 endpoints.forEach { e -> FailureEndpointRow(colors, e, several = true) }
+            }
+        }
+        val failedMachine = model.machines.firstOrNull { it.id == view.id }
+        if (!model.autoRoute && failedMachine != null && failedMachine.addresses().size > 1) {
+            model.routePicks
+            val picked = model.pinnedAddress(failedMachine)
+            Spacer(Modifier.height(12.dp))
+            Text(stringResource(R.string.conn_switch_route), color = colors.tertiary, fontFamily = ZeronType.Sans, fontSize = 12.sp)
+            Spacer(Modifier.height(4.dp))
+            Column(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(colors.controlFill).padding(4.dp).testTag("failure-routes"),
+            ) {
+                failedMachine.addresses().forEach { a ->
+                    RouteChoiceRow(colors, a, selected = a.key == picked.key) {
+                        close()
+                        model.pickRoute(failedMachine, a)
+                    }
+                }
             }
         }
         val raw = view.error

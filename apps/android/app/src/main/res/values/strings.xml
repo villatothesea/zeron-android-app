@@ -589,4 +589,15 @@
     <string name="merge_computer_sub">Adds its addresses here, for the same computer saved twice</string>
     <string name="merge_pick_title">Merge into “%1$s”</string>
     <string name="merge_pick_body">Its addresses join this computer and it leaves the list. Pick the same computer only: they must share the sign-in and host key.</string>
+
+    <!-- manual route choice -->
+    <string name="auto_route">Auto-select route</string>
+    <string name="auto_route_sub_on">On the same LAN, connect straight to the computer’s LAN address; elsewhere use Tailscale. Switches by itself when the network changes.</string>
+    <string name="auto_route_sub_off">Off: each computer uses only the address you pick in Switch computer or Edit computer.</string>
+    <string name="route_manual_hint">Auto-select route is off: only the address you picked is used. Change it in Switch computer or Edit computer, or turn Auto-select route on in Settings.</string>
+    <string name="route_picked">Using %1$s</string>
+    <string name="route_selected">In use</string>
+    <string name="route_use">Use</string>
+    <string name="conn_switch_route">Try another route</string>
+    <string name="addresses_pick_hint">Auto-select route is off: tap an address to use it (only that one is tried).</string>
 </resources>

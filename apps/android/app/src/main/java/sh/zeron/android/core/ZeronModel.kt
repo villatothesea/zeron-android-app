@@ -186,6 +186,12 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
     var sourceStats by mutableStateOf<Map<String, SourceStat>>(emptyMap())
     var autoUpdate by mutableStateOf(updater.autoUpdate)
         private set
+    /** Settings > 自动选择线路 (see [MachineStore.autoRoute]). */
+    var autoRoute by mutableStateOf(machineStore.autoRoute)
+        private set
+    /** Bumped when an address is picked by hand, so pickers re-read [pinnedAddress]. */
+    var routePicks by mutableStateOf(0)
+        private set
 
     var client: CoreClient? = null
         private set
@@ -573,6 +579,50 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
         directStatus = runCatching { c.directStatus() }.getOrNull()
     }
 
+    /**
+     * Settings > 自动选择线路. Turning it off keeps the link where it is: the
+     * address in use becomes the active computer's picked one.
+     */
+    fun applyAutoRoute(on: Boolean) {
+        if (on == autoRoute) return
+        if (!on) {
+            directStatus?.endpoints?.firstOrNull { it.active }?.let { a ->
+                if (machines.any { it.id == activeMachine }) machineStore.pinAddress(activeMachine, Endpoint(a.host, a.port.toInt()).key)
+            }
+        }
+        machineStore.autoRoute = on
+        autoRoute = on
+        routePicks++
+        reroute(force = false)
+    }
+
+    /** The address [machine] uses with auto-select off. */
+    fun pinnedAddress(machine: Machine): Endpoint = machineStore.pinnedAddress(machine)
+
+    /**
+     * Manual route: [machine] now uses only [endpoint]. Moves the link at once
+     * if [machine] is the active computer, else switches to it.
+     */
+    fun pickRoute(machine: Machine, endpoint: Endpoint) {
+        machineStore.pinAddress(machine.id, endpoint.key)
+        routePicks++
+        if (activeMachine == machine.id && client?.isDirect() == true) {
+            val c = client ?: return
+            runCatching { c.setDirectEndpoints(sshEndpoints(machineStore.plan(machine, network))) }
+            val active = directStatus?.endpoints?.firstOrNull { it.active }?.let { Endpoint(it.host, it.port.toInt()).key }
+            if (active != endpoint.key) c.reconnectDirect()
+            directStatus = runCatching { c.directStatus() }.getOrNull()
+        } else if (machine.hostKey != null) {
+            switchConnection(machine.id)
+        }
+        val kind = str(when (endpoint.kind) {
+            EndpointKind.LAN -> R.string.route_lan
+            EndpointKind.TAILSCALE -> R.string.route_tailscale
+            EndpointKind.OTHER -> R.string.route_other
+        })
+        showToast(str(R.string.route_picked, "$kind · ${endpoint.display()}"))
+    }
+
     /** Remember which address works on this network, and when the link moved. */
     private fun noteRoute(status: uniffi.zeron_core.DirectStatus?) {
         val active = status?.endpoints?.firstOrNull { it.active } ?: return
@@ -607,7 +657,7 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
             for (m in machines) {
                 launch {
                     // Online if any of its addresses answers (probed side by side).
-                    val ok = m.hostKey != null && machineStore.plan(m, network).map { planned ->
+                    val ok = m.hostKey != null && RoutePlanner.plan(m.addresses(), network).map { planned ->
                         async { runCatching { sshProbe(machineStore.target(m, route = listOf(planned))) }.isSuccess }
                     }.awaitAll().any { it }
                     machineOnline = machineOnline + (m.id to ok)
@@ -1379,7 +1429,8 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
                     delay(NETWORK_SETTLE_MS)
                     if (snap != network) {
                         network = snap
-                        reroute(force = false)
+                        // Auto-select off: the picked address stays, whatever the network.
+                        if (autoRoute) reroute(force = false)
                     }
                 }
             }

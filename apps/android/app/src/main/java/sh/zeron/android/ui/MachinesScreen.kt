@@ -335,6 +335,10 @@ fun MachineEditScreen(model: ZeronModel, initial: Machine) {
                 Box(Modifier.weight(1f)) { Field(colors, stringResource(R.string.zeron_port), enginePort, "27654", keyboard = KeyboardType.Number) { enginePort = it.filter(Char::isDigit).take(5) } }
             }
             GroupLabel(colors, stringResource(R.string.addresses_group))
+            // Auto-select route off: saved addresses are picked by tapping.
+            model.routePicks
+            val pickable = existing && !model.autoRoute && initial.addresses().size > 1
+            val pickedKey = if (pickable) model.pinnedAddress(initial).key else null
             Column(
                 Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(colors.elevated).padding(vertical = 4.dp).testTag("addresses"),
             ) {
@@ -343,6 +347,8 @@ fun MachineEditScreen(model: ZeronModel, initial: Machine) {
                     AddressRow(
                         colors,
                         a,
+                        picked = if (pickable) a.key == pickedKey else null,
+                        onPick = { model.pickRoute(initial, a) },
                         result = addressResults[a.key],
                         canUp = i > 0,
                         canDown = i < addresses.lastIndex,
@@ -368,6 +374,7 @@ fun MachineEditScreen(model: ZeronModel, initial: Machine) {
                 }
                 addressNote?.let { Text(it, color = colors.danger, fontFamily = ZeronType.Sans, fontSize = 12.sp, modifier = Modifier.padding(start = 14.dp, bottom = 6.dp)) }
             }
+            if (pickable) Text(stringResource(R.string.addresses_pick_hint), color = colors.accent, fontFamily = ZeronType.Sans, fontSize = 12.sp, modifier = Modifier.padding(start = 4.dp, top = 6.dp))
             Text(stringResource(R.string.addresses_hint), color = colors.secondary, fontFamily = ZeronType.Sans, fontSize = 12.sp, modifier = Modifier.padding(start = 4.dp, top = 6.dp))
             GroupLabel(colors, stringResource(R.string.sign_in_with))
             Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(colors.controlFill).padding(3.dp)) {
@@ -511,6 +518,8 @@ fun MachineEditScreen(model: ZeronModel, initial: Machine) {
 private fun AddressRow(
     colors: ZeronColors,
     address: Endpoint,
+    picked: Boolean?,
+    onPick: () -> Unit,
     result: String?,
     canUp: Boolean,
     canDown: Boolean,
@@ -521,7 +530,19 @@ private fun AddressRow(
     onRemove: () -> Unit,
     onSplit: () -> Unit,
 ) {
-    Row(Modifier.fillMaxWidth().padding(start = 14.dp, end = 6.dp, top = 8.dp, bottom = 8.dp).testTag("address-${address.key}"), verticalAlignment = Alignment.CenterVertically) {
+    Row(
+        Modifier.fillMaxWidth().then(if (picked != null) Modifier.clickable(onClick = onPick) else Modifier)
+            .padding(start = 14.dp, end = 6.dp, top = 8.dp, bottom = 8.dp).testTag("address-${address.key}"),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (picked != null) {
+            // Radio: the address used with auto-select off.
+            Box(
+                Modifier.size(18.dp).clip(CircleShape).background(if (picked) colors.accent else colors.controlFill),
+                contentAlignment = Alignment.Center,
+            ) { if (picked) Box(Modifier.size(7.dp).clip(CircleShape).background(Color.White)) }
+            Spacer(Modifier.width(10.dp))
+        }
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 RouteTag(colors, address.kind)

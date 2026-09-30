@@ -186,6 +186,15 @@ object RoutePlanner {
      * then by tier, keeping the user's order within a tier. Nothing is
      * dropped: an "unreachable" address is still tried last.
      */
+    /**
+     * Auto-select route off: only the address the user picked ([pinned], an
+     * [Endpoint.key]), or the first one if none / it's gone. No fallback.
+     */
+    fun manual(addresses: List<Endpoint>, pinned: String?): List<Planned> {
+        val e = addresses.firstOrNull { it.key == pinned } ?: addresses.firstOrNull() ?: return emptyList()
+        return listOf(Planned(e, e.kind, 0, 0))
+    }
+
     fun plan(addresses: List<Endpoint>, net: NetworkSnapshot, remembered: String? = null): List<Planned> {
         val ranked = addresses.distinctBy { it.key }.map { e ->
             val t = tier(e, net)

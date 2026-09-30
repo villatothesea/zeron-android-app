@@ -231,7 +231,7 @@ private fun RoutesSection(model: ZeronModel, colors: ZeronColors, status: Direct
         SettingRow(colors, title, listOfNotNull(reason, detail).joinToString("\n"))
     }
     Text(
-        stringResource(R.string.route_auto_hint),
+        stringResource(if (model.autoRoute) R.string.route_auto_hint else R.string.route_manual_hint),
         color = colors.secondary, fontFamily = ZeronType.Sans, fontSize = 12.sp,
         modifier = Modifier.padding(start = 4.dp, top = 4.dp, bottom = 4.dp),
     )

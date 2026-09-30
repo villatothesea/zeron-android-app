@@ -632,6 +632,24 @@ private class ListGroup(
     val menu: Boolean = true,
 )
 
+/** The Settings on/off switch (green when on). */
+@Composable
+private fun SettingSwitch(colors: ZeronColors, checked: Boolean, tag: String, onChange: (Boolean) -> Unit) {
+    androidx.compose.material3.Switch(
+        checked = checked,
+        onCheckedChange = onChange,
+        modifier = Modifier.testTag(tag),
+        colors = androidx.compose.material3.SwitchDefaults.colors(
+            checkedThumbColor = Color.White,
+            checkedTrackColor = colors.success,
+            checkedBorderColor = colors.success,
+            uncheckedThumbColor = Color.White,
+            uncheckedTrackColor = colors.controlFill,
+            uncheckedBorderColor = colors.controlFill,
+        ),
+    )
+}
+
 /**
  * The mark after a group header's count: a dot while one of its sessions
  * waits for input, else nothing. Running sessions show their spinner on
@@ -1117,6 +1135,18 @@ private fun SettingsScreen(model: ZeronModel, colors: ZeronColors) {
         if (model.client?.isDirect() == true) {
             item { SettingRow(colors, stringResource(R.string.connection_details), stringResource(R.string.connection_details_sub), onClick = { model.showLinkDetails = true }) }
         }
+        item {
+            SettingRow(
+                colors,
+                stringResource(R.string.auto_route),
+                stringResource(if (model.autoRoute) R.string.auto_route_sub_on else R.string.auto_route_sub_off),
+                onClick = { model.applyAutoRoute(!model.autoRoute) },
+                trailing = {
+                    Spacer(Modifier.width(10.dp))
+                    SettingSwitch(colors, model.autoRoute, "auto-route") { model.applyAutoRoute(it) }
+                },
+            )
+        }
         item { GroupLabel(colors, stringResource(R.string.settings_devices)) }
         val devices = model.workspace?.devices.orEmpty()
         if (devices.isEmpty()) {
@@ -1179,19 +1209,7 @@ private fun SettingsScreen(model: ZeronModel, colors: ZeronColors) {
                 onClick = { model.applyAutoUpdate(!model.autoUpdate) },
                 trailing = {
                     Spacer(Modifier.width(10.dp))
-                    androidx.compose.material3.Switch(
-                        checked = model.autoUpdate,
-                        onCheckedChange = { model.applyAutoUpdate(it) },
-                        modifier = Modifier.testTag("auto-update"),
-                        colors = androidx.compose.material3.SwitchDefaults.colors(
-                            checkedThumbColor = Color.White,
-                            checkedTrackColor = colors.success,
-                            checkedBorderColor = colors.success,
-                            uncheckedThumbColor = Color.White,
-                            uncheckedTrackColor = colors.controlFill,
-                            uncheckedBorderColor = colors.controlFill,
-                        ),
-                    )
+                    SettingSwitch(colors, model.autoUpdate, "auto-update") { model.applyAutoUpdate(it) }
                 },
             )
         }
