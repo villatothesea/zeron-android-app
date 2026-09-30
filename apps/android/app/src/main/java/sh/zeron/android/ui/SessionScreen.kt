@@ -232,6 +232,8 @@ fun SessionScreen(model: ZeronModel, chatId: String) {
     var rootHeight by remember { mutableIntStateOf(0) }
     var menuAnchor by remember { mutableStateOf(Rect.Zero) }
     var chipMenu by remember { mutableStateOf<Pair<Chip, Rect>?>(null) }
+    var attachMenu by remember { mutableStateOf<Rect?>(null) }
+    var pcFiles by remember { mutableStateOf(false) }
     var headerPx by remember { mutableIntStateOf(0) }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
@@ -412,7 +414,7 @@ fun SessionScreen(model: ZeronModel, chatId: String) {
                     } else null,
                     images = staged,
                     onRemoveImage = { staged = staged.filterNot { s -> s === it } },
-                    onAttach = { picker.launch("image/*") },
+                    onAttach = { attachMenu = it },
                     onSend = send@{ mode ->
                         val body = draft.trim()
                         if (body.isEmpty() && staged.isEmpty() && mode != Delivery.Send) return@send
@@ -562,8 +564,32 @@ fun SessionScreen(model: ZeronModel, chatId: String) {
         if (usageOpen) {
             UsageSheet(colors, model.agentUsageSource, row?.deviceId ?: chrome.host.deviceId, row?.harness, chrome.contextUsage, onAccounts = { planAccounts = it }) { usageOpen = false }
         }
+        attachMenu?.let { anchor ->
+            // Attach: a photo from this phone (uploaded), or a reference to a
+            // file on the session's computer (inserted, not uploaded).
+            AnchoredMenu(
+                colors,
+                anchor,
+                title = null,
+                entries = listOf(
+                    MenuEntry(stringResource(R.string.attach_phone_photos), icon = { c -> AssetIcon("fileicon-files-image", 17.dp, c) }) { picker.launch("image/*") },
+                    MenuEntry(stringResource(R.string.attach_pc_files), icon = { c -> Glyph(Glyphs.Computer, 17.dp, c) }) {
+                        focusManager.clearFocus()
+                        pcFiles = true
+                    },
+                ),
+                onDismiss = { attachMenu = null },
+            )
+        }
         chipMenu?.let { (chip, anchor) ->
             ChipMenu(chip, anchor, row, chrome, client, chatId, colors, model) { chipMenu = null }
+        }
+        if (pcFiles) {
+            val cwd = row?.cwd
+            PcFilePicker(model, chrome.host.deviceId, cwd, onClose = { pcFiles = false }) { paths ->
+                draft = PcFileRefs.insert(draft, paths.map { PcFileRefs.reference(cwd, it) })
+                pcFiles = false
+            }
         }
         lightbox?.let { bmp ->
             Box(
@@ -886,7 +912,8 @@ internal fun ComposerBar(
     onChip: (Chip, Rect) -> Unit = { _, _ -> },
     images: List<Staged>,
     onRemoveImage: (Staged) -> Unit,
-    onAttach: () -> Unit = {},
+    /** The + button, with its bounds (root px) to anchor a menu. */
+    onAttach: (Rect) -> Unit = {},
     onSend: (Delivery) -> Unit,
     mentionSearch: suspend (String) -> List<uniffi.zeron_core.FileMatch>,
     onMention: (String, Boolean) -> Unit,
@@ -987,8 +1014,9 @@ internal fun ComposerBar(
                     Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(44.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    var attachBounds by remember { mutableStateOf(Rect.Zero) }
                     Box(
-                        Modifier.size(34.dp).clip(RoundedCornerShape(17.dp)).background(colors.controlFill).clickable(onClick = onAttach),
+                        Modifier.size(34.dp).testTag("composer-attach").onGloballyPositioned { attachBounds = it.boundsInRoot() }.clip(RoundedCornerShape(17.dp)).background(colors.controlFill).clickable { onAttach(attachBounds) },
                         contentAlignment = Alignment.Center,
                     ) {
                         PlusMark(colors.text, Modifier.size(16.dp))

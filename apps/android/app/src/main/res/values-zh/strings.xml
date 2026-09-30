@@ -626,4 +626,13 @@
     <plurals name="msg_nav_more">
         <item quantity="other">另 %d 条</item>
     </plurals>
+    <!-- 输入框附件：手机图片或电脑上的文件 -->
+    <string name="attach_phone_photos">手机图片</string>
+    <string name="attach_pc_files">电脑文件</string>
+    <string name="pc_files_title">电脑文件</string>
+    <string name="pc_files_pick">选择文件</string>
+    <plurals name="pc_files_insert">
+        <item quantity="other">插入 %d 个文件</item>
+    </plurals>
+    <string name="no_files">这里是空的。</string>
 </resources>

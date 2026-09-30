@@ -635,4 +635,14 @@
         <item quantity="one">+%d more</item>
         <item quantity="other">+%d more</item>
     </plurals>
+    <!-- Composer attach: phone photos or files on the computer -->
+    <string name="attach_phone_photos">Phone photos</string>
+    <string name="attach_pc_files">Computer files</string>
+    <string name="pc_files_title">Computer files</string>
+    <string name="pc_files_pick">Select files</string>
+    <plurals name="pc_files_insert">
+        <item quantity="one">Insert %d file</item>
+        <item quantity="other">Insert %d files</item>
+    </plurals>
+    <string name="no_files">Nothing here.</string>
 </resources>

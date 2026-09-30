@@ -42,7 +42,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
 import sh.zeron.android.core.ZeronModel
+import sh.zeron.android.design.AssetIcon
+import sh.zeron.android.design.CheckGlyph
 import sh.zeron.android.design.Glyph
+import androidx.compose.ui.platform.testTag
 import sh.zeron.android.design.Glyphs
 import sh.zeron.android.design.LocalZeronColors
 import sh.zeron.android.design.ZeronColors
@@ -98,6 +101,24 @@ object HostPaths {
         }
     }
 
+    /**
+     * [path] relative to [base] with `/` separators (the form a
+     * `zeron-file:` mention carries), or null when it is not inside [base].
+     * Windows paths compare case-insensitively and accept either separator.
+     */
+    fun relativeTo(base: String, path: String): String? {
+        val windows = isWindows(base) || isWindows(path)
+        fun norm(p: String) = (if (windows) p.replace('\\', '/') else p).trimEnd('/')
+        val b = norm(base)
+        val t = norm(path)
+        if (b.isEmpty() && !windows) return t.trimStart('/').ifEmpty { null }
+        if (t.length <= b.length + 1) return null
+        if (!t.startsWith(b, ignoreCase = windows) || t[b.length] != '/') return null
+        val rel = t.substring(b.length + 1)
+        if (rel.isEmpty() || rel.split('/').any { it.isEmpty() || it == "." || it == ".." }) return null
+        return rel
+    }
+
     /** Last component, or the path itself for a root (`C:\`, `/`). */
     fun name(path: String): String {
         if (isRoot(path)) return path
@@ -106,6 +127,16 @@ object HostPaths {
         return t.substring(t.indexOfLast { isSep(it, windows) } + 1)
     }
 }
+
+/** What a [HostBrowser]'s bottom action sees. */
+internal data class BrowserState(
+    val deviceId: String,
+    val current: String?,
+    val busy: Boolean,
+    val error: String?,
+    /** Repo flags from the listing we came from, keyed by child path. */
+    val repoHint: Map<String, Boolean>,
+)
 
 /**
  * Pick a folder on a host and register it as a project (iOS
@@ -118,18 +149,66 @@ fun NewProjectScreen(model: ZeronModel, initialDeviceId: String? = null, onClose
     val colors = LocalZeronColors.current
     val context = LocalContext.current
     val client = model.client ?: return
+    var creating by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    HostBrowser(model, initialDeviceId, title = stringResource(R.string.new_project), onClose = onClose) { state ->
+        val current = state.current
+        val usable = current != null && !state.busy && state.error == null && !creating
+        BrowserActionButton(
+            colors,
+            if (creating) stringResource(R.string.adding) else current?.let { stringResource(R.string.use_folder_named, HostPaths.name(it)) } ?: stringResource(R.string.use_this_folder),
+            usable,
+        ) {
+            val folder = current ?: return@BrowserActionButton
+            creating = true
+            scope.launch {
+                try {
+                    val git = state.repoHint[folder] ?: false
+                    val id = client.createProject(state.deviceId, folder, git)
+                    model.refreshPull()
+                    onCreated(id, HostPaths.name(folder))
+                } catch (t: Throwable) {
+                    model.showToast(t.message ?: context.getString(R.string.create_project_failed))
+                } finally {
+                    creating = false
+                }
+            }
+        }
+    }
+}
+
+/**
+ * The host folder browser shared by New Project and the composer's "Computer
+ * files" picker: a device row (unless [lockDevice]), browse roots (home,
+ * [startPath] when given, every drive the host reports), the current path,
+ * `..` then folders (repo-tagged), and with [pickFiles] the folder's files
+ * too, each tap toggling it in [selected]. [action] draws the bottom button.
+ */
+@Composable
+internal fun HostBrowser(
+    model: ZeronModel,
+    initialDeviceId: String?,
+    title: String,
+    onClose: () -> Unit,
+    startPath: String? = null,
+    lockDevice: Boolean = false,
+    pickFiles: Boolean = false,
+    selected: Set<String> = emptySet(),
+    onToggleFile: (String) -> Unit = {},
+    action: @Composable (BrowserState) -> Unit,
+) {
+    val colors = LocalZeronColors.current
+    val context = LocalContext.current
+    val client = model.client ?: return
     val devices = remember(model.workspace) { client.executionDevices().ifEmpty { client.devices() } }
     var deviceId by remember { mutableStateOf(initialDeviceId ?: devices.firstOrNull { it.online }?.id ?: devices.firstOrNull()?.id ?: client.deviceId()) }
-    var path by remember { mutableStateOf<String?>(null) }
+    var path by remember { mutableStateOf(startPath) }
     var listing by remember { mutableStateOf<FolderListing?>(null) }
     var drives by remember { mutableStateOf<List<DriveEntry>>(emptyList()) }
     var home by remember { mutableStateOf<String?>(null) }
-    // Repo flags from the listing we came from, keyed by child path.
     var repoHint by remember { mutableStateOf<Map<String, Boolean>>(emptyMap()) }
     var error by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
-    var creating by remember { mutableStateOf(false) }
-    val scope = rememberCoroutineScope()
     LaunchedEffect(deviceId) {
         drives = runCatching { client.listDrives(deviceId) }.getOrDefault(emptyList())
     }
@@ -157,7 +236,7 @@ fun NewProjectScreen(model: ZeronModel, initialDeviceId: String? = null, onClose
         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             BackButton(colors, onClick = onClose)
             Text(
-                current?.let { HostPaths.name(it) } ?: stringResource(R.string.new_project),
+                current?.let { HostPaths.name(it) } ?: title,
                 color = colors.text,
                 fontFamily = ZeronType.Sans,
                 fontWeight = FontWeight.SemiBold,
@@ -169,7 +248,7 @@ fun NewProjectScreen(model: ZeronModel, initialDeviceId: String? = null, onClose
             )
             Spacer(Modifier.width(44.dp))
         }
-        if (devices.size > 1) {
+        if (devices.size > 1 && !lockDevice) {
             Row(Modifier.padding(horizontal = 16.dp, vertical = 4.dp).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 devices.forEach { d ->
                     LocationChip(colors, if (d.online) d.name else stringResource(R.string.host_offline_suffix, d.name), selected = d.id == deviceId, icon = { c -> Glyph(Glyphs.Computer, 15.dp, c) }) {
@@ -183,9 +262,13 @@ fun NewProjectScreen(model: ZeronModel, initialDeviceId: String? = null, onClose
                 }
             }
         }
-        // Browse roots: home, then every drive / volume the host reports.
+        // Browse roots: home, the start folder (the session's), then every
+        // drive / volume the host reports.
         Row(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             LocationChip(colors, stringResource(R.string.home_folder), selected = current != null && current == home, icon = { c -> Glyph(Glyphs.Home, 15.dp, c) }) { path = null }
+            if (startPath != null) {
+                LocationChip(colors, HostPaths.name(startPath), selected = current != null && current == startPath, icon = { c -> Glyph(Glyphs.Folder, 15.dp, c) }) { path = startPath }
+            }
             drives.forEach { d ->
                 val onDrive = current != null && current != home && HostPaths.isWindows(d.path) && current.startsWith(d.path.take(2), ignoreCase = true)
                 LocationChip(colors, d.name, selected = onDrive, icon = { c -> Glyph(Glyphs.Drive, 15.dp, c) }) { path = d.path }
@@ -205,6 +288,7 @@ fun NewProjectScreen(model: ZeronModel, initialDeviceId: String? = null, onClose
         }
         MenuDivider(colors, Modifier.padding(top = 6.dp))
         val folders = listing?.entries.orEmpty().filter { it.isDir }
+        val files = if (pickFiles) listing?.entries.orEmpty().filter { !it.isDir } else emptyList()
         LazyColumn(Modifier.weight(1f)) {
             val up = current?.let { HostPaths.parent(it) }
             if (up != null) {
@@ -218,53 +302,49 @@ fun NewProjectScreen(model: ZeronModel, initialDeviceId: String? = null, onClose
                     if (!busy) path = HostPaths.join(base, entry.name)
                 }
             }
+            items(files, key = { "file:" + it.name }) { entry ->
+                val full = current?.let { HostPaths.join(it, entry.name) }
+                FileRow(colors, entry.name, checked = full != null && full in selected) {
+                    if (full != null && !busy) onToggleFile(full)
+                }
+            }
             if (listing?.truncated == true) {
                 item(key = "truncated") {
                     Text(stringResource(R.string.folders_truncated), color = colors.tertiary, fontFamily = ZeronType.Sans, fontSize = 13.sp, modifier = Modifier.padding(20.dp))
                 }
             }
-            if (listing != null && folders.isEmpty()) {
+            if (listing != null && folders.isEmpty() && files.isEmpty()) {
                 item(key = "empty") {
-                    Text(stringResource(R.string.no_folders), color = colors.tertiary, fontFamily = ZeronType.Sans, fontSize = 14.sp, modifier = Modifier.padding(20.dp))
+                    Text(stringResource(if (pickFiles) R.string.no_files else R.string.no_folders), color = colors.tertiary, fontFamily = ZeronType.Sans, fontSize = 14.sp, modifier = Modifier.padding(20.dp))
                 }
             }
         }
-        val usable = current != null && !busy && error == null && !creating
-        Box(
-            Modifier
-                .padding(horizontal = 16.dp, vertical = 12.dp)
-                .fillMaxWidth()
-                .height(50.dp)
-                .clip(RoundedCornerShape(25.dp))
-                .background(if (usable) colors.text else colors.controlFill)
-                .clickable(enabled = usable) {
-                    val folder = current ?: return@clickable
-                    creating = true
-                    scope.launch {
-                        try {
-                            val git = repoHint[folder] ?: false
-                            val id = client.createProject(deviceId, folder, git)
-                            model.refreshPull()
-                            onCreated(id, HostPaths.name(folder))
-                        } catch (t: Throwable) {
-                            model.showToast(t.message ?: context.getString(R.string.create_project_failed))
-                        } finally {
-                            creating = false
-                        }
-                    }
-                },
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                if (creating) stringResource(R.string.adding) else current?.let { stringResource(R.string.use_folder_named, HostPaths.name(it)) } ?: stringResource(R.string.use_this_folder),
-                color = if (usable) colors.background else colors.tertiary,
-                fontFamily = ZeronType.Sans,
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 16.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
+        action(BrowserState(deviceId, current, busy, error, repoHint))
+    }
+}
+
+/** The browser's full-width bottom button (Use folder / Insert). */
+@Composable
+internal fun BrowserActionButton(colors: ZeronColors, title: String, enabled: Boolean, onClick: () -> Unit) {
+    Box(
+        Modifier
+            .padding(horizontal = 16.dp, vertical = 12.dp)
+            .fillMaxWidth()
+            .height(50.dp)
+            .clip(RoundedCornerShape(25.dp))
+            .background(if (enabled) colors.text else colors.controlFill)
+            .clickable(enabled = enabled, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            title,
+            color = if (enabled) colors.background else colors.tertiary,
+            fontFamily = ZeronType.Sans,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 16.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
@@ -293,4 +373,27 @@ private fun FolderRow(colors: ZeronColors, name: String, repo: Boolean, icon: @C
         }
         Text("›", color = colors.tertiary, fontSize = 18.sp)
     }
+}
+
+/** A file in the picker: its type icon, the name, a check when selected. */
+@Composable
+private fun FileRow(colors: ZeronColors, name: String, checked: Boolean, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().testTag("browser-file").clickable(onClick = onClick).background(if (checked) colors.accentSoft else androidx.compose.ui.graphics.Color.Transparent).padding(horizontal = 20.dp, vertical = 13.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        AssetIcon(fileIconName(name), 18.dp, colors.secondary)
+        Spacer(Modifier.width(14.dp))
+        Text(name, color = colors.text, fontFamily = ZeronType.Sans, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+        if (checked) CheckGlyph(colors.accent, Modifier.size(16.dp))
+    }
+}
+
+/** A generic file-type icon from the bundled set. */
+internal fun fileIconName(name: String): String = when (name.substringAfterLast('.', "").lowercase()) {
+    "md", "markdown", "mdx" -> "fileicon-files-markdown"
+    "rs" -> "fileicon-files-rust"
+    "png", "jpg", "jpeg", "gif", "webp", "svg", "heic" -> "fileicon-files-image"
+    "txt", "log", "csv", "toml", "yaml", "yml", "json", "lock" -> "fileicon-files-text"
+    else -> "fileicon-files-document"
 }
