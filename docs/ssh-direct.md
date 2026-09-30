@@ -32,7 +32,7 @@ New-NetFirewallRule -Name OpenSSH-Server-In-TCP -DisplayName "OpenSSH Server (ss
 
 ## 2. 添加手机的公钥
 
-在手机上打开 **设置 → 机器（Machine）→ 本机 SSH 公钥**，点"复制公钥"，发到电脑上
+在手机上点首页右上角的头像图标进入 **设置 → 账户与电脑**，在页面底部 **本机 SSH 密钥** 下点 **复制公钥**，发到电脑上
 （微信文件传输助手、邮件等都可以）。整行形如 `ssh-ed25519 AAAA... zeron-xxx`。
 
 管理员账户的公钥必须放在 `administrators_authorized_keys`（不是用户目录下的
@@ -61,7 +61,7 @@ Add-Content -Path $env:USERPROFILE\.ssh\authorized_keys -Value $key -Encoding as
 ipconfig
 ```
 
-找到正在使用的网卡（WLAN 或 以太网）下的 **IPv4 地址**，例如 `192.168.1.23`。
+找到正在使用的网卡（WLAN 或 以太网）下的 **IPv4 地址**，形如 `192.168.x.x`。
 手机和电脑需在同一局域网（或通过 Tailscale/ZeroTier 等组网，填对应 IP）。
 
 ## 4. 让 Zeron 引擎保持运行
@@ -106,24 +106,24 @@ ssh-keygen -lf C:\ProgramData\ssh\ssh_host_ed25519_key.pub
 ```
 
 输出形如 `256 SHA256:xxxxxxxx... (ED25519)`。手机第一次连接时会弹出
-"Trust this machine?"，显示 `SHA256:...` 指纹，**两者一致再点 Trust**。
-之后如果指纹变化，手机会拒绝连接并提示"Host key changed"（可能是重装系统，
+**信任这台电脑吗？**，显示 `SHA256:...` 指纹，**两者一致再点 信任**。
+之后如果指纹变化，手机会拒绝连接并提示 **主机密钥已变更**（可能是重装系统，
 也可能是中间人攻击）。
 
 ## 7. 在手机上添加机器
 
-设置 → 机器 → 右上角 **+**：
+**设置 → 账户与电脑 → 添加电脑**（或 **设置 → 添加电脑（SSH）…**）：
 
 | 字段 | 填写 |
 | --- | --- |
-| Name | 随意，例如 `家里的电脑` |
-| Host | 第 3 步的 IPv4 地址 |
-| SSH port | `22` |
-| Zeron port | `27654`（默认） |
-| User | Windows 用户名（`whoami` 输出中 `\` 后面的部分） |
-| Sign in with | This phone's key（推荐）/ Import key / Password |
+| 名称 | 随意，例如 `家里的电脑` |
+| 主机 | 第 3 步的 IPv4 地址 |
+| SSH 端口 | `22` |
+| Zeron 端口 | `27654`（默认） |
+| 用户名 | Windows 用户名（`$env:USERNAME` 的输出） |
+| 登录方式 | 本机密钥（推荐）/ 导入密钥 / 密码 |
 
-点 **Test** → 核对指纹 → **Trust** → 看到"Connected · Zeron 0.2.x answered in … ms" → **Save & Connect**。
+点 **测试** → 核对指纹 → **信任** → 看到 **已连接 · Zeron 0.2.x 响应用时 … ms** → **保存并连接**。
 
 ## 常见问题
 
@@ -131,14 +131,15 @@ ssh-keygen -lf C:\ProgramData\ssh\ssh_host_ed25519_key.pub
 - **Auth 失败**：公钥文件路径和 `icacls` 权限；用户名是否正确。可在电脑上看日志：
   `Get-WinEvent -LogName OpenSSH/Operational -MaxEvents 20 | Format-List TimeCreated, Message`
 - **SSH 成功但引擎连不上**：Zeron 没在运行（第 4、5 步）。
+- **Windows 更新后 sshd 服务不见了**（`Get-Service sshd` 找不到服务）：用 `New-Service` 重新注册，命令见 [README.zh-CN.md 的常见问题](../README.zh-CN.md#常见问题)。
 - **sshd 禁用了端口转发**：检查 `C:\ProgramData\ssh\sshd_config` 中没有 `AllowTcpForwarding no`；修改后 `Restart-Service sshd`。
 - **连上了但会话列表是空的 / 一直在加载**：会话页顶部会显示连接状态横幅（连接中 / 正在加载会话 / 错误原因）。
-  点 **Details**（或 设置 → Connection Details）查看引擎版本、每个数据流（WatchDevices / WatchSpaces / WatchChats / WatchSessions）收到的帧数和行数，以及连接日志；
-  点右上角 **Copy** 可把这份诊断文本（不含密钥）复制出来反馈。20 秒内有数据流一直没有数据时，会提示是哪一个并自动重连。
+  点 **详情**（或 **设置 → 连接详情**）查看引擎版本、每个数据流（WatchDevices / WatchSpaces / WatchChats / WatchSessions）收到的帧数和行数，以及连接日志；
+  点右上角 **复制** 可把这份诊断文本（不含密钥）复制出来反馈。20 秒内有数据流一直没有数据时，会提示是哪一个并自动重连。
 - **电脑上的 Zeron 更新了，手机 App 要不要跟着更新？** 一般不用。App 对引擎版本变化做了容错：
-  多出来的字段直接忽略；不认识的状态、模型档位、harness 等取值按默认值显示，并在 Details 里记为"read with unknown values ignored"；
+  多出来的字段直接忽略；不认识的状态、模型档位、harness 等取值按默认值显示，并在详情里记为"N 行忽略了未知值"；
   对话里不认识的消息类型或工具类型显示成一条 "Unsupported content" 占位，其余内容照常显示；引擎新增的通知类消息直接忽略；
-  实在读不了的行才跳过，并在横幅和 Details 里提示跳过了几行。
+  实在读不了的行才跳过，并在横幅和详情里提示跳过了几行。
   补丁版本（例如 0.2.97 → 0.2.98）不提示；引擎的主/次版本比 App 测试过的新（例如 0.3.x）时，会话页顶部出现一张可关闭的提示卡，
   建议有空时更新 App，但不影响使用。
 
