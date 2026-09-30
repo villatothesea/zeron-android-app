@@ -7,6 +7,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollToNode
 import androidx.lifecycle.ViewModelProvider
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
@@ -116,6 +117,67 @@ open class ConnectionScreenshotTest {
             settle()
             capture("connection/07-failure-auth-details-$suffix.png")
             model.connectionSheet = null
+            settle()
+        }
+        model.applyAppearance(2)
+        scenario.close()
+    }
+
+    /** The update badge beside the chip (arrow, ring, checkmark) and the Settings toggle. */
+    @Test
+    fun updateBadgeScreens() {
+        val app = ApplicationProvider.getApplicationContext<Application>()
+        org.robolectric.shadows.ShadowBuild.setModel("Pixel 8")
+        FakeAndroidKeyStore.install()
+        // No real probe or background download: the badge state is set by hand.
+        app.getSharedPreferences("zeron-update", 0).edit().putLong("lastCheck", System.currentTimeMillis()).putBoolean("autoUpdate", false).commit()
+        MachineStore(app).apply { save(studio, null) }
+        val scenario = ActivityScenario.launch(MainActivity::class.java)
+        lateinit var model: ZeronModel
+        scenario.onActivity { model = ViewModelProvider(it)[ZeronModel::class.java] }
+        settleUntil("demo workspace") { model.phase == ZeronModel.Phase.Ready && model.workspace != null }
+        model.applyListMode(ZeronModel.ListMode.Project)
+        settle()
+        val release = sh.zeron.android.core.Updater.Release(
+            "round5-9", "round5-9", "Fixture notes", sh.zeron.android.BuildConfig.VERSION_CODE.toLong() + 1,
+            "zeron-android-round5-9.apk", "", "https://example.invalid/a.apk", 1, "", null,
+        )
+        val apk = java.io.File(app.cacheDir, "fixture-update.apk").apply { writeBytes(byteArrayOf(0)) }
+
+        for ((mode, suffix) in listOf(2 to "dark", 1 to "light")) {
+            model.applyAppearance(mode)
+            for ((title, tag) in listOf("Studio PC" to "", longName to "-long-name")) {
+                model.previewConnection = ConnectionState.View(title, Workspace.DIRECT, Dot.CONNECTED, id = studio.id)
+                model.updateRelease = release
+                model.downloadedApk = null
+                model.updateProgress = null
+                settle()
+                check(model.updateBadge == ZeronModel.UpdateBadge.AVAILABLE)
+                capture("update/01-badge-arrow$tag-$suffix.png")
+                model.updateProgress = 0.42f
+                settle()
+                check(model.updateBadge == ZeronModel.UpdateBadge.DOWNLOADING)
+                capture("update/02-badge-downloading$tag-$suffix.png")
+                model.downloadedApk = apk
+                model.updateProgress = 1f
+                settle()
+                check(model.updateBadge == ZeronModel.UpdateBadge.READY)
+                capture("update/03-badge-ready$tag-$suffix.png")
+            }
+            model.updateRelease = null
+            model.updateProgress = null
+            model.downloadedApk = null
+            model.tab = ZeronModel.Tab.Settings
+            settle()
+            compose.onNode(androidx.compose.ui.test.hasScrollAction())
+                .performScrollToNode(androidx.compose.ui.test.hasText(app.getString(R.string.auto_update)))
+            model.applyAutoUpdate(true)
+            settle()
+            capture("update/04-settings-auto-update-on-$suffix.png")
+            model.applyAutoUpdate(false)
+            settle()
+            capture("update/05-settings-auto-update-off-$suffix.png")
+            model.tab = ZeronModel.Tab.Sessions
             settle()
         }
         model.applyAppearance(2)

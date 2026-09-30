@@ -556,6 +556,10 @@ private fun SessionsScreen(model: ZeronModel, colors: ZeronColors, onPrompt: (Pr
             // title and the capsule, and ellipsizes rather than pushing it.
             Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
                 ConnectionChip(model, colors, Modifier.weight(1f, fill = false))
+                if (model.updateBadge != null) {
+                    Spacer(Modifier.width(6.dp))
+                    UpdateBadge(model, colors)
+                }
             }
             Spacer(Modifier.width(6.dp))
             Row(
@@ -574,10 +578,8 @@ private fun SessionsScreen(model: ZeronModel, colors: ZeronColors, onPrompt: (Pr
                     PlusMark(colors.text, Modifier.size(18.dp))
                 }
                 Box(Modifier.size(36.dp).clickable { model.tab = ZeronModel.Tab.Settings }, contentAlignment = Alignment.Center) {
+                    // (A newer release shows as the badge beside the computer chip.)
                     ProfileMark(colors.text, Modifier.size(28.dp))
-                    if (model.updateRelease?.newer == true) {
-                        Box(Modifier.align(Alignment.TopEnd).padding(top = 3.dp, end = 2.dp).size(9.dp).clip(CircleShape).background(colors.accent))
-                    }
                 }
             }
         }
@@ -1145,6 +1147,30 @@ private fun SettingsScreen(model: ZeronModel, colors: ZeronColors) {
             SettingRow(colors, stringResource(R.string.check_for_updates), newer?.let { stringResource(R.string.update_available, it.name) } ?: stringResource(R.string.version_build, sh.zeron.android.BuildConfig.VERSION_NAME, sh.zeron.android.BuildConfig.VERSION_CODE), onClick = { model.checkForUpdates() }, trailing = {
                 if (newer != null) Box(Modifier.size(9.dp).clip(CircleShape).background(colors.accent))
             })
+        }
+        item {
+            SettingRow(
+                colors,
+                stringResource(R.string.auto_update),
+                stringResource(if (model.autoUpdate) R.string.auto_update_sub_on else R.string.auto_update_sub_off),
+                onClick = { model.applyAutoUpdate(!model.autoUpdate) },
+                trailing = {
+                    Spacer(Modifier.width(10.dp))
+                    androidx.compose.material3.Switch(
+                        checked = model.autoUpdate,
+                        onCheckedChange = { model.applyAutoUpdate(it) },
+                        modifier = Modifier.testTag("auto-update"),
+                        colors = androidx.compose.material3.SwitchDefaults.colors(
+                            checkedThumbColor = Color.White,
+                            checkedTrackColor = colors.success,
+                            checkedBorderColor = colors.success,
+                            uncheckedThumbColor = Color.White,
+                            uncheckedTrackColor = colors.controlFill,
+                            uncheckedBorderColor = colors.controlFill,
+                        ),
+                    )
+                },
+            )
         }
         item { Spacer(Modifier.height(18.dp)) }
         if (model.activeMachine == "cloud") {
