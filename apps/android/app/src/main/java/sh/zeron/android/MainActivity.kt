@@ -3,9 +3,9 @@ package sh.zeron.android
 import android.content.Intent
 import android.os.Bundle
 import android.widget.FrameLayout
-import androidx.activity.ComponentActivity
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
+import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.ViewCompositionStrategy
@@ -14,7 +14,8 @@ import sh.zeron.android.design.GlassFrameLayout
 import sh.zeron.android.design.LocalGlassFrame
 import sh.zeron.android.ui.ZeronApp
 
-class MainActivity : ComponentActivity() {
+/** AppCompatActivity so the per-app language (AppLanguage) applies below Android 13 too. */
+class MainActivity : AppCompatActivity() {
     private val model: ZeronModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {

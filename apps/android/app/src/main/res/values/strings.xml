@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Scheduled send. The rest of the app is English-only for now. -->
+<!-- values/ is English; values-zh/ is Simplified Chinese for every zh locale.
+     Brand, product and model names, and anything the desktop engine or an
+     agent sends (titles, messages, tool output, errors), stay untranslated. -->
 <resources>
+    <!-- Scheduled send -->
     <string name="schedule_send_title">Schedule send</string>
     <string name="schedule_menu_entry">Schedule send…</string>
     <string name="schedule_today">Today %1$s</string>
@@ -21,4 +24,10 @@
     <string name="schedule_notif_pending_body">It stays queued and goes out when Zeron reconnects.</string>
     <string name="schedule_notif_failed">Scheduled message not sent</string>
     <string name="schedule_notif_failed_body">%1$s\n\n%2$s</string>
+
+    <!-- Settings > Language (per-app locale, see AppLanguage) -->
+    <string name="settings_language">Language</string>
+    <string name="language_system">Follow System</string>
+    <string name="language_english">English</string>
+    <string name="language_chinese">简体中文</string>
 </resources>

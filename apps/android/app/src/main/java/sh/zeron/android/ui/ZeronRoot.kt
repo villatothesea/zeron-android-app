@@ -5,6 +5,9 @@
 
 package sh.zeron.android.ui
 
+import sh.zeron.android.R
+import androidx.compose.ui.res.stringResource
+import sh.zeron.android.core.AppLanguage
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -1089,6 +1092,20 @@ private fun SettingsScreen(model: ZeronModel, colors: ZeronColors) {
             listOf(0 to "System", 1 to "Light", 2 to "Dark").forEach { (mode, label) ->
                 SettingRow(colors, label, null, onClick = { model.applyAppearance(mode) }, trailing = {
                     if (model.appearance == mode) Text("✓", color = colors.accent, fontSize = 16.sp)
+                })
+            }
+        }
+        item { GroupLabel(colors, stringResource(R.string.settings_language)) }
+        item {
+            // Per-app locale: the activity is recreated in the new language.
+            val current = AppLanguage.current(context)
+            listOf(
+                AppLanguage.SYSTEM to R.string.language_system,
+                AppLanguage.ENGLISH to R.string.language_english,
+                AppLanguage.CHINESE to R.string.language_chinese,
+            ).forEach { (tag, label) ->
+                SettingRow(colors, stringResource(label), null, onClick = { if (tag != current) AppLanguage.apply(context, tag) }, trailing = {
+                    if (current == tag) Text("✓", color = colors.accent, fontSize = 16.sp)
                 })
             }
         }
