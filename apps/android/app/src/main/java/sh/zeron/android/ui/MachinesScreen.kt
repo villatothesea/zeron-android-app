@@ -1,5 +1,8 @@
 package sh.zeron.android.ui
 
+import sh.zeron.android.R
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -67,6 +70,7 @@ import uniffi.zeron_core.SshException
 fun MachinesScreen(model: ZeronModel) {
     val colors = LocalZeronColors.current
     val clipboard = LocalClipboardManager.current
+    val context = LocalContext.current
     LaunchedEffect(model.machines) { model.probeMachines() }
     val phoneKey = remember { model.phonePublicKey() }
     Column(Modifier.fillMaxSize().background(colors.background).statusBarsPadding().navigationBarsPadding()) {
@@ -75,10 +79,10 @@ fun MachinesScreen(model: ZeronModel) {
                 BackChevron(colors.text, Modifier.size(18.dp))
             }
             Spacer(Modifier.width(10.dp))
-            Text("Accounts & Computers", color = colors.text, fontFamily = ZeronType.Sans, fontWeight = FontWeight.SemiBold, fontSize = 17.sp, modifier = Modifier.weight(1f))
+            Text(stringResource(R.string.accounts_computers), color = colors.text, fontFamily = ZeronType.Sans, fontWeight = FontWeight.SemiBold, fontSize = 17.sp, modifier = Modifier.weight(1f))
         }
         LazyColumn(Modifier.weight(1f).padding(horizontal = 16.dp)) {
-            item { GroupLabel(colors, "Your computers (SSH)") }
+            item { GroupLabel(colors, stringResource(R.string.your_computers_ssh)) }
             items(model.machines, key = { it.id }) { machine ->
                 val active = model.activeMachine == machine.id
                 val link = if (active) model.directStatus else null
@@ -88,13 +92,14 @@ fun MachinesScreen(model: ZeronModel) {
                     active -> null
                     else -> model.machineOnline[machine.id]
                 }
+                val summary = if (active) directSummary(link) else ""
+                val unverified = stringResource(R.string.not_verified_yet)
                 val subtitle = buildString {
                     append("${machine.user}@${machine.host}:${machine.port}")
                     if (active) {
-                        val summary = directSummary(link)
                         if (link?.phase == uniffi.zeron_core.DirectPhase.FAILED) append("\n$summary") else append("  ·  $summary")
                     } else if (machine.hostKey == null) {
-                        append("  ·  not verified yet")
+                        append("  ·  $unverified")
                     }
                 }
                 MachineRow(colors, machine.title(), subtitle, online, active, onClick = {
@@ -104,18 +109,18 @@ fun MachinesScreen(model: ZeronModel) {
             item {
                 SettingRow(
                     colors,
-                    "Add a computer",
-                    if (model.machines.isEmpty()) "Connect straight to Zeron on your PC over SSH: no cloud account needed." else "Connect over SSH",
+                    stringResource(R.string.add_a_computer),
+                    stringResource(if (model.machines.isEmpty()) R.string.add_computer_first_sub else R.string.connect_over_ssh),
                     onClick = { model.editMachine = Machine() },
                 )
             }
-            item { GroupLabel(colors, "Other workspaces") }
+            item { GroupLabel(colors, stringResource(R.string.other_workspaces)) }
             item {
                 val active = model.activeMachine == "cloud"
                 MachineRow(
                     colors,
                     "Zeron Cloud",
-                    if (active && model.client != null) "Signed in · ${model.client?.orgId()}" else "Your Zeron account, through the relay",
+                    if (active && model.client != null) stringResource(R.string.signed_in_org, model.client?.orgId().orEmpty()) else stringResource(R.string.cloud_sub),
                     online = if (active) model.connectivity?.state == ConnectivityState.CONNECTED else null,
                     active = active,
                     onClick = { model.useCloud() },
@@ -123,21 +128,21 @@ fun MachinesScreen(model: ZeronModel) {
                 )
             }
             item {
-                MachineRow(colors, "Demo", "Offline sample workspace", online = null, active = model.activeMachine == "demo", onClick = { model.enterDemo() }, onEdit = null)
+                MachineRow(colors, stringResource(R.string.demo), stringResource(R.string.demo_sub), online = null, active = model.activeMachine == "demo", onClick = { model.enterDemo() }, onEdit = null)
             }
-            item { GroupLabel(colors, "This phone's SSH key") }
+            item { GroupLabel(colors, stringResource(R.string.phone_ssh_key)) }
             item {
                 Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(colors.elevated).padding(14.dp)) {
                     Text(phoneKey, color = colors.text, fontFamily = ZeronType.Mono, fontSize = 12.sp)
                     Spacer(Modifier.height(10.dp))
                     Row {
-                        Pill(colors, "Copy public key") {
+                        Pill(colors, stringResource(R.string.copy_public_key)) {
                             clipboard.setText(AnnotatedString(phoneKey))
-                            model.showToast("Public key copied")
+                            model.showToast(context.getString(R.string.public_key_copied))
                         }
                     }
                     Spacer(Modifier.height(8.dp))
-                    Text("Add it to administrators_authorized_keys on Windows (see docs/ssh-direct.md).", color = colors.secondary, fontFamily = ZeronType.Sans, fontSize = 12.sp)
+                    Text(stringResource(R.string.phone_key_hint), color = colors.secondary, fontFamily = ZeronType.Sans, fontSize = 12.sp)
                 }
             }
             item { Spacer(Modifier.height(32.dp)) }
@@ -159,7 +164,7 @@ private fun MachineRow(colors: ZeronColors, title: String, subtitle: String, onl
         }
         if (active) Text("✓", color = colors.accent, fontSize = 16.sp, modifier = Modifier.padding(horizontal = 8.dp))
         if (onEdit != null) {
-            Text("Edit", color = colors.accent, fontFamily = ZeronType.Sans, fontSize = 14.sp, modifier = Modifier.clip(RoundedCornerShape(10.dp)).clickable(onClick = onEdit).padding(horizontal = 8.dp, vertical = 6.dp))
+            Text(stringResource(R.string.edit), color = colors.accent, fontFamily = ZeronType.Sans, fontSize = 14.sp, modifier = Modifier.clip(RoundedCornerShape(10.dp)).clickable(onClick = onEdit).padding(horizontal = 8.dp, vertical = 6.dp))
         }
     }
 }
@@ -205,6 +210,7 @@ private sealed interface HostPrompt {
 fun MachineEditScreen(model: ZeronModel, initial: Machine) {
     val colors = LocalZeronColors.current
     val clipboard = LocalClipboardManager.current
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val existing = model.machines.any { it.id == initial.id }
     var name by remember(initial.id) { mutableStateOf(initial.name) }
@@ -239,16 +245,16 @@ fun MachineEditScreen(model: ZeronModel, initial: Machine) {
             try {
                 val probe = model.testMachine(draft(), secretArg, pin)
                 hostKey = probe.hostKeyFingerprint
-                test = TestState.Ok("Connected · Zeron ${probe.engineVersion ?: "engine"} answered in ${probe.latencyMs} ms")
+                test = TestState.Ok(context.getString(R.string.test_ok, probe.engineVersion ?: context.getString(R.string.engine), probe.latencyMs.toInt()))
                 then?.invoke()
             } catch (e: SshException.HostKeyUnknown) {
                 test = TestState.Idle
                 prompt = HostPrompt.Unknown(e.algorithm, e.fingerprint)
             } catch (e: SshException.HostKeyMismatch) {
-                test = TestState.Failed("The host key changed!")
+                test = TestState.Failed(context.getString(R.string.host_key_changed_bang))
                 prompt = HostPrompt.Changed(e.algorithm, e.expected, e.actual)
             } catch (t: Throwable) {
-                test = TestState.Failed(t.message ?: "Couldn't connect")
+                test = TestState.Failed(t.message ?: context.getString(R.string.couldnt_connect))
             }
         }
     }
@@ -262,10 +268,10 @@ fun MachineEditScreen(model: ZeronModel, initial: Machine) {
 
     Column(Modifier.fillMaxSize().background(colors.background).statusBarsPadding().navigationBarsPadding().imePadding()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("Cancel", color = colors.text, fontFamily = ZeronType.Sans, fontSize = 16.sp, modifier = Modifier.clip(RoundedCornerShape(12.dp)).clickable { model.editMachine = null }.padding(8.dp))
-            Text(if (existing) "Edit Computer" else "Add Computer", color = colors.text, fontFamily = ZeronType.Sans, fontWeight = FontWeight.SemiBold, fontSize = 17.sp, modifier = Modifier.weight(1f), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+            Text(stringResource(R.string.cancel), color = colors.text, fontFamily = ZeronType.Sans, fontSize = 16.sp, modifier = Modifier.clip(RoundedCornerShape(12.dp)).clickable { model.editMachine = null }.padding(8.dp))
+            Text(stringResource(if (existing) R.string.edit_computer else R.string.add_computer), color = colors.text, fontFamily = ZeronType.Sans, fontWeight = FontWeight.SemiBold, fontSize = 17.sp, modifier = Modifier.weight(1f), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
             Text(
-                "Save",
+                stringResource(R.string.save),
                 color = if (valid) colors.accent else colors.tertiary,
                 fontFamily = ZeronType.Sans,
                 fontWeight = FontWeight.SemiBold,
@@ -276,18 +282,18 @@ fun MachineEditScreen(model: ZeronModel, initial: Machine) {
             )
         }
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
-            GroupLabel(colors, "Computer")
-            Field(colors, "Name", name, "My PC") { name = it }
-            Field(colors, "Host", host, "192.168.1.20 or pc.local", keyboard = KeyboardType.Uri) { host = it; hostKey = if (it.trim() == initial.host) initial.hostKey else null }
+            GroupLabel(colors, stringResource(R.string.computer))
+            Field(colors, stringResource(R.string.field_name), name, stringResource(R.string.name_hint)) { name = it }
+            Field(colors, stringResource(R.string.field_host), host, stringResource(R.string.host_hint), keyboard = KeyboardType.Uri) { host = it; hostKey = if (it.trim() == initial.host) initial.hostKey else null }
             Row {
-                Box(Modifier.weight(1f)) { Field(colors, "SSH port", port, "22", keyboard = KeyboardType.Number) { port = it.filter(Char::isDigit).take(5) } }
+                Box(Modifier.weight(1f)) { Field(colors, stringResource(R.string.ssh_port), port, "22", keyboard = KeyboardType.Number) { port = it.filter(Char::isDigit).take(5) } }
                 Spacer(Modifier.width(8.dp))
-                Box(Modifier.weight(1f)) { Field(colors, "Zeron port", enginePort, "27654", keyboard = KeyboardType.Number) { enginePort = it.filter(Char::isDigit).take(5) } }
+                Box(Modifier.weight(1f)) { Field(colors, stringResource(R.string.zeron_port), enginePort, "27654", keyboard = KeyboardType.Number) { enginePort = it.filter(Char::isDigit).take(5) } }
             }
-            Field(colors, "User", user, "Windows user name") { user = it }
-            GroupLabel(colors, "Sign in with")
+            Field(colors, stringResource(R.string.field_user), user, stringResource(R.string.user_hint)) { user = it }
+            GroupLabel(colors, stringResource(R.string.sign_in_with))
             Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(colors.controlFill).padding(3.dp)) {
-                listOf(Machine.AUTH_PHONE to "This phone's key", Machine.AUTH_KEY to "Import key", Machine.AUTH_PASSWORD to "Password").forEach { (kind, label) ->
+                listOf(Machine.AUTH_PHONE to stringResource(R.string.auth_phone), Machine.AUTH_KEY to stringResource(R.string.auth_import), Machine.AUTH_PASSWORD to stringResource(R.string.auth_password)).forEach { (kind, label) ->
                     val on = auth == kind
                     Box(
                         Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).background(if (on) colors.elevated else Color.Transparent).clickable { auth = kind; secret = "" }.padding(vertical = 9.dp),
@@ -298,29 +304,29 @@ fun MachineEditScreen(model: ZeronModel, initial: Machine) {
             Spacer(Modifier.height(8.dp))
             when (auth) {
                 Machine.AUTH_PHONE -> Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(colors.elevated).padding(14.dp)) {
-                    Text("Public key: add this line to the machine's authorized keys", color = colors.secondary, fontFamily = ZeronType.Sans, fontSize = 13.sp)
+                    Text(stringResource(R.string.public_key_line_hint), color = colors.secondary, fontFamily = ZeronType.Sans, fontSize = 13.sp)
                     Spacer(Modifier.height(6.dp))
                     Text(phoneKey, color = colors.text, fontFamily = ZeronType.Mono, fontSize = 12.sp)
                     Spacer(Modifier.height(10.dp))
-                    Pill(colors, "Copy public key") {
+                    Pill(colors, stringResource(R.string.copy_public_key)) {
                         clipboard.setText(AnnotatedString(phoneKey))
-                        model.showToast("Public key copied")
+                        model.showToast(context.getString(R.string.public_key_copied))
                     }
                 }
-                Machine.AUTH_KEY -> Field(colors, "Private key", secret, if (existing && initial.auth == auth) "Saved (paste to replace)" else "-----BEGIN OPENSSH PRIVATE KEY-----", multiline = true, mono = true) { secret = it }
-                else -> Field(colors, "Password", secret, if (existing && initial.auth == auth) "Saved (type to replace)" else "Password", password = true) { secret = it }
+                Machine.AUTH_KEY -> Field(colors, stringResource(R.string.private_key), secret, if (existing && initial.auth == auth) stringResource(R.string.saved_paste_replace) else "-----BEGIN OPENSSH PRIVATE KEY-----", multiline = true, mono = true) { secret = it }
+                else -> Field(colors, stringResource(R.string.auth_password), secret, if (existing && initial.auth == auth) stringResource(R.string.saved_type_replace) else stringResource(R.string.auth_password), password = true) { secret = it }
             }
-            GroupLabel(colors, "Connection")
+            GroupLabel(colors, stringResource(R.string.connection))
             Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(colors.elevated).padding(14.dp)) {
                 Text(
-                    hostKey?.let { "Host key: $it" } ?: "Host key not verified yet: Test to see it and trust it.",
+                    hostKey?.let { stringResource(R.string.host_key_value, it) } ?: stringResource(R.string.host_key_unverified),
                     color = colors.secondary,
                     fontFamily = if (hostKey != null) ZeronType.Mono else ZeronType.Sans,
                     fontSize = 12.sp,
                 )
                 Spacer(Modifier.height(10.dp))
                 when (val t = test) {
-                    TestState.Running -> Text("Testing…", color = colors.secondary, fontFamily = ZeronType.Sans, fontSize = 14.sp)
+                    TestState.Running -> Text(stringResource(R.string.testing), color = colors.secondary, fontFamily = ZeronType.Sans, fontSize = 14.sp)
                     is TestState.Ok -> Row(verticalAlignment = Alignment.CenterVertically) {
                         Box(Modifier.size(8.dp).clip(CircleShape).background(colors.success))
                         Spacer(Modifier.width(8.dp))
@@ -331,16 +337,16 @@ fun MachineEditScreen(model: ZeronModel, initial: Machine) {
                 }
                 Spacer(Modifier.height(10.dp))
                 Row {
-                    Pill(colors, "Test", enabled = valid && test != TestState.Running) { runTest(hostKey) }
+                    Pill(colors, stringResource(R.string.test), enabled = valid && test != TestState.Running) { runTest(hostKey) }
                     Spacer(Modifier.width(8.dp))
-                    Pill(colors, "Save & Connect", enabled = valid && test != TestState.Running, primary = true) {
+                    Pill(colors, stringResource(R.string.save_connect), enabled = valid && test != TestState.Running, primary = true) {
                         if (hostKey == null) runTest(null) { save(connect = true) } else save(connect = true)
                     }
                 }
             }
             if (existing) {
                 Spacer(Modifier.height(18.dp))
-                SettingRow(colors, "Delete Machine", null, destructive = true, onClick = { confirmDelete = true })
+                SettingRow(colors, stringResource(R.string.delete_machine), null, destructive = true, onClick = { confirmDelete = true })
             }
             Spacer(Modifier.height(40.dp))
         }
@@ -349,43 +355,43 @@ fun MachineEditScreen(model: ZeronModel, initial: Machine) {
     when (val p = prompt) {
         is HostPrompt.Unknown -> AlertDialog(
             onDismissRequest = { prompt = null },
-            title = { Text("Trust this machine?") },
+            title = { Text(stringResource(R.string.trust_machine_title)) },
             text = {
                 Column {
-                    Text("First connection to ${host.trim()}:${port}. Check that the fingerprint matches the machine before trusting it.", fontFamily = ZeronType.Sans, fontSize = 14.sp)
+                    Text(stringResource(R.string.trust_first, host.trim(), port), fontFamily = ZeronType.Sans, fontSize = 14.sp)
                     Spacer(Modifier.height(10.dp))
                     Text(p.algorithm, fontFamily = ZeronType.Mono, fontSize = 12.sp)
                     Text(p.fingerprint, fontFamily = ZeronType.Mono, fontSize = 13.sp)
                     Spacer(Modifier.height(10.dp))
-                    Text("On Windows: ssh-keygen -lf C:\\ProgramData\\ssh\\ssh_host_ed25519_key.pub", fontFamily = ZeronType.Mono, fontSize = 11.sp)
+                    Text(stringResource(R.string.windows_fingerprint_hint), fontFamily = ZeronType.Mono, fontSize = 11.sp)
                 }
             },
-            confirmButton = { TextButton(onClick = { prompt = null; hostKey = p.fingerprint; runTest(p.fingerprint) }) { Text("Trust") } },
-            dismissButton = { TextButton(onClick = { prompt = null }) { Text("Cancel") } },
+            confirmButton = { TextButton(onClick = { prompt = null; hostKey = p.fingerprint; runTest(p.fingerprint) }) { Text(stringResource(R.string.trust)) } },
+            dismissButton = { TextButton(onClick = { prompt = null }) { Text(stringResource(R.string.cancel)) } },
         )
         is HostPrompt.Changed -> AlertDialog(
             onDismissRequest = { prompt = null },
-            title = { Text("Host key changed") },
+            title = { Text(stringResource(R.string.host_key_changed)) },
             text = {
                 Column {
-                    Text("The machine presented a different key than the one you trusted. This happens after reinstalling OpenSSH, but it can also mean someone is intercepting the connection.", fontFamily = ZeronType.Sans, fontSize = 14.sp)
+                    Text(stringResource(R.string.host_key_changed_body), fontFamily = ZeronType.Sans, fontSize = 14.sp)
                     Spacer(Modifier.height(10.dp))
-                    Text("Trusted: ${p.expected}", fontFamily = ZeronType.Mono, fontSize = 12.sp)
-                    Text("Now:     ${p.actual}", fontFamily = ZeronType.Mono, fontSize = 12.sp)
+                    Text(stringResource(R.string.host_key_trusted, p.expected), fontFamily = ZeronType.Mono, fontSize = 12.sp)
+                    Text(stringResource(R.string.host_key_now, p.actual), fontFamily = ZeronType.Mono, fontSize = 12.sp)
                 }
             },
-            confirmButton = { TextButton(onClick = { prompt = null; hostKey = p.actual; runTest(p.actual) }) { Text("Trust new key", color = colors.danger) } },
-            dismissButton = { TextButton(onClick = { prompt = null }) { Text("Cancel") } },
+            confirmButton = { TextButton(onClick = { prompt = null; hostKey = p.actual; runTest(p.actual) }) { Text(stringResource(R.string.trust_new_key), color = colors.danger) } },
+            dismissButton = { TextButton(onClick = { prompt = null }) { Text(stringResource(R.string.cancel)) } },
         )
         null -> Unit
     }
     if (confirmDelete) {
         AlertDialog(
             onDismissRequest = { confirmDelete = false },
-            title = { Text("Delete ${initial.title()}?") },
-            text = { Text("Its saved key or password is removed from this phone.") },
-            confirmButton = { TextButton(onClick = { confirmDelete = false; model.editMachine = null; model.deleteMachine(initial.id) }) { Text("Delete", color = colors.danger) } },
-            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Cancel") } },
+            title = { Text(stringResource(R.string.delete_named, initial.title())) },
+            text = { Text(stringResource(R.string.delete_machine_body)) },
+            confirmButton = { TextButton(onClick = { confirmDelete = false; model.editMachine = null; model.deleteMachine(initial.id) }) { Text(stringResource(R.string.delete), color = colors.danger) } },
+            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text(stringResource(R.string.cancel)) } },
         )
     }
 }

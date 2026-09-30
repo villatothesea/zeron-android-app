@@ -206,4 +206,124 @@
     <string name="ago_minutes">%1$dm ago</string>
     <string name="ago_hours">%1$dh ago</string>
     <string name="ago_days">%1$dd ago</string>
+
+    <!-- Connection state (direct SSH link) and Connection Details -->
+    <string name="direct_connecting">connecting…</string>
+    <string name="direct_connected">connected</string>
+    <string name="direct_connected_version">connected · Zeron %1$s</string>
+    <string name="direct_syncing">connected · loading sessions…</string>
+    <string name="direct_not_connected">not connected</string>
+    <string name="retrying_in">Retrying in %1$ds</string>
+    <string name="retrying">Retrying…</string>
+    <string name="ok">OK</string>
+    <string name="banner_connecting">Connecting to %1$s…</string>
+    <string name="banner_syncing">Connected to %1$s · loading sessions…</string>
+    <string name="banner_cant_load">Can\'t load %1$s</string>
+    <string name="banner_skipped_title">Some sessions couldn\'t be read</string>
+    <plurals name="banner_skipped_detail">
+        <item quantity="one">%1$d row from Zeron %2$s was skipped. Tap Details.</item>
+        <item quantity="other">%1$d rows from Zeron %2$s were skipped. Tap Details.</item>
+    </plurals>
+    <string name="details">Details</string>
+    <string name="computers">Computers</string>
+    <string name="no_sessions_yet">No sessions yet</string>
+    <string name="no_sessions_on">No sessions on %1$s yet</string>
+    <string name="not_connected">Not connected</string>
+    <string name="loading_sessions_from">Loading sessions from %1$s…</string>
+    <string name="not_connected_machine">Not connected to a machine</string>
+    <string name="link_live">Live · synced</string>
+    <string name="link_syncing">Tunnel open · waiting for the workspace</string>
+    <string name="link_connecting">Connecting</string>
+    <string name="link_state">State</string>
+    <string name="link_engine">Zeron engine</string>
+    <string name="link_device">device %1$s</string>
+    <string name="link_not_reached">not reached yet</string>
+    <string name="link_last_error">Last error</string>
+    <string name="link_note">Note</string>
+    <string name="link_streams">Streams</string>
+    <plurals name="stream_frames">
+        <item quantity="one">%1$d frame</item>
+        <item quantity="other">%1$d frames</item>
+    </plurals>
+    <plurals name="stream_rows">
+        <item quantity="one">%1$d row</item>
+        <item quantity="other">%1$d rows</item>
+    </plurals>
+    <plurals name="stream_skipped">
+        <item quantity="other">%1$d skipped</item>
+    </plurals>
+    <plurals name="stream_repaired">
+        <item quantity="other">%1$d read with unknown values ignored</item>
+    </plurals>
+    <string name="stream_last">last %1$s</string>
+    <string name="link_on_phone">On this phone</string>
+    <plurals name="count_projects">
+        <item quantity="one">%1$d project</item>
+        <item quantity="other">%1$d projects</item>
+    </plurals>
+    <plurals name="count_recent">
+        <item quantity="other">%1$d recent</item>
+    </plurals>
+    <plurals name="count_archived">
+        <item quantity="other">%1$d archived</item>
+    </plurals>
+    <string name="link_log">Log</string>
+    <string name="not_signed_in_cloud">Not signed in to Zeron Cloud</string>
+    <string name="computer_removed">That computer was removed</string>
+
+    <!-- Accounts & Computers, add/edit computer -->
+    <string name="your_computers_ssh">Your computers (SSH)</string>
+    <string name="not_verified_yet">not verified yet</string>
+    <string name="add_a_computer">Add a computer</string>
+    <string name="add_computer_first_sub">Connect straight to Zeron on your PC over SSH: no cloud account needed.</string>
+    <string name="connect_over_ssh">Connect over SSH</string>
+    <string name="other_workspaces">Other workspaces</string>
+    <string name="cloud_sub">Your Zeron account, through the relay</string>
+    <string name="demo">Demo</string>
+    <string name="demo_sub">Offline sample workspace</string>
+    <string name="phone_ssh_key">This phone\'s SSH key</string>
+    <string name="copy_public_key">Copy public key</string>
+    <string name="public_key_copied">Public key copied</string>
+    <string name="phone_key_hint">Add it to administrators_authorized_keys on Windows (see docs/ssh-direct.md).</string>
+    <string name="test_ok">Connected · Zeron %1$s answered in %2$d ms</string>
+    <string name="engine">engine</string>
+    <string name="host_key_changed_bang">The host key changed!</string>
+    <string name="couldnt_connect">Couldn\'t connect</string>
+    <string name="edit_computer">Edit Computer</string>
+    <string name="add_computer">Add Computer</string>
+    <string name="computer">Computer</string>
+    <string name="field_name">Name</string>
+    <string name="name_hint">My PC</string>
+    <string name="field_host">Host</string>
+    <string name="host_hint">192.168.1.20 or pc.local</string>
+    <string name="ssh_port">SSH port</string>
+    <string name="zeron_port">Zeron port</string>
+    <string name="field_user">User</string>
+    <string name="user_hint">Windows user name</string>
+    <string name="sign_in_with">Sign in with</string>
+    <string name="auth_phone">This phone\'s key</string>
+    <string name="auth_import">Import key</string>
+    <string name="auth_password">Password</string>
+    <string name="public_key_line_hint">Public key: add this line to the machine\'s authorized keys</string>
+    <string name="private_key">Private key</string>
+    <string name="saved_paste_replace">Saved (paste to replace)</string>
+    <string name="saved_type_replace">Saved (type to replace)</string>
+    <string name="connection">Connection</string>
+    <string name="host_key_value">Host key: %1$s</string>
+    <string name="host_key_unverified">Host key not verified yet: Test to see it and trust it.</string>
+    <string name="testing">Testing…</string>
+    <string name="test">Test</string>
+    <string name="save_connect">Save &amp; Connect</string>
+    <string name="delete_machine">Delete Machine</string>
+    <string name="trust_machine_title">Trust this machine?</string>
+    <string name="trust_first">First connection to %1$s:%2$s. Check that the fingerprint matches the machine before trusting it.</string>
+    <string name="windows_fingerprint_hint">On Windows: ssh-keygen -lf C:\\ProgramData\\ssh\\ssh_host_ed25519_key.pub</string>
+    <string name="trust">Trust</string>
+    <string name="host_key_changed">Host key changed</string>
+    <string name="host_key_changed_body">The machine presented a different key than the one you trusted. This happens after reinstalling OpenSSH, but it can also mean someone is intercepting the connection.</string>
+    <string name="host_key_trusted">Trusted: %1$s</string>
+    <string name="host_key_now">Now: %1$s</string>
+    <string name="trust_new_key">Trust new key</string>
+    <string name="delete_named">Delete %1$s?</string>
+    <string name="delete_machine_body">Its saved key or password is removed from this phone.</string>
 </resources>

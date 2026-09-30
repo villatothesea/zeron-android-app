@@ -74,10 +74,10 @@ object CoreConnect {
     /** Credentials for [workspace]; throws [Unavailable] when it no longer exists. */
     fun credentials(context: Context, workspace: String): Credentials = when (workspace) {
         DEMO -> demoCredentials()
-        CLOUD -> storedCredentials(context) ?: throw Unavailable("Not signed in to Zeron Cloud")
+        CLOUD -> storedCredentials(context) ?: throw Unavailable(AppLanguage.string(context, sh.zeron.android.R.string.not_signed_in_cloud))
         else -> {
             val store = MachineStore(context)
-            val machine = store.list().firstOrNull { it.id == workspace } ?: throw Unavailable("That computer was removed")
+            val machine = store.list().firstOrNull { it.id == workspace } ?: throw Unavailable(AppLanguage.string(context, sh.zeron.android.R.string.computer_removed))
             Credentials.Direct(store.target(machine))
         }
     }

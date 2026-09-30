@@ -206,4 +206,120 @@
     <string name="ago_minutes">%1$d分钟前</string>
     <string name="ago_hours">%1$d小时前</string>
     <string name="ago_days">%1$d天前</string>
+
+    <!-- Connection state (direct SSH link) and Connection Details -->
+    <string name="direct_connecting">正在连接…</string>
+    <string name="direct_connected">已连接</string>
+    <string name="direct_connected_version">已连接 · Zeron %1$s</string>
+    <string name="direct_syncing">已连接 · 正在加载会话…</string>
+    <string name="direct_not_connected">未连接</string>
+    <string name="retrying_in">%1$d秒后重试</string>
+    <string name="retrying">正在重试…</string>
+    <string name="ok">好</string>
+    <string name="banner_connecting">正在连接 %1$s…</string>
+    <string name="banner_syncing">已连接 %1$s · 正在加载会话…</string>
+    <string name="banner_cant_load">无法加载 %1$s</string>
+    <string name="banner_skipped_title">部分会话无法读取</string>
+    <plurals name="banner_skipped_detail">
+        <item quantity="other">已跳过来自 Zeron %2$s 的 %1$d 行。轻点“详情”查看。</item>
+    </plurals>
+    <string name="details">详情</string>
+    <string name="computers">电脑</string>
+    <string name="no_sessions_yet">暂无会话</string>
+    <string name="no_sessions_on">%1$s 上暂无会话</string>
+    <string name="not_connected">未连接</string>
+    <string name="loading_sessions_from">正在从 %1$s 加载会话…</string>
+    <string name="not_connected_machine">未连接到电脑</string>
+    <string name="link_live">在线 · 已同步</string>
+    <string name="link_syncing">隧道已打开 · 等待工作区</string>
+    <string name="link_connecting">正在连接</string>
+    <string name="link_state">状态</string>
+    <string name="link_engine">Zeron 引擎</string>
+    <string name="link_device">设备 %1$s</string>
+    <string name="link_not_reached">尚未连通</string>
+    <string name="link_last_error">最近错误</string>
+    <string name="link_note">备注</string>
+    <string name="link_streams">数据流</string>
+    <plurals name="stream_frames">
+        <item quantity="other">%1$d 帧</item>
+    </plurals>
+    <plurals name="stream_rows">
+        <item quantity="other">%1$d 行</item>
+    </plurals>
+    <plurals name="stream_skipped">
+        <item quantity="other">跳过 %1$d 行</item>
+    </plurals>
+    <plurals name="stream_repaired">
+        <item quantity="other">%1$d 行忽略了未知值</item>
+    </plurals>
+    <string name="stream_last">最近 %1$s</string>
+    <string name="link_on_phone">本机数据</string>
+    <plurals name="count_projects">
+        <item quantity="other">%1$d 个项目</item>
+    </plurals>
+    <plurals name="count_recent">
+        <item quantity="other">%1$d 个最近</item>
+    </plurals>
+    <plurals name="count_archived">
+        <item quantity="other">%1$d 个已归档</item>
+    </plurals>
+    <string name="link_log">日志</string>
+    <string name="not_signed_in_cloud">未登录 Zeron Cloud</string>
+    <string name="computer_removed">该电脑已被移除</string>
+
+    <!-- Accounts & Computers, add/edit computer -->
+    <string name="your_computers_ssh">你的电脑（SSH）</string>
+    <string name="not_verified_yet">尚未验证</string>
+    <string name="add_a_computer">添加电脑</string>
+    <string name="add_computer_first_sub">通过 SSH 直接连接电脑上的 Zeron，无需云账户。</string>
+    <string name="connect_over_ssh">通过 SSH 连接</string>
+    <string name="other_workspaces">其他工作区</string>
+    <string name="cloud_sub">你的 Zeron 账户，经中继连接</string>
+    <string name="demo">演示</string>
+    <string name="demo_sub">离线示例工作区</string>
+    <string name="phone_ssh_key">本机 SSH 密钥</string>
+    <string name="copy_public_key">复制公钥</string>
+    <string name="public_key_copied">已复制公钥</string>
+    <string name="phone_key_hint">在 Windows 上将其添加到 administrators_authorized_keys（见 docs/ssh-direct.md）。</string>
+    <string name="test_ok">已连接 · Zeron %1$s 响应用时 %2$d ms</string>
+    <string name="engine">引擎</string>
+    <string name="host_key_changed_bang">主机密钥已变更！</string>
+    <string name="couldnt_connect">无法连接</string>
+    <string name="edit_computer">编辑电脑</string>
+    <string name="add_computer">添加电脑</string>
+    <string name="computer">电脑</string>
+    <string name="field_name">名称</string>
+    <string name="name_hint">我的电脑</string>
+    <string name="field_host">主机</string>
+    <string name="host_hint">192.168.1.20 或 pc.local</string>
+    <string name="ssh_port">SSH 端口</string>
+    <string name="zeron_port">Zeron 端口</string>
+    <string name="field_user">用户名</string>
+    <string name="user_hint">Windows 用户名</string>
+    <string name="sign_in_with">登录方式</string>
+    <string name="auth_phone">本机密钥</string>
+    <string name="auth_import">导入密钥</string>
+    <string name="auth_password">密码</string>
+    <string name="public_key_line_hint">公钥：将此行添加到该电脑的 authorized_keys</string>
+    <string name="private_key">私钥</string>
+    <string name="saved_paste_replace">已保存（粘贴以替换）</string>
+    <string name="saved_type_replace">已保存（输入以替换）</string>
+    <string name="connection">连接</string>
+    <string name="host_key_value">主机密钥：%1$s</string>
+    <string name="host_key_unverified">尚未验证主机密钥：轻点“测试”查看并信任。</string>
+    <string name="testing">正在测试…</string>
+    <string name="test">测试</string>
+    <string name="save_connect">保存并连接</string>
+    <string name="delete_machine">删除电脑</string>
+    <string name="trust_machine_title">信任这台电脑吗？</string>
+    <string name="trust_first">首次连接 %1$s:%2$s。请先确认指纹与该电脑一致，再信任。</string>
+    <string name="windows_fingerprint_hint">Windows 上：ssh-keygen -lf C:\\ProgramData\\ssh\\ssh_host_ed25519_key.pub</string>
+    <string name="trust">信任</string>
+    <string name="host_key_changed">主机密钥已变更</string>
+    <string name="host_key_changed_body">这台电脑提供的密钥与你之前信任的不同。重装 OpenSSH 后会出现这种情况，但也可能意味着有人正在拦截连接。</string>
+    <string name="host_key_trusted">已信任：%1$s</string>
+    <string name="host_key_now">当前：%1$s</string>
+    <string name="trust_new_key">信任新密钥</string>
+    <string name="delete_named">删除“%1$s”？</string>
+    <string name="delete_machine_body">其保存的密钥或密码将从此手机中移除。</string>
 </resources>
