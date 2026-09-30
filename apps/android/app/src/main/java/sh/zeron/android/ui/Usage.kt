@@ -105,7 +105,7 @@ internal fun UsageSheet(
                 .padding(12.dp)
                 // Solid (not glass): meters over moving transcript text read poorly.
                 .clip(RoundedCornerShape(28.dp))
-                .background(if (colors.dark) Color(0xFF1C1C1E) else Color.White)
+                .background(colors.sheet)
                 .clickable(interactionSource = none, indication = null) {}
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp, vertical = 18.dp),

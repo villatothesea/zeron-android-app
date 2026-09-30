@@ -36,6 +36,17 @@ data class ZeronColors(
     val failed: Color,
     val done: Color,
     val time: Color,
+    /** The theme's syntax colors; null = the built-in Zeron mapping below. */
+    val syntax: ThemeSyntax? = null,
+    /** Spinner tints (AccentRoles.glyph: light, primary, deep). */
+    val glyph: List<Color> = emptyList(),
+    /** "Undo" on the inverted toast (reads on [text]). */
+    val undoTint: Color = accent,
+    val themeId: String = "",
+    /** Front page backdrop (the desktop's shell surface in dark; the page in light). */
+    val shell: Color = background,
+    /** Solid bottom sheets and dialogs. */
+    val sheet: Color = if (dark) Color(0xFF1C1C1E) else Color.White,
 ) {
     fun of(role: ColorRole): Color = when (role) {
         ColorRole.TEXT -> text
@@ -57,17 +68,19 @@ data class ZeronColors(
         ColorRole.TABLE_HEADER_BACKGROUND -> if (dark) Color(0xFF121215) else Color(0xFFF3F3F5)
         ColorRole.USER_BUBBLE -> userBubble
         ColorRole.CHIP_BACKGROUND -> chip
-        ColorRole.SYNTAX_KEYWORD -> accent
-        ColorRole.SYNTAX_STRING -> success
-        ColorRole.SYNTAX_COMMENT -> if (dark) Color(0xFF92929A) else Color(0xFF6B7280)
-        ColorRole.SYNTAX_NUMBER, ColorRole.SYNTAX_CONSTANT -> warning
-        ColorRole.SYNTAX_FUNCTION -> if (dark) Color(0xFF60A5FA) else Color(0xFF2563EB)
-        ColorRole.SYNTAX_TYPE -> if (dark) Color(0xFFC084FC) else Color(0xFF7E22CE)
-        ColorRole.SYNTAX_VARIABLE -> if (dark) Color(0xFFE8E8EA) else Color(0xFF303035)
-        ColorRole.SYNTAX_PROPERTY, ColorRole.SYNTAX_ESCAPE -> if (dark) Color(0xFF22D3EE) else Color(0xFF0E7490)
-        ColorRole.SYNTAX_OPERATOR, ColorRole.SYNTAX_PUNCTUATION -> if (dark) Color(0xFFA1A1AA) else Color(0xFF52525B)
-        ColorRole.SYNTAX_TAG -> if (dark) Color(0xFFF472B6) else Color(0xFFBE185D)
-        ColorRole.SYNTAX_ATTRIBUTE -> if (dark) Color(0xFFF87171) else Color(0xFFB91C1C)
+        ColorRole.SYNTAX_KEYWORD -> syntax?.keyword ?: accent
+        ColorRole.SYNTAX_STRING -> syntax?.string ?: success
+        ColorRole.SYNTAX_COMMENT -> syntax?.comment ?: if (dark) Color(0xFF92929A) else Color(0xFF6B7280)
+        ColorRole.SYNTAX_NUMBER, ColorRole.SYNTAX_CONSTANT -> syntax?.number ?: warning
+        ColorRole.SYNTAX_FUNCTION -> syntax?.function ?: if (dark) Color(0xFF60A5FA) else Color(0xFF2563EB)
+        ColorRole.SYNTAX_TYPE -> syntax?.type ?: if (dark) Color(0xFFC084FC) else Color(0xFF7E22CE)
+        ColorRole.SYNTAX_VARIABLE -> syntax?.variable ?: if (dark) Color(0xFFE8E8EA) else Color(0xFF303035)
+        ColorRole.SYNTAX_PROPERTY -> syntax?.property ?: if (dark) Color(0xFF22D3EE) else Color(0xFF0E7490)
+        ColorRole.SYNTAX_ESCAPE -> syntax?.attribute ?: if (dark) Color(0xFF22D3EE) else Color(0xFF0E7490)
+        ColorRole.SYNTAX_OPERATOR -> syntax?.keyword ?: if (dark) Color(0xFFA1A1AA) else Color(0xFF52525B)
+        ColorRole.SYNTAX_PUNCTUATION -> syntax?.punctuation ?: if (dark) Color(0xFFA1A1AA) else Color(0xFF52525B)
+        ColorRole.SYNTAX_TAG -> syntax?.tag ?: if (dark) Color(0xFFF472B6) else Color(0xFFBE185D)
+        ColorRole.SYNTAX_ATTRIBUTE -> syntax?.attribute ?: if (dark) Color(0xFFF87171) else Color(0xFFB91C1C)
         ColorRole.TEXT_FAINT -> if (dark) Color(0xFF85858A) else Color(0xFF797981)
         ColorRole.TEXT_SOFT -> text.copy(alpha = 0.85f)
         ColorRole.TOOL_RAIL -> if (dark) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.162f)
@@ -127,6 +140,9 @@ val ZeronLight = ZeronColors(
     failed = Color(0xFFDC2626).copy(alpha = 0.65f),
     done = Color(0xFF15803D).copy(alpha = 0.9f),
     time = Color(0xFF62626A).copy(alpha = 0.5f),
+    glyph = listOf(Color(0xFF7965EC), Color(0xFF5B43E8), Color(0xFF4332AC)),
+    undoTint = Color(0xFFB4A8FF),
+    themeId = "zeron-light",
 )
 
 val ZeronDark = ZeronColors(
@@ -155,6 +171,10 @@ val ZeronDark = ZeronColors(
     failed = Color(0xFFF87171).copy(alpha = 0.65f),
     done = Color(0xFF34D399).copy(alpha = 0.9f),
     time = Color(0xFFA9A9AE).copy(alpha = 0.5f),
+    glyph = listOf(Color(0xFFABA1F9), Color(0xFF8B7CF6), Color(0xFF7266CA)),
+    undoTint = Color(0xFF5B43E8),
+    themeId = "zeron-dark",
+    shell = Color(0xFF0D0D0D),
 )
 
 val LocalZeronColors = staticCompositionLocalOf { ZeronLight }

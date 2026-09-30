@@ -76,8 +76,6 @@ fun StatusMark(kind: MarkKind, colors: ZeronColors, modifier: Modifier = Modifie
     }
 }
 
-private val glyphTintsLight = listOf(Color(0xFF7965EC), Color(0xFF5B43E8), Color(0xFF4332AC))
-private val glyphTintsDark = listOf(Color(0xFFABA1F9), Color(0xFF8B7CF6), Color(0xFF7266CA))
 private val trailerTints = listOf(Color(0xFFB6D3EF), Color(0xFFEDB185), Color(0xFFF888A0))
 private val ring = arrayOf(intArrayOf(0, 1), intArrayOf(5, 2), intArrayOf(4, 3))
 
@@ -90,7 +88,7 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawGrid(spinner: B
     val gridH = d * rows + gap * (rows - 1)
     val ox = center.x - gridW / 2f
     val oy = center.y - gridH / 2f
-    val tints = if (spinner) (if (colors.dark) glyphTintsDark else glyphTintsLight) else trailerTints
+    val tints = if (spinner) colors.glyph else trailerTints
     for (i in 0 until cols * rows) {
         val row = i / cols
         val col = i % cols

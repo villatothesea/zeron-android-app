@@ -145,7 +145,7 @@ internal fun ScheduleSendDialog(
             Modifier
                 .widthIn(max = 400.dp)
                 .clip(RoundedCornerShape(28.dp))
-                .background(if (colors.dark) Color(0xFF1C1C1E) else Color.White)
+                .background(colors.sheet)
                 .padding(horizontal = 20.dp, vertical = 18.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {

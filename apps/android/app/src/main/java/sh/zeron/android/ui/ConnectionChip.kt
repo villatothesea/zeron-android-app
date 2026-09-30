@@ -153,7 +153,7 @@ internal fun BottomSheetFrame(colors: ZeronColors, onDismiss: () -> Unit, tag: S
                     .windowInsetsPadding(WindowInsets.navigationBars)
                     .padding(12.dp)
                     .clip(RoundedCornerShape(28.dp))
-                    .background(if (colors.dark) Color(0xFF1C1C1E) else Color.White)
+                    .background(colors.sheet)
                     .clickable(interactionSource = none, indication = null) {}
                     .then(if (tag != null) Modifier.testTag(tag) else Modifier)
                     .heightIn(max = 620.dp)

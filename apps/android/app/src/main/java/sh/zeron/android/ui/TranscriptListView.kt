@@ -589,10 +589,8 @@ class TranscriptListView(context: Context) : View(context) {
         val gridH = d * rows + gap * (rows - 1)
         val ox = x + w / 2f - gridW / 2f
         val oy = y + h / 2f - gridH / 2f
-        val light = !colors.dark
         val tints = if (!trailer) {
-            if (light) intArrayOf(0xFF7965EC.toInt(), 0xFF5B43E8.toInt(), 0xFF4332AC.toInt())
-            else intArrayOf(0xFFABA1F9.toInt(), 0xFF8B7CF6.toInt(), 0xFF7266CA.toInt())
+            colors.glyph.map { it.toArgb() }.toIntArray()
         } else intArrayOf(0xFFB6D3EF.toInt(), 0xFFEDB185.toInt(), 0xFFF888A0.toInt())
         val ring = arrayOf(intArrayOf(0, 1), intArrayOf(5, 2), intArrayOf(4, 3))
         val paint = Paint(Paint.ANTI_ALIAS_FLAG)
