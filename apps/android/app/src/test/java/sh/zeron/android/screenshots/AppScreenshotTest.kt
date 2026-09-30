@@ -80,7 +80,15 @@ class AppScreenshotTest {
         model.applyListMode(ZeronModel.ListMode.Activity)
         settle()
         capture("01b-home-by-activity.png")
+
+        // The same two views in light mode.
+        model.applyAppearance(1)
+        settle()
+        capture("01d-home-by-activity-light.png")
         model.applyListMode(ZeronModel.ListMode.Project)
+        settle()
+        capture("01c-home-by-project-light.png")
+        model.applyAppearance(2)
         settle()
 
         val chat = pickChat(model)
