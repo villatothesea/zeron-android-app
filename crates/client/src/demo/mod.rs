@@ -1064,6 +1064,22 @@ impl DemoHost {
             "/Users/dev/Projects/blog" => &["content", "public"],
             "/srv" => &["backups", "deploys"],
             "/srv/deploys" => &["edge", "landing"],
+            "/Users/dev/zeron" => &["apps", "crates", "docs", "scripts"],
+            _ => &[],
+        };
+        // Files, listed after the folders like the engine does (the folder
+        // browser hides them; the composer's file picker shows them).
+        let files: &[&str] = match path.as_str() {
+            "/Users/dev" => &["todo.md"],
+            "/Users/dev/zeron" => &[
+                "Cargo.lock",
+                "Cargo.toml",
+                "CHANGELOG.md",
+                "README.md",
+                "rustfmt.toml",
+            ],
+            "/Users/dev/zeron/docs" => &["chat2-sync.md", "feature-inventory.md", "release.md"],
+            "/Users/dev/Documents" => &["invoice-2026-09.pdf"],
             _ => &[],
         };
         const REPOS: &[&str] = &[
@@ -1084,6 +1100,11 @@ impl DemoHost {
                     is_dir: true,
                     is_repo: REPOS.contains(name),
                 })
+                .chain(files.iter().map(|name| FolderEntry {
+                    name: (*name).into(),
+                    is_dir: false,
+                    is_repo: false,
+                }))
                 .collect(),
             truncated: false,
         })
