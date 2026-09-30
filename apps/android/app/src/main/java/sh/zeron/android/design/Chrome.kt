@@ -18,6 +18,9 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.foundation.layout.size
 import androidx.compose.ui.Alignment
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -45,6 +48,7 @@ import androidx.compose.ui.unit.dp
 import com.caverock.androidsvg.SVG
 import kotlin.math.abs
 import kotlin.math.roundToInt
+import androidx.compose.ui.graphics.asAndroidPath
 
 @Composable
 fun StatusMark(kind: MarkKind, colors: ZeronColors, modifier: Modifier = Modifier.size(12.dp)) {
@@ -207,19 +211,27 @@ fun TileBesideLabel(
     }
 }
 
+/**
+ * An agent's mark in a [size] square. With [fitInk] (the default) the
+ * artwork's own ink bounds, not its viewBox, are fitted and centred, so
+ * every mark fills the slot the same way: the viewBoxes pad unevenly (Pi's
+ * π used 60% of its 800×800 box, Antigravity and Grok 93–97%, the rest the
+ * full height), which made some marks small and others sit off-centre.
+ */
 @Composable
-fun BrandMark(harness: String?, colors: ZeronColors, size: Dp, modifier: Modifier = Modifier) {
+fun BrandMark(harness: String?, colors: ZeronColors, size: Dp, modifier: Modifier = Modifier, fitInk: Boolean = true) {
     val context = LocalContext.current
     val spec = remember(harness) { BrandLibrary.load(context, markFile(harness)) }
     val tint = colors.brandTint(harness)
     Canvas(modifier.size(size)) {
         val s = spec ?: return@Canvas
-        // Aspect-fit and centre: the marks' viewBoxes aren't square (Devin is
-        // 263×300, Cursor 467×532, OpenCode 24×30), and scaling x and y
-        // separately stretched them wide in the square slot.
-        val k = minOf(this.size.width / s.w, this.size.height / s.h)
-        val dx = (this.size.width - s.w * k) / 2f
-        val dy = (this.size.height - s.h * k) / 2f
+        // Aspect-fit and centre: the marks aren't square (Devin is 263×300,
+        // Cursor 467×532, OpenCode 24×30), and scaling x and y separately
+        // stretched them wide in the square slot.
+        val box = if (fitInk) s.ink else Rect(0f, 0f, s.w, s.h)
+        val k = minOf(this.size.width / box.width, this.size.height / box.height)
+        val dx = (this.size.width - box.width * k) / 2f - box.left * k
+        val dy = (this.size.height - box.height * k) / 2f - box.top * k
         withTransform({
             translate(dx, dy)
             scale(k, k, pivot = Offset.Zero)
@@ -229,7 +241,86 @@ fun BrandMark(harness: String?, colors: ZeronColors, size: Dp, modifier: Modifie
     }
 }
 
-private data class BrandSpec(val w: Float, val h: Float, val path: Path)
+/**
+ * Where a mark beside a title line should be centred, in px from the top
+ * of the line's [lineHeight] box: halfway between the centre of the caps and
+ * the centre of the x-height above the baseline. Titles are sentence case
+ * (a capital, then mostly lowercase), so the line box centre, which sits
+ * on the caps' centre, reads as too high next to the lowercase run, and
+ * the x-height centre alone would drop the mark below the leading capital.
+ */
+@Composable
+fun rememberTitleOpticalCenter(fontSize: androidx.compose.ui.unit.TextUnit, weight: androidx.compose.ui.text.font.FontWeight, lineHeight: Dp): Float {
+    val context = LocalContext.current
+    val density = LocalDensity.current
+    val measurer = androidx.compose.ui.text.rememberTextMeasurer()
+    return remember(fontSize, weight, lineHeight, density) {
+        val style = androidx.compose.ui.text.TextStyle(fontFamily = ZeronType.Sans, fontWeight = weight, fontSize = fontSize)
+        val layout = measurer.measure("Hx", style, maxLines = 1)
+        val boxPx = with(density) { lineHeight.roundToPx() }
+        // Row(verticalAlignment = CenterVertically) rounds the free space.
+        val top = ((boxPx - layout.size.height) / 2f).roundToInt()
+        val baseline = top + layout.firstBaseline
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            typeface = FontChain.face(context, if (weight >= androidx.compose.ui.text.font.FontWeight.SemiBold) uniffi.zeron_core.FaceRole.SANS_SEMIBOLD else if (weight >= androidx.compose.ui.text.font.FontWeight.Medium) uniffi.zeron_core.FaceRole.SANS_MEDIUM else uniffi.zeron_core.FaceRole.SANS)
+            textSize = with(density) { fontSize.toPx() }
+        }
+        val r = android.graphics.Rect()
+        paint.getTextBounds("H", 0, 1, r)
+        val cap = r.height().toFloat()
+        paint.getTextBounds("x", 0, 1, r)
+        val x = r.height().toFloat()
+        baseline - (cap + x) / 4f
+    }
+}
+
+/**
+ * An agent mark beside a title line that starts [lineTop] into its parent
+ * and is [lineHeight] tall: [mark] of ink in a [slot]-wide column, centred
+ * on the title's optical centre ([rememberTitleOpticalCenter]). Place it
+ * with `Alignment.Top` in the row.
+ */
+@Composable
+fun TitleLineMark(
+    harness: String?,
+    colors: ZeronColors,
+    fontSize: androidx.compose.ui.unit.TextUnit,
+    weight: androidx.compose.ui.text.font.FontWeight,
+    lineTop: Dp,
+    lineHeight: Dp,
+    modifier: Modifier = Modifier,
+    slot: Dp = 20.dp,
+    mark: Dp = 18.dp,
+) {
+    val density = LocalDensity.current
+    val center = rememberTitleOpticalCenter(fontSize, weight, lineHeight)
+    val top = with(density) { (lineTop.roundToPx() + center - mark.toPx() / 2f).toDp() }
+    Box(modifier.width(slot).padding(top = top), contentAlignment = Alignment.TopCenter) {
+        BrandMark(harness, colors, mark)
+    }
+}
+
+/**
+ * The tight bounds of [path]'s outline: points on the flattened curves,
+ * not the Bézier control points that `Path.getBounds` also counts (which
+ * padded Grok's and Antigravity's round shapes by up to 12%).
+ */
+private fun inkBounds(path: Path, tolerance: Float): Rect {
+    val pts = path.asAndroidPath().approximate(tolerance)
+    var l = Float.MAX_VALUE; var t = Float.MAX_VALUE; var r = -Float.MAX_VALUE; var b = -Float.MAX_VALUE
+    var i = 0
+    while (i + 2 < pts.size) {
+        val x = pts[i + 1]; val y = pts[i + 2]
+        if (x < l) l = x
+        if (x > r) r = x
+        if (y < t) t = y
+        if (y > b) b = y
+        i += 3
+    }
+    return if (l <= r && t <= b) Rect(l, t, r, b) else Rect.Zero
+}
+
+private data class BrandSpec(val w: Float, val h: Float, val path: Path, val ink: Rect)
 
 private object BrandLibrary {
     private val cache = HashMap<String, BrandSpec?>()
@@ -246,7 +337,9 @@ private object BrandLibrary {
             val path = PathParser().parsePathString(text.substring(nl + 1).trim()).toPath().apply {
                 fillType = if (even) PathFillType.EvenOdd else PathFillType.NonZero
             }
-            BrandSpec(w, h, path)
+            // Ink bounds; a degenerate path falls back to the viewBox.
+            val ink = inkBounds(path, maxOf(w, h) / 2000f).takeIf { it.width > 0f && it.height > 0f } ?: Rect(0f, 0f, w, h)
+            BrandSpec(w, h, path, ink)
         }.getOrNull()
         cache[name] = spec
         return spec

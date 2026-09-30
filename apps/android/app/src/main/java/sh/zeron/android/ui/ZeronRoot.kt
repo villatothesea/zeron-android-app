@@ -104,6 +104,7 @@ import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import sh.zeron.android.design.BrandMark
+import sh.zeron.android.design.TitleLineMark
 import sh.zeron.android.design.ChevronMark
 import sh.zeron.android.design.EllipsisMark
 import sh.zeron.android.design.LocalZeronColors
@@ -773,14 +774,19 @@ private fun SessionRowView(
                 )
                 Text(timeLabel, color = colors.time, fontFamily = ZeronType.Sans, fontSize = 13.sp)
             } else {
-                // iOS SessionCell: the agent mark is centred on the title line;
+                // iOS SessionCell: the agent mark beside the title line;
                 // line 1 is title + status-or-time, line 2 is tile + project ·
                 // branch + PR badge.
-                BrandMark(
+                // 18dp of ink in the 20dp column, centred between the title's
+                // cap and x-height centres (the line box centre read high).
+                TitleLineMark(
                     row.harness ?: "claude-code",
                     colors,
-                    20.dp,
-                    Modifier.align(Alignment.Top).padding(top = 11.dp),
+                    fontSize = 16.5.sp,
+                    weight = FontWeight.Medium,
+                    lineTop = 10.dp,
+                    lineHeight = 22.dp,
+                    modifier = Modifier.align(Alignment.Top),
                 )
                 Spacer(Modifier.width(14.dp))
                 Column(Modifier.weight(1f).align(Alignment.Top).padding(top = 10.dp)) {
