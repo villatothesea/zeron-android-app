@@ -615,4 +615,16 @@
     <string name="crash_logs_empty">No crashes recorded.</string>
     <string name="crash_logs_clear">Clear</string>
     <string name="crash_logs_clear_confirm">Clear all crash logs?</string>
+    <string name="home_stats_idle">Idle</string>
+    <string name="home_stats_a11y">%1$s: %2$s</string>
+    <string name="home_stats_separator">, </string>
+    <string name="home_stats_open">Show running and failed sessions</string>
+    <plurals name="home_stats_running">
+        <item quantity="one">%1$d running</item>
+        <item quantity="other">%1$d running</item>
+    </plurals>
+    <plurals name="home_stats_failed">
+        <item quantity="one">%1$d failed</item>
+        <item quantity="other">%1$d failed</item>
+    </plurals>
 </resources>

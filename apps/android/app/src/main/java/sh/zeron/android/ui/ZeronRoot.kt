@@ -419,6 +419,8 @@ private fun SessionsScreen(model: ZeronModel, colors: ZeronColors, onPrompt: (Pr
     val front = model.workspace?.front
     var menu by remember { mutableStateOf(false) }
     var menuAnchor by remember { mutableStateOf(androidx.compose.ui.geometry.Rect.Zero) }
+    var statsOpen by remember { mutableStateOf(false) }
+    var statsAnchor by remember { mutableStateOf(androidx.compose.ui.geometry.Rect.Zero) }
     var refreshing by remember { mutableStateOf(false) }
     val refreshScope = rememberCoroutineScope()
     val mode = model.listMode
@@ -546,7 +548,7 @@ private fun SessionsScreen(model: ZeronModel, colors: ZeronColors, onPrompt: (Pr
         }
         // Solid band behind the status bar and the floating capsules, then a
         // fade: rows scrolling up dissolve a gap below the header instead of
-        // running under "Sessions" and the buttons (like the chat's top edge).
+        // running under the counts capsule and the buttons (like the chat's top edge).
         val band = colors.shell
         Column(Modifier.fillMaxWidth()) {
             Box(Modifier.fillMaxWidth().height(headerBottom).background(band))
@@ -556,17 +558,19 @@ private fun SessionsScreen(model: ZeronModel, colors: ZeronColors, onPrompt: (Pr
             Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 16.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                stringResource(R.string.sessions),
-                color = colors.text,
-                fontFamily = ZeronType.Sans,
-                fontWeight = FontWeight.Bold,
-                fontSize = 28.sp,
-                maxLines = 1,
+            // Running / failed counts in place of the old "Sessions" title (it
+            // stays the heading for TalkBack); tap for the sessions themselves.
+            val stats = HomeStats.of(model.workspace)
+            HomeStatsCapsule(
+                stats.running.size,
+                stats.failed.size,
+                colors,
+                Modifier.onGloballyPositioned { statsAnchor = it.boundsInRoot() },
+                onOpen = { statsOpen = true },
             )
-            Spacer(Modifier.width(6.dp))
+            Spacer(Modifier.width(4.dp))
             // Current computer + link state; takes what's left between the
-            // title and the capsule, and ellipsizes rather than pushing it.
+            // counts and the capsule, and ellipsizes rather than pushing it.
             Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
                 ConnectionChip(model, colors, Modifier.weight(1f, fill = false))
                 if (model.updateBadge != null) {
@@ -594,6 +598,20 @@ private fun SessionsScreen(model: ZeronModel, colors: ZeronColors, onPrompt: (Pr
                     // (A newer release shows as the badge beside the computer chip.)
                     ProfileMark(colors.text, Modifier.size(28.dp))
                 }
+            }
+        }
+        if (statsOpen) {
+            val stats = HomeStats.of(model.workspace)
+            // Everything finished while it was open: nothing left to list.
+            LaunchedEffect(stats.idle) { if (stats.idle) statsOpen = false }
+            if (!stats.idle) {
+                AnchoredMenu(
+                    colors,
+                    statsAnchor,
+                    title = null,
+                    entries = homeStatsEntries(stats, colors) { id -> model.openSession(id) },
+                    above = false,
+                ) { statsOpen = false }
             }
         }
         if (menu) {
