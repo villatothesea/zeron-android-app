@@ -93,14 +93,16 @@ fun MenuPanel(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 6.dp, bottom = 6.dp),
             )
-            HorizontalDivider(color = colors.hairline, modifier = Modifier.padding(bottom = 2.dp))
+            MenuDivider(colors, Modifier.padding(bottom = 2.dp))
         }
         if (loading && entries.isEmpty()) {
             Text(stringResource(R.string.loading), color = colors.tertiary, fontFamily = ZeronType.Sans, fontSize = 16.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp))
         }
         entries.forEachIndexed { index, entry ->
             if (entry.header) {
-                if (index > 0 || !title.isNullOrBlank()) HorizontalDivider(color = colors.hairline, thickness = 6.dp, modifier = Modifier.padding(vertical = 2.dp))
+                // A section is set off by the same hairline as the title (the
+                // title's own line already separates a leading section).
+                if (index > 0) MenuDivider(colors, Modifier.padding(vertical = 4.dp))
                 if (entry.title.isNotBlank()) {
                     Text(
                         entry.title,
@@ -144,6 +146,15 @@ fun MenuPanel(
             }
         }
     }
+}
+
+/**
+ * The one separator for menus, popups and sheets: a thin hairline, never a
+ * thick group bar.
+ */
+@Composable
+fun MenuDivider(colors: ZeronColors, modifier: Modifier = Modifier) {
+    HorizontalDivider(color = colors.hairline, thickness = 0.5.dp, modifier = modifier)
 }
 
 /**
