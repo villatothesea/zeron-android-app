@@ -503,4 +503,12 @@
     <string name="sched_new_session_title">新会话 · %1$s</string>
     <string name="sched_new_home_title">定时新会话 · %1$s</string>
     <string name="sched_new_toast">已定时 %1$s 开始新会话</string>
+
+    <!-- Themes and accent colors (desktop names) -->
+    <string name="theme_light">浅色主题</string>
+    <string name="theme_dark">深色主题</string>
+    <string name="theme_light_sub">应用处于浅色外观时使用。</string>
+    <string name="theme_dark_sub">应用处于深色外观时使用。</string>
+    <string name="accent_color">强调色</string>
+    <string name="accent_theme_default">跟随主题</string>
 </resources>

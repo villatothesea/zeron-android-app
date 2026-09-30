@@ -169,7 +169,7 @@ open class ConnectionScreenshotTest {
             model.downloadedApk = null
             model.tab = ZeronModel.Tab.Settings
             settle()
-            compose.onNode(androidx.compose.ui.test.hasScrollAction())
+            compose.onNode(androidx.compose.ui.test.hasScrollToIndexAction())
                 .performScrollToNode(androidx.compose.ui.test.hasText(app.getString(R.string.auto_update)))
             model.applyAutoUpdate(true)
             settle()

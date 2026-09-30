@@ -508,4 +508,12 @@
     <string name="sched_new_session_title">New session · %1$s</string>
     <string name="sched_new_home_title">Scheduled new session · %1$s</string>
     <string name="sched_new_toast">New session scheduled for %1$s</string>
+
+    <!-- Themes and accent colors (desktop names) -->
+    <string name="theme_light">Light theme</string>
+    <string name="theme_dark">Dark theme</string>
+    <string name="theme_light_sub">Used when the app is in light appearance.</string>
+    <string name="theme_dark_sub">Used when the app is in dark appearance.</string>
+    <string name="accent_color">Accent color</string>
+    <string name="accent_theme_default">Theme default</string>
 </resources>

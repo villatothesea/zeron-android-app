@@ -117,6 +117,8 @@ import sh.zeron.android.design.ReorderMark
 import sh.zeron.android.design.StatusMark
 import sh.zeron.android.design.ZeronColors
 import sh.zeron.android.design.ZeronDark
+import sh.zeron.android.design.ZeronThemes
+import sh.zeron.android.design.AccentChoice
 import sh.zeron.android.design.ZeronLight
 import sh.zeron.android.design.ZeronType
 import sh.zeron.android.design.glassSurface
@@ -137,7 +139,9 @@ fun ZeronApp(model: ZeronModel) {
         2 -> true
         else -> systemDark
     }
-    val colors = if (dark) ZeronDark else ZeronLight
+    val colors = remember(dark, model.themeLight, model.themeDark, model.accent) {
+        ZeronThemes.colors(dark, model.themeLight, model.themeDark, model.accent)
+    }
     val view = LocalView.current
     SideEffect {
         val window = (view.context as? android.app.Activity)?.window ?: return@SideEffect
@@ -200,7 +204,7 @@ private fun AppContent(model: ZeronModel, colors: ZeronColors) {
                     Spacer(Modifier.width(6.dp))
                     Text(
                         stringResource(R.string.undo),
-                        color = if (colors.dark) Color(0xFF5B43E8) else Color(0xFFB4A8FF),
+                        color = colors.undoTint,
                         fontFamily = ZeronType.Sans,
                         fontWeight = FontWeight.SemiBold,
                         fontSize = 14.sp,
@@ -225,7 +229,7 @@ private fun Shell(model: ZeronModel, colors: ZeronColors) {
     val top = stack.lastOrNull()
     val inSession = top is ZeronModel.Route.Session && model.tab == ZeronModel.Tab.Sessions
     val frontPage = model.tab == ZeronModel.Tab.Sessions && !inSession && top !is ZeronModel.Route.Folder
-    val page = if (frontPage && colors.dark) SessionsBackdrop else colors.background
+    val page = if (frontPage) colors.shell else colors.background
     BackHandler(enabled = model.showNewSession || model.showSignIn || stack.isNotEmpty() || model.tab != ZeronModel.Tab.Sessions) {
         if (model.showNewSession || model.showSignIn || stack.isNotEmpty()) model.back()
         else model.tab = ZeronModel.Tab.Sessions
@@ -371,7 +375,6 @@ private fun RowMenusOverlay(model: ZeronModel, colors: ZeronColors, menus: RowMe
     }
 }
 
-private val SessionsBackdrop = Color(0xFF0D0D0D)
 
 /** The list's floating header row: 6 + 44 (capsules) + 6. */
 private val ListHeaderHeight = 56.dp
@@ -541,7 +544,7 @@ private fun SessionsScreen(model: ZeronModel, colors: ZeronColors, onPrompt: (Pr
         // Solid band behind the status bar and the floating capsules, then a
         // fade: rows scrolling up dissolve a gap below the header instead of
         // running under "Sessions" and the buttons (like the chat's top edge).
-        val band = if (colors.dark) SessionsBackdrop else colors.background
+        val band = colors.shell
         Column(Modifier.fillMaxWidth()) {
             Box(Modifier.fillMaxWidth().height(headerBottom).background(band))
             Box(Modifier.fillMaxWidth().height(ListHeaderGap).background(Brush.verticalGradient(listOf(band, band.copy(alpha = 0f)))))
@@ -701,7 +704,7 @@ private fun SessionRowView(
     val swipe = LocalSwipe.current
     val menus = LocalRowMenus.current
     val corner = cornerOf(row, colors)
-    val backdrop = if (colors.dark) SessionsBackdrop else colors.background
+    val backdrop = colors.shell
     var bounds by remember { mutableStateOf(androidx.compose.ui.geometry.Rect.Zero) }
     val latestRow by rememberUpdatedState(row)
     // The snapshot's `timeLabel` goes stale; re-derive it against LocalNow.
@@ -1074,6 +1077,7 @@ private fun SettingsScreen(model: ZeronModel, colors: ZeronColors) {
         model.setWallpaper(bytes, uri.lastPathSegment ?: context.getString(R.string.wallpaper))
     }
     var effects by remember { mutableStateOf(false) }
+    var themePicker by remember { mutableStateOf<Boolean?>(null) }
     var confirmOut by remember { mutableStateOf(false) }
     var newProject by remember { mutableStateOf(false) }
     LazyColumn(Modifier.fillMaxSize().statusBarsPadding().padding(horizontal = 16.dp)) {
@@ -1121,6 +1125,7 @@ private fun SettingsScreen(model: ZeronModel, colors: ZeronColors) {
                 })
             }
         }
+        item { ThemeSettingRows(model, colors, onPick = { themePicker = it }) }
         item { GroupLabel(colors, stringResource(R.string.settings_language)) }
         item {
             // Per-app locale, applied in place (no activity recreation).
@@ -1216,6 +1221,7 @@ private fun SettingsScreen(model: ZeronModel, colors: ZeronColors) {
             dismissButton = { TextButton(onClick = { confirmOut = false }) { Text(stringResource(R.string.cancel)) } },
         )
     }
+    themePicker?.let { dark -> ThemePickerSheet(model, colors, dark, onDismiss = { themePicker = null }) }
     if (newProject) {
         Box(Modifier.fillMaxSize().background(colors.background)) {
             NewProjectScreen(model, onClose = { newProject = false }, onCreated = { id, name ->

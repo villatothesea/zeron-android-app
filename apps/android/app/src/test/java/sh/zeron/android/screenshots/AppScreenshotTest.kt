@@ -3,7 +3,7 @@ package sh.zeron.android.screenshots
 import android.app.Application
 import android.os.Looper
 import androidx.compose.ui.test.hasClickAction
-import androidx.compose.ui.test.hasScrollAction
+import androidx.compose.ui.test.hasScrollToIndexAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
@@ -150,7 +150,7 @@ open class AppScreenshotTest {
         settle()
         capture("04-settings.png")
         // Scrolled to the Language group.
-        compose.onNode(hasScrollAction()).performScrollToNode(hasText(app.getString(R.string.language_chinese)))
+        compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasText(app.getString(R.string.language_chinese)))
         settle()
         capture("04b-settings-language.png")
 

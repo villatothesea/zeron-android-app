@@ -91,6 +91,13 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
     var workspace by mutableStateOf<WorkspaceSnapshot?>(null)
     var epoch by mutableIntStateOf(0)
     var appearance by mutableIntStateOf(0)
+    /** Theme ids per appearance and the accent override, same model as the desktop's ThemeSelection. */
+    var themeLight by mutableStateOf(sh.zeron.android.design.ZeronThemes.DEFAULT_LIGHT)
+        private set
+    var themeDark by mutableStateOf(sh.zeron.android.design.ZeronThemes.DEFAULT_DARK)
+        private set
+    var accent by mutableStateOf(sh.zeron.android.design.AccentChoice.THEME)
+        private set
     var toast by mutableStateOf<String?>(null)
     var toastUndo by mutableStateOf<(() -> Unit)?>(null)
         private set
@@ -185,6 +192,9 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
     init {
         appearance = if (prefs.contains("appearance")) prefs.getInt("appearance", 2) else 2
         applyNight(appearance, recreate = false)
+        themeLight = prefs.getString("themeLight", null) ?: themeLight
+        themeDark = prefs.getString("themeDark", null) ?: themeDark
+        accent = sh.zeron.android.design.AccentChoice.of(prefs.getString("accent", null))
         wallpaperEffect = effectFrom(prefs.getString("wallpaperEffect", "none"))
         loadWallpaper()
         startDefault()
@@ -240,6 +250,16 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
     fun applyListMode(mode: ListMode) {
         listMode = mode
         prefs.edit().putString("listMode", mode.key).apply()
+    }
+
+    fun applyTheme(dark: Boolean, id: String) {
+        if (dark) themeDark = id else themeLight = id
+        prefs.edit().putString(if (dark) "themeDark" else "themeLight", id).apply()
+    }
+
+    fun applyAccent(choice: sh.zeron.android.design.AccentChoice) {
+        accent = choice
+        prefs.edit().putString("accent", choice.key).apply()
     }
 
     fun applyAppearance(mode: Int) {

@@ -6,7 +6,7 @@ import android.os.Build
 import android.os.LocaleList
 import android.os.Looper
 import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.hasScrollAction
+import androidx.compose.ui.test.hasScrollToIndexAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
@@ -77,7 +77,7 @@ class LanguageSwitchTest {
         model.tab = ZeronModel.Tab.Settings
         settle()
         compose.onNodeWithText("Settings").assertIsDisplayed()
-        compose.onNode(hasScrollAction()).performScrollToNode(hasText("简体中文"))
+        compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasText("简体中文"))
         settle()
 
         choose(controller, "简体中文", "zh-CN")
