@@ -60,4 +60,12 @@ class UpdateSourcesTest {
         assertNull(UpdateSources.sha256FromDigest("sha256:1234"))
         assertNull(UpdateSources.sha256FromDigest(null))
     }
+
+    @Test fun pickerListsGithubThenBuiltInsThenYourMirror() {
+        val list = UpdateSources.choices("https://github.com/a.apk", "mirror.example")
+        assertEquals(listOf("GitHub", "ghfast.top", "gh-proxy.com", "gh.llkk.cc", "mirror.example"), list.map { it.label })
+        assertEquals("https://mirror.example/https://github.com/a.apk", list.last().url)
+        // Your mirror being a built-in one doesn't list it twice.
+        assertEquals(4, UpdateSources.choices("https://github.com/a.apk", "ghfast.top").size)
+    }
 }

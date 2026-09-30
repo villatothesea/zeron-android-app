@@ -171,4 +171,46 @@ class UpdaterTest {
         u.autoUpdate = false
         assertTrue(!updater().autoUpdate)
     }
+
+    @Test fun cancelledDownloadKeepsItsPartAndAnotherSourceResumesIt() = runBlocking {
+        val ranges = Collections.synchronizedList(mutableListOf<String>())
+        route("/web/dl.apk") { _, r ->
+            r.head(200, apk.size.toLong())
+            for (i in apk.indices step 1_000) { r.body(apk, i, minOf(1_000, apk.size - i)); Thread.sleep(15) }
+        }
+        route("/m/") { q, r ->
+            val from = q.header("Range")?.also { ranges += it }?.removePrefix("bytes=")?.substringBefore('-')?.toInt() ?: 0
+            val extra = if (from > 0) mapOf("Content-Range" to "bytes $from-${apk.size - 1}/${apk.size}") else emptyMap()
+            r.head(if (from > 0) 206 else 200, (apk.size - from).toLong(), extra)
+            r.body(apk, from, apk.size - from)
+        }
+        val u = updater()
+        val rel = Updater.Release("round9-8", "round9-8", "", 908, "a.apk", "", "$web/dl.apk", apk.size.toLong(), "", sha)
+        val stop = java.util.concurrent.atomic.AtomicBoolean(false)
+        try {
+            u.download(rel, cancelled = { stop.get() }) { if (it.done >= 30_000) stop.set(true) }
+            fail("expected Cancelled")
+        } catch (e: UpdateDownloader.Cancelled) {
+        }
+        val kept = u.partialBytes(rel)
+        assertTrue("kept $kept", kept in 30_000L until apk.size.toLong())
+        assertEquals(listOf("GitHub", "127.0.0.1"), u.sources(rel).map { it.label })
+        // 换个镜像 -> the mirror, from the same byte.
+        val file = u.download(rel, prefer = mirror) {}
+        assertEquals(listOf("bytes=$kept-"), ranges.toList())
+        assertArrayEquals(apk, file.readBytes())
+        assertEquals(mirror, u.preferredSource)
+        assertEquals(0L, u.partialBytes(rel))
+    }
+
+    @Test fun discardingThePartStartsOver() = runBlocking {
+        val u = updater()
+        val rel = Updater.Release("round9-9", "round9-9", "", 909, "a.apk", "", "$web/dl.apk", apk.size.toLong(), "", sha)
+        val app = ApplicationProvider.getApplicationContext<Application>()
+        File(app.cacheDir, "updates").mkdirs()
+        File(app.cacheDir, "updates/round9-9.apk.part").writeBytes(apk.copyOf(4_000))
+        assertEquals(4_000L, u.partialBytes(rel))
+        u.discardPartial(rel)
+        assertEquals(0L, u.partialBytes(rel))
+    }
 }

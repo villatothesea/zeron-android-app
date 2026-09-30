@@ -522,4 +522,26 @@
     <string name="link_clock_in_sync">Phone and computer agree</string>
     <string name="link_clock_phone_ahead">Phone is %1$d s ahead of the computer</string>
     <string name="link_clock_phone_behind">Phone is %1$d s behind the computer</string>
+
+    <!-- update download: cancel / switch mirror -->
+    <string name="download_cancel">Cancel download</string>
+    <string name="download_switch">Switch mirror</string>
+    <string name="download_sheet_title">Downloading %1$s</string>
+    <string name="download_bytes">%1$s of %2$s</string>
+    <string name="download_from">From %1$s · %2$s/s</string>
+    <string name="download_connecting">From %1$s · connecting…</string>
+    <string name="download_starting">Connecting…</string>
+    <string name="download_cancelled">Download cancelled.</string>
+    <string name="download_cancelled_keep">Cancelled. The %1$s downloaded so far is kept for next time; cancel again to delete it.</string>
+    <string name="download_cancelled_clean">Cancelled, and deleted the partial download.</string>
+    <string name="source_picker_title">Download from</string>
+    <string name="source_picker_sub">Picks up from the %1$s already downloaded.</string>
+    <string name="source_picker_sub_empty">Starts from the beginning.</string>
+    <string name="source_current">In use</string>
+    <string name="source_speed_now">%1$s/s</string>
+    <string name="source_speed_last">%1$s/s last time</string>
+    <string name="source_failed_last">Failed: %1$s</string>
+    <string name="source_custom">Your mirror</string>
+    <string name="source_direct">Direct</string>
+    <string name="source_untried">Not tried yet</string>
 </resources>

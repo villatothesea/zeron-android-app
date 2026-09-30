@@ -77,6 +77,22 @@ object UpdateSources {
     }
 
     /**
+     * Every source for the "switch mirror" picker, in a fixed order: GitHub,
+     * the built-in mirrors, then the user's own mirror (when it isn't one of them).
+     */
+    fun choices(
+        githubUrl: String,
+        userMirror: String?,
+        token: String? = null,
+        apiAssetUrl: String? = null,
+        builtIns: List<String> = BUILT_IN_MIRRORS,
+    ): List<Source> {
+        val all = downloadSources(githubUrl, userMirror, null, token, apiAssetUrl, builtIns)
+        val user = normalizeMirror(userMirror)
+        return all.filter { it.key != user } + all.filter { it.key == user }
+    }
+
+    /**
      * Tag out of a `releases/latest` redirect. Handles absolute Locations and
      * mirrors that rewrite them to a relative `/https://github.com/.../releases/tag/x`.
      */

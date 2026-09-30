@@ -164,6 +164,16 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
     private var checkJob: Job? = null
     /** The running download was started by auto-update (the badge stays hidden until it's ready). */
     private var downloadIsAuto by mutableStateOf(false)
+    /** Set to stop the running download; each run has its own, so a stopped run can't touch the next one's state. */
+    private var downloadCancel: java.util.concurrent.atomic.AtomicBoolean? = null
+    /** Release tag whose download was cancelled once (its partial file kept); a second cancel deletes it. */
+    private var cancelledTag: String? = null
+    /** Badge tap while downloading: the small sheet with progress, source, 换个镜像 and 取消下载. */
+    var showDownloadSheet by mutableStateOf(false)
+    /** The 换个镜像 list. */
+    var showSourcePicker by mutableStateOf(false)
+    /** What each download source ([UpdateSources.Source.key]) did last in this session. */
+    var sourceStats by mutableStateOf<Map<String, SourceStat>>(emptyMap())
     var autoUpdate by mutableStateOf(updater.autoUpdate)
         private set
 
@@ -570,15 +580,15 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
             quietUpdateCheck()
         } else if (downloadIsAuto && downloadJob?.isActive == true) {
             // Keeps the .part file; a later download resumes it.
-            downloadJob?.cancel()
+            stopDownload()
         }
     }
 
-    /** Badge tap: download (arrow), open the details (downloading), install (checkmark). */
+    /** Badge tap: download (arrow), progress sheet with cancel / switch mirror (downloading), install (checkmark). */
     fun tapUpdateBadge() {
         when (updateBadge) {
             UpdateBadge.AVAILABLE -> startDownload(install = false, auto = false)
-            UpdateBadge.DOWNLOADING -> showUpdate = true
+            UpdateBadge.DOWNLOADING -> showDownloadSheet = true
             UpdateBadge.READY -> {
                 if (downloadedApk?.exists() == true) {
                     installUpdate()
@@ -620,46 +630,136 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
 
     private var installWhenDone = false
 
-    /** One download at a time; [auto] ones stay silent and hide the badge until ready. */
-    private fun startDownload(install: Boolean, auto: Boolean) {
+    /**
+     * One download at a time; [auto] ones stay silent and hide the badge
+     * until ready. [prefer] puts that source first (the 换个镜像 pick); the
+     * others still follow if it fails. Resumes whatever part is on disk.
+     */
+    private fun startDownload(install: Boolean, auto: Boolean, prefer: String? = null) {
         val release = updateRelease ?: return
         if (downloadJob?.isActive == true) return
+        val flag = java.util.concurrent.atomic.AtomicBoolean(false)
+        downloadCancel = flag
         updateError = null
-        updateProgress = 0f
+        val have = updater.partialBytes(release)
+        updateProgress = if (release.size > 0) (have.toFloat() / release.size).coerceIn(0f, 0.999f) else 0f
         updateStatus = null
         downloadIsAuto = auto
         installWhenDone = install
+        val live = { downloadCancel === flag && !flag.get() }
         downloadJob = viewModelScope.launch {
             try {
-                val apk = updater.download(release) { p ->
+                val apk = updater.download(
+                    release,
+                    prefer = prefer,
+                    cancelled = { flag.get() },
+                    onFailure = { f -> main.post { sourceStats = sourceStats + (f.key to SourceStat(error = updater.reason(f))) } },
+                ) { p ->
                     val f = if (p.total > 0) (p.done.toFloat() / p.total).coerceAtMost(0.999f) else 0f
-                    val status = UpdateStatus(p.source, p.done, p.total, p.bytesPerSec)
-                    main.post { if (downloadJob?.isActive == true) { updateProgress = f; updateStatus = status } }
+                    val status = UpdateStatus(p.source, p.done, p.total, p.bytesPerSec, p.key)
+                    main.post {
+                        if (!live()) return@post
+                        updateProgress = f
+                        updateStatus = status
+                        if (p.bytesPerSec > 0) sourceStats = sourceStats + (p.key to SourceStat(bytesPerSec = p.bytesPerSec))
+                    }
                 }
                 downloadedApk = apk
                 updateProgress = 1f
                 updateStatus = null
                 downloadIsAuto = false
+                cancelledTag = null
+                showDownloadSheet = false
+                showSourcePicker = false
                 if (installWhenDone) installUpdate()
             } catch (c: kotlinx.coroutines.CancellationException) {
-                updateProgress = null
-                updateStatus = null
-                downloadIsAuto = false
+                if (downloadCancel === flag) resetDownloadState()
                 throw c
+            } catch (c: UpdateDownloader.Cancelled) {
+                if (downloadCancel === flag) resetDownloadState()
             } catch (t: Throwable) {
+                if (downloadCancel !== flag) return@launch
                 val wasAuto = downloadIsAuto
-                updateProgress = null
-                updateStatus = null
-                downloadIsAuto = false
+                val sheet = showDownloadSheet || showSourcePicker
+                resetDownloadState()
                 updateError = t.message ?: str(R.string.update_download_failed)
                 // Auto: quiet, the arrow shows up to retry by hand. Badge: say why.
-                if (!wasAuto && !showUpdate) showToast(str(R.string.badge_download_failed))
+                if (!wasAuto && (!showUpdate || sheet)) showToast(str(R.string.badge_download_failed))
             }
         }
     }
 
+    private fun resetDownloadState() {
+        updateProgress = null
+        updateStatus = null
+        downloadIsAuto = false
+        showDownloadSheet = false
+        showSourcePicker = false
+    }
+
+    /** Stop the running download; it keeps its .part file. */
+    private fun stopDownload() {
+        downloadCancel?.set(true)
+        updater.abortDownload()
+        downloadJob?.cancel()
+    }
+
+    /**
+     * 取消下载: stop now and put the arrow back. The bytes so far stay for
+     * the next try; cancelling the same release a second time deletes them
+     * (a new release drops old parts anyway, see [Updater.download]).
+     */
+    fun cancelDownload() {
+        val release = updateRelease ?: return
+        stopDownload()
+        downloadCancel = null
+        installWhenDone = false
+        resetDownloadState()
+        val second = cancelledTag == release.tag
+        cancelledTag = if (second) null else release.tag
+        // No need to wait for the stopped run: it can't write any more.
+        viewModelScope.launch {
+            if (second) {
+                withContext(Dispatchers.IO) { updater.discardPartial(release) }
+                showToast(str(R.string.download_cancelled_clean))
+            } else {
+                val kept = withContext(Dispatchers.IO) { updater.partialBytes(release) }
+                showToast(if (kept > 0) str(R.string.download_cancelled_keep, updater.speed(kept)) else str(R.string.download_cancelled))
+            }
+        }
+    }
+
+    /**
+     * 换个镜像: restart the download from [key], resuming from the bytes
+     * already on disk. Not counted as a cancel.
+     */
+    fun switchSource(key: String) {
+        showSourcePicker = false
+        val install = installWhenDone
+        stopDownload()
+        // The stopped run must not reset the progress the next one carries on,
+        // and its read may stay blocked for a while: don't wait for it.
+        downloadCancel = null
+        downloadJob = null
+        startDownload(install = install, auto = false, prefer = key)
+        if (downloadJob == null) resetDownloadState()
+    }
+
+    /** One row of the 换个镜像 list. */
+    data class SourceChoice(val source: UpdateSources.Source, val current: Boolean, val custom: Boolean, val stat: SourceStat?)
+
+    fun sourceChoices(): List<SourceChoice> {
+        val release = updateRelease ?: return emptyList()
+        val current = updateStatus?.key
+        val custom = updater.customMirrorKey()
+        return updater.sources(release).map { SourceChoice(it, it.key == current, it.key == custom, sourceStats[it.key]) }
+    }
+
     /** Where the running download comes from and how fast (for the progress line). */
-    data class UpdateStatus(val source: String, val done: Long, val total: Long, val bytesPerSec: Long)
+    data class UpdateStatus(val source: String, val done: Long, val total: Long, val bytesPerSec: Long, val key: String = "")
+
+    /** A source's last speed, or why it was last given up on. */
+    data class SourceStat(val bytesPerSec: Long = 0, val error: String? = null)
 
     /** Hand the download to the browser (it may have its own proxy or download manager). */
     fun openUpdateInBrowser() {

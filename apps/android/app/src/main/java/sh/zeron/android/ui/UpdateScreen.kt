@@ -3,6 +3,7 @@ package sh.zeron.android.ui
 import sh.zeron.android.design.BackButton
 import sh.zeron.android.R
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -85,9 +86,7 @@ fun UpdateScreen(model: ZeronModel) {
             }
             model.updateProgress?.let { p ->
                 Spacer(Modifier.height(10.dp))
-                Box(Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)).background(colors.controlFill)) {
-                    Box(Modifier.fillMaxWidth(p.coerceIn(0f, 1f)).height(6.dp).clip(RoundedCornerShape(3.dp)).background(colors.accent))
-                }
+                ProgressBar(colors, p)
                 val status = model.updateStatus
                 val line = when {
                     p >= 1f -> stringResource(R.string.update_downloaded)
@@ -96,6 +95,14 @@ fun UpdateScreen(model: ZeronModel) {
                     else -> stringResource(R.string.update_downloading_from_size, status.source, model.updater.speed(status.done), model.updater.speed(status.bytesPerSec))
                 }
                 Text(line, color = colors.secondary, fontFamily = ZeronType.Sans, fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp))
+                if (p < 1f) {
+                    Spacer(Modifier.height(10.dp))
+                    Row {
+                        SheetButton(colors, stringResource(R.string.download_switch), Modifier.weight(1f).testTag("update-switch")) { model.showSourcePicker = true }
+                        Spacer(Modifier.width(8.dp))
+                        SheetButton(colors, stringResource(R.string.download_cancel), Modifier.weight(1f).testTag("update-cancel"), danger = true) { model.cancelDownload() }
+                    }
+                }
             }
             model.updateError?.let {
                 Text(it, color = colors.danger, fontFamily = ZeronType.Sans, fontSize = 14.sp, modifier = Modifier.padding(top = 10.dp))

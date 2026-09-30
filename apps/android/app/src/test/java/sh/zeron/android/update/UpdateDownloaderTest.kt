@@ -155,4 +155,72 @@ class UpdateDownloaderTest {
         downloader().download(listOf(src("good")), p, apk.size.toLong(), sha) {}
         assertNull(ranges.firstOrNull())
     }
+
+    @Test fun cancelStopsMidTransferAndKeepsThePart() {
+        val p = part()
+        val stop = java.util.concurrent.atomic.AtomicBoolean(false)
+        val d = downloader()
+        try {
+            d.download(listOf(src("trickle"), src("good")), p, apk.size.toLong(), sha, cancelled = { stop.get() }) {
+                if (it.done >= 50_000) stop.set(true)
+            }
+            fail("expected Cancelled")
+        } catch (e: UpdateDownloader.Cancelled) {
+            // expected: and the next source was not tried
+        }
+        assertTrue(ranges.isEmpty())
+        val kept = p.length()
+        assertTrue("kept $kept", kept in 50_000L until apk.size.toLong())
+        assertArrayEquals(apk.copyOf(kept.toInt()), p.readBytes())
+        // Switching to another source picks up at the same byte.
+        val won = downloader().download(listOf(src("good"), src("trickle")), p, apk.size.toLong(), sha) {}
+        assertEquals("good", won.label)
+        assertEquals(listOf("bytes=$kept-"), ranges.toList())
+        assertArrayEquals(apk, p.readBytes())
+    }
+
+    @Test fun cancelledBeforeStartingTouchesNothing() {
+        val p = part()
+        try {
+            downloader().download(listOf(src("good")), p, apk.size.toLong(), sha, cancelled = { true }) {}
+            fail("expected Cancelled")
+        } catch (e: UpdateDownloader.Cancelled) {
+        }
+        assertTrue(ranges.isEmpty())
+        assertFalse(p.exists())
+    }
+
+    @Test fun anotherSourceTakesOverWhileTheStoppedOneIsStillBlocked() {
+        // Sends 10 KB, then stalls: the read blocks (plain JVM HttpURLConnection
+        // doesn't unblock on disconnect), yet switching must not wait for it.
+        server.route("/stall") { _, r -> r.head(200, apk.size.toLong()); r.body(apk, 0, 10_000); Thread.sleep(2_000) }
+        val p = part()
+        val d = UpdateDownloader(userAgent = "test", connectTimeoutMs = 2_000, readTimeoutMs = 10_000, retryDelayMs = 10)
+        val oldStop = java.util.concurrent.atomic.AtomicBoolean(false)
+        var oldResult: Throwable? = null
+        val old = Thread {
+            oldResult = runCatching { d.download(listOf(src("stall")), p, apk.size.toLong(), sha, cancelled = { oldStop.get() }) {} }.exceptionOrNull()
+        }.apply { start() }
+        val deadline = System.currentTimeMillis() + 3_000
+        while (p.length() < 10_000 && System.currentTimeMillis() < deadline) Thread.sleep(10)
+        assertEquals(10_000L, p.length())
+        oldStop.set(true)
+        d.abort()
+        val started = System.nanoTime()
+        val won = d.download(listOf(src("good")), p, apk.size.toLong(), sha) {}
+        val tookMs = (System.nanoTime() - started) / 1_000_000
+        assertEquals("good", won.label)
+        assertTrue("took $tookMs ms", tookMs < 1_500)
+        assertEquals(listOf("bytes=10000-"), ranges.toList())
+        old.join(5_000)
+        assertTrue("old run ended with $oldResult", oldResult is UpdateDownloader.Cancelled)
+        // The stopped run never wrote after the switch.
+        assertArrayEquals(apk, p.readBytes())
+    }
+
+    @Test fun eachGivenUpSourceIsReportedAsItHappens() {
+        val seen = mutableListOf<Pair<String, Kind>>()
+        downloader().download(listOf(src("broken"), src("html"), src("good")), part(), apk.size.toLong(), sha, onFailure = { seen += it.key to it.kind }) {}
+        assertEquals(listOf("key-broken" to Kind.HTTP, "key-html" to Kind.HTTP), seen)
+    }
 }

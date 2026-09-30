@@ -193,6 +193,7 @@ private fun AppContent(model: ZeronModel, colors: ZeronColors) {
         BackHandler { model.showUpdate = false }
         UpdateScreen(model)
     }
+    UpdateDownloadSheets(model, colors)
     model.toast?.let { message ->
         Box(Modifier.fillMaxSize().padding(bottom = 120.dp), contentAlignment = Alignment.BottomCenter) {
             Row(

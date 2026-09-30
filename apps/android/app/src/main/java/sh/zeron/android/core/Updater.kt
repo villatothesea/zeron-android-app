@@ -276,7 +276,8 @@ class Updater(
         else -> e.message ?: e.javaClass.simpleName
     }
 
-    private fun reason(f: UpdateDownloader.Failure): String = when (f.kind) {
+    /** Why a download source was given up on, for the user. */
+    fun reason(f: UpdateDownloader.Failure): String = when (f.kind) {
         UpdateDownloader.Kind.TIMEOUT -> str(R.string.update_reason_timeout)
         UpdateDownloader.Kind.SLOW -> str(R.string.update_reason_slow, speed(f.detail.toLongOrNull() ?: 0))
         UpdateDownloader.Kind.HTTP -> f.detail.toIntOrNull()?.let { str(R.string.update_reason_http, it.toString()) }
@@ -298,7 +299,13 @@ class Updater(
      * resuming across them. The result has the release's size and SHA-256
      * (when GitHub's API gave them) and is signed with this app's key.
      */
-    suspend fun download(release: Release, progress: (UpdateDownloader.Progress) -> Unit): File = withContext(Dispatchers.IO) {
+    suspend fun download(
+        release: Release,
+        prefer: String? = null,
+        cancelled: () -> Boolean = { false },
+        onFailure: (UpdateDownloader.Failure) -> Unit = {},
+        progress: (UpdateDownloader.Progress) -> Unit,
+    ): File = withContext(Dispatchers.IO) {
         val dir = updatesDir.apply { mkdirs() }
         dir.listFiles()?.filter { !it.name.startsWith(release.tag) }?.forEach { it.delete() }
         val done = File(dir, "${release.tag}.apk")
@@ -306,10 +313,10 @@ class Updater(
             if (verifies(done, release)) return@withContext done
             done.delete()
         }
-        val part = File(dir, "${release.tag}.apk.part")
-        val sources = UpdateSources.downloadSources(release.downloadUrl, mirror, preferredSource, token, release.assetApiUrl, builtInMirrors)
+        val part = partFile(release)
+        val sources = UpdateSources.downloadSources(release.downloadUrl, mirror, prefer ?: preferredSource, token, release.assetApiUrl, builtInMirrors)
         val won = try {
-            downloader.download(sources, part, release.size, release.sha256, progress)
+            downloader.download(sources, part, release.size, release.sha256, cancelled, onFailure, progress)
         } catch (e: UpdateDownloader.Failed) {
             throw UpdateError(str(R.string.update_err_download_all) + "\n" + e.failures.joinToString("\n") { "• ${it.source}: ${reason(it)}" })
         }
@@ -320,6 +327,26 @@ class Updater(
             throw UpdateError(str(R.string.update_err_signature, won.label))
         }
         done
+    }
+
+    private fun partFile(release: Release) = File(updatesDir, "${release.tag}.apk.part")
+
+    /** The sources the "switch mirror" picker offers for [release]. */
+    fun sources(release: Release): List<UpdateSources.Source> =
+        UpdateSources.choices(release.downloadUrl, mirror, token, release.assetApiUrl, builtInMirrors)
+
+    /** Key of the user's own mirror (高级 settings), if one is set. */
+    fun customMirrorKey(): String? = UpdateSources.normalizeMirror(mirror)
+
+    /** Unblock a download in progress; pair with its `cancelled` returning true. */
+    fun abortDownload() = downloader.abort()
+
+    /** Bytes of [release] already on disk, which the next download resumes from. */
+    fun partialBytes(release: Release): Long = downloader.withFile { partFile(release).let { if (it.exists()) it.length() else 0L } }
+
+    /** Throw away [release]'s partial download (safe while a cancelled run is still winding down). */
+    fun discardPartial(release: Release) {
+        downloader.withFile { partFile(release).delete() }
     }
 
     /** Link for the browser / clipboard: through the mirror that worked last, if any. */
