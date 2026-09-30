@@ -52,12 +52,18 @@ class DownloadControlsTest {
         lateinit var model: ZeronModel
         scenario.onActivity { model = ViewModelProvider(it)[ZeronModel::class.java] }
         settleUntil("demo workspace") { model.phase == ZeronModel.Phase.Ready && model.workspace != null }
+        // The start-up check sweeps the updates cache; let it finish before
+        // the test writes a partial download there.
+        settleUntil("start-up update check") { !model.updateCheckRunning }
 
         val release = Updater.Release(
             "round9-9", "round9-9", "", BuildConfig.VERSION_CODE.toLong() + 1,
             "zeron-android-round9-9.apk", "", "https://example.invalid/a.apk", 1_000_000, "", null,
         )
-        val part = File(app.cacheDir, "updates/round9-9.apk.part")
+        // The model's own Application: under Robolectric the shared
+        // AndroidViewModelFactory can hold an earlier test's, with its own
+        // cache dir.
+        val part = File(model.getApplication<Application>().cacheDir, "updates/round9-9.apk.part")
         fun downloading() {
             model.updateRelease = release
             model.updateProgress = 0.4f

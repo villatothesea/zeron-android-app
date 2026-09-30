@@ -639,6 +639,9 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
      * picks up an APK that's already downloaded, and with auto-update on
      * downloads a newer release while on an unmetered network. Never installs.
      */
+    /** The start-up / foreground update check (and its cache sweep) is still running. */
+    internal val updateCheckRunning: Boolean get() = checkJob?.isActive == true
+
     private fun quietUpdateCheck() {
         if (checkJob?.isActive == true) return
         checkJob = viewModelScope.launch {
@@ -650,7 +653,9 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
                 }
             }
             val release = updateRelease
-            withContext(Dispatchers.IO) { updater.cleanStale(release) }
+            // Re-read at the last moment: a download started while the check
+            // ran must not have its partial file swept away.
+            withContext(Dispatchers.IO) { updater.cleanStale(updateRelease ?: release) }
             if (release == null || !release.newer) {
                 downloadedApk = null
                 return@launch
