@@ -42,8 +42,19 @@ class TranscriptControlsTest {
     @get:Rule
     val compose = createEmptyComposeRule()
 
+    /**
+     * Needs the Rust transcript layout, whose text-measurer callback is
+     * registered process-wide: after enough other Robolectric sandboxes in
+     * one JVM it lands in a stale one and the frame stays empty (or Compose
+     * never idles), the same order dependence the screenshot suite has. So
+     * it runs with the screenshot suite, class by class:
+     * `-PzeronScreenshots=true --tests '*TranscriptControlsTest'`.
+     */
     @Before
-    fun gate() = Screenshots.assumeHostCore()
+    fun gate() {
+        Screenshots.assumeEnabled()
+        Screenshots.assumeHostCore()
+    }
 
     private lateinit var scenario: ActivityScenario<MainActivity>
     private lateinit var model: ZeronModel
@@ -55,8 +66,16 @@ class TranscriptControlsTest {
         val app = model.getApplication<Application>()
         app.getSharedPreferences("zeron-update", 0).edit().putLong("lastCheck", System.currentTimeMillis()).putBoolean("autoUpdate", false).commit()
         settleUntil("demo workspace") { model.phase == ZeronModel.Phase.Ready && model.workspace != null }
+        // An earlier test in this JVM may have left the shared app on another
+        // workspace (a machine, the cloud): these fixtures are the demo's.
+        fun hasChat() = model.workspace?.let { w -> (w.front.pinned + w.front.sections.flatMap { s -> s.sessions } + w.front.recent).any { r -> r.id == chat } } == true
+        if (model.activeMachine != "demo" || !hasChat()) {
+            model.enterDemo()
+            settleUntil("the demo workspace") { model.phase == ZeronModel.Phase.Ready && hasChat() }
+        }
         model.openSession(chat)
-        settleUntil("the transcript") { transcript()?.codeRowKeys() != null && (transcript()?.height ?: 0) > 0 }
+        // The transcript has laid out: its code blocks and your message are in.
+        settleUntil("the transcript") { (transcript()?.height ?: 0) > 0 && transcript()?.codeRowKeys()?.isNotEmpty() == true && transcript()!!.userMarkCount >= 1 }
         settle(1000)
     }
 
@@ -144,7 +163,10 @@ class TranscriptControlsTest {
     private fun settleUntil(what: String, timeoutMs: Long = 30_000, done: () -> Boolean) {
         val end = System.currentTimeMillis() + timeoutMs
         while (!done()) {
-            check(System.currentTimeMillis() < end) { "timed out waiting for $what" }
+            check(System.currentTimeMillis() < end) {
+                val v = transcript()
+                "timed out waiting for $what (view=${v != null} h=${v?.height} code=${v?.codeRowKeys()?.size} marks=${v?.userMarkCount} frame=${runCatching { v?.engine?.frame()?.let { f -> "${f.rowCount()}/${f.totalHeight()}" } }.let { it.getOrNull() ?: it.exceptionOrNull()?.toString() }} draft=${model.getApplication<Application>().getSharedPreferences("drafts", 0).all} phase=${model.phase} stack=${model.sessionStack.toList()})"
+            }
             settle(200)
         }
     }
