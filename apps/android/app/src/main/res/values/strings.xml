@@ -544,4 +544,7 @@
     <string name="source_custom">Your mirror</string>
     <string name="source_direct">Direct</string>
     <string name="source_untried">Not tried yet</string>
+
+    <!-- device groups: merge -->
+    <string name="computers_merged">Merged into one computer.</string>
 </resources>

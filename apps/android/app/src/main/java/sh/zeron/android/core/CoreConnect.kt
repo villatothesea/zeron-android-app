@@ -78,7 +78,7 @@ object CoreConnect {
         else -> {
             val store = MachineStore(context)
             val machine = store.list().firstOrNull { it.id == workspace } ?: throw Unavailable(AppLanguage.string(context, sh.zeron.android.R.string.computer_removed))
-            Credentials.Direct(store.target(machine))
+            Credentials.Direct(store.target(machine, route = store.plan(machine, NetworkWatcher.current(context))))
         }
     }
 

@@ -57,6 +57,8 @@ import uniffi.zeron_core.ProbeResult
 import uniffi.zeron_core.SshException
 import uniffi.zeron_core.sshProbe
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import java.io.File
 import java.util.UUID
 import android.graphics.Paint
@@ -136,7 +138,15 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
     private var probeJob: Job? = null
     /** Direct link phase/errors/counters, polled while a machine is active. */
     var directStatus by mutableStateOf<uniffi.zeron_core.DirectStatus?>(null)
+        internal set
+    /** The network as the dial order sees it (Wi-Fi subnet, mobile data, which VPN). */
+    var network by mutableStateOf(NetworkSnapshot.UNKNOWN)
         private set
+    private var networkWatcher: NetworkWatcher? = null
+    private var rerouteJob: Job? = null
+    /** When the link last changed address (uptime ms), to damp upgrades. */
+    private var lastRouteMoveAt = 0L
+    private var lastActiveEndpoint: String? = null
 
     // ── connection chip (home title bar) ─────────────────────────────────
     enum class ConnectionSheet { SWITCHER, FAILURE }
@@ -207,6 +217,7 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
         accent = sh.zeron.android.design.AccentChoice.of(prefs.getString("accent", null))
         wallpaperEffect = effectFrom(prefs.getString("wallpaperEffect", "none"))
         loadWallpaper()
+        regroupComputers()
         startDefault()
         watchNetwork()
         quietUpdateCheck()
@@ -414,7 +425,9 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
         resetNavigation()
         showMachines = false
         showSignIn = false
-        val target = runCatching { machineStore.target(machine) }.getOrElse {
+        network = networkWatcher?.snapshot ?: NetworkWatcher.current(getApplication())
+        lastActiveEndpoint = null
+        val target = runCatching { machineStore.target(machine, route = machineStore.plan(machine, network)) }.getOrElse {
             phase = Phase.Failed(it.message ?: str(R.string.machine_key_failed))
             return
         }
@@ -492,6 +505,84 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
     fun saveMachine(machine: Machine, secret: String?) {
         machineStore.save(machine, secret)
         machines = machineStore.list()
+        if (machine.id == activeMachine) reroute(force = false)
+    }
+
+    /**
+     * Computers saved twice (LAN IP and Tailscale IP as two entries) become
+     * one, once; whatever pointed at a merged-away entry follows it.
+     */
+    private fun regroupComputers() {
+        val moved = runCatching { machineStore.groupDuplicates() }.getOrDefault(emptyMap())
+        if (moved.isNotEmpty()) {
+            prefs.getString("lastMachine", null)?.let { last -> moved[last]?.let { prefs.edit().putString("lastMachine", it).apply() } }
+            val scheduled = sh.zeron.android.schedule.ScheduledStore(getApplication())
+            scheduled.list().filter { it.workspace in moved }.forEach { scheduled.add(it.copy(workspace = moved.getValue(it.workspace))) }
+        }
+        machines = machineStore.list()
+    }
+
+    /** Accounts & Computers: [otherId]'s addresses join [intoId]. */
+    fun mergeMachines(intoId: String, otherId: String) {
+        machineStore.merge(intoId, otherId) ?: return
+        machines = machineStore.list()
+        if (activeMachine == otherId) machines.firstOrNull { it.id == intoId }?.let { connectMachine(it) }
+        else if (activeMachine == intoId) reroute(force = false)
+        showToast(str(R.string.computers_merged))
+    }
+
+    /** Edit computer: [endpoint] becomes a computer of its own. */
+    fun splitAddress(machine: Machine, endpoint: Endpoint): Machine? {
+        val alone = machineStore.split(machine.id, endpoint, "${machine.title()} (${endpoint.display()})") ?: return null
+        machines = machineStore.list()
+        if (activeMachine == machine.id) reroute(force = false)
+        return alone
+    }
+
+    /** The address kind the direct link runs over now (chip route label). */
+    fun activeRoute(): EndpointKind? {
+        val status = directStatus ?: return null
+        if (status.phase != uniffi.zeron_core.DirectPhase.LIVE && status.phase != uniffi.zeron_core.DirectPhase.SYNCING) return null
+        val active = status.endpoints.firstOrNull { it.active } ?: return null
+        return EndpointKind.fromWire(active.kind)
+    }
+
+    /**
+     * The network changed (or the addresses did): hand the core the new dial
+     * order, and move the link when [RouteSwitch] says so. The client and
+     * every open session stay; only the SSH link is redialled.
+     */
+    private fun reroute(force: Boolean) {
+        val c = client ?: return
+        if (!c.isDirect()) return
+        val machine = machines.firstOrNull { it.id == activeMachine } ?: return
+        val plan = machineStore.plan(machine, network)
+        runCatching { c.setDirectEndpoints(sshEndpoints(plan)) }
+        val status = runCatching { c.directStatus() }.getOrNull() ?: return
+        val link = when (status.phase) {
+            uniffi.zeron_core.DirectPhase.LIVE, uniffi.zeron_core.DirectPhase.SYNCING -> RouteSwitch.Link.LIVE
+            uniffi.zeron_core.DirectPhase.FAILED -> RouteSwitch.Link.FAILED
+            uniffi.zeron_core.DirectPhase.CONNECTING -> RouteSwitch.Link.CONNECTING
+        }
+        val active = status.endpoints.firstOrNull { it.active }?.let { Endpoint(it.host, it.port.toInt()).key }
+        val since = SystemClock.uptimeMillis() - lastRouteMoveAt
+        if (force || RouteSwitch.decide(plan, active, link, since) == RouteSwitch.Action.RECONNECT) {
+            c.reconnectDirect()
+        }
+        directStatus = runCatching { c.directStatus() }.getOrNull()
+    }
+
+    /** Remember which address works on this network, and when the link moved. */
+    private fun noteRoute(status: uniffi.zeron_core.DirectStatus?) {
+        val active = status?.endpoints?.firstOrNull { it.active } ?: return
+        val key = Endpoint(active.host, active.port.toInt()).key
+        if (key != lastActiveEndpoint) {
+            if (lastActiveEndpoint != null) lastRouteMoveAt = SystemClock.uptimeMillis()
+            lastActiveEndpoint = key
+        }
+        if (status.phase == uniffi.zeron_core.DirectPhase.LIVE && machines.any { it.id == activeMachine }) {
+            machineStore.rememberRoute(activeMachine, network.key, key)
+        }
     }
 
     fun deleteMachine(id: String) {
@@ -514,7 +605,10 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
         probeJob = viewModelScope.launch {
             for (m in machines) {
                 launch {
-                    val ok = if (m.hostKey == null) false else runCatching { sshProbe(machineStore.target(m)) }.isSuccess
+                    // Online if any of its addresses answers (probed side by side).
+                    val ok = m.hostKey != null && machineStore.plan(m, network).map { planned ->
+                        async { runCatching { sshProbe(machineStore.target(m, route = listOf(planned))) }.isSuccess }
+                    }.awaitAll().any { it }
                     machineOnline = machineOnline + (m.id to ok)
                 }
             }
@@ -967,6 +1061,7 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
                 if (client !== created) break
                 if (status != directStatus) {
                     directStatus = status
+                    noteRoute(status)
                     noteConnection()
                 }
                 val frames = status?.streams?.sumOf { it.frames.toLong() } ?: 0L
@@ -1259,6 +1354,23 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
                 main.post { client?.setNetworkOnline(false) }
             }
         })
+        // Wi-Fi <-> mobile data, VPN up / down: settle for a moment (a
+        // hand-over fires several callbacks), then re-plan the route.
+        networkWatcher = NetworkWatcher(getApplication()) { snap ->
+            main.post {
+                rerouteJob?.cancel()
+                rerouteJob = viewModelScope.launch {
+                    delay(NETWORK_SETTLE_MS)
+                    if (snap != network) {
+                        network = snap
+                        reroute(force = false)
+                    }
+                }
+            }
+        }.also {
+            network = it.snapshot
+            it.start()
+        }
     }
 
     fun onForeground() {
@@ -1308,6 +1420,8 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
         const val SCROLL_DEFER_MS = 1200L
         const val EPOCH_GAP_MS = 250L
         const val STALE_REFRESH_MS = 4000L
+        /** A Wi-Fi <-> mobile hand-over fires several callbacks; re-plan once it settles. */
+        const val NETWORK_SETTLE_MS = 2_000L
         val FACE_FILES: Map<FaceRole, String> get() = sh.zeron.android.design.FontChain.files
 
         fun loadFaces(app: Application): Map<FaceRole, Typeface> = sh.zeron.android.design.FontChain.faces(app)

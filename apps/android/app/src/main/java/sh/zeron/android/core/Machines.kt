@@ -138,6 +138,17 @@ class MachineStore(context: Context) {
         return alone
     }
 
+    /** The address ([Endpoint.key]) that last worked for computer [id] on network [networkKey]. */
+    fun rememberedRoute(id: String, networkKey: String): String? = prefs.getString("route:$id:$networkKey", null)
+
+    fun rememberRoute(id: String, networkKey: String, endpointKey: String) {
+        if (rememberedRoute(id, networkKey) != endpointKey) prefs.edit().putString("route:$id:$networkKey", endpointKey).apply()
+    }
+
+    /** [machine]'s addresses in dial order for [net]. */
+    fun plan(machine: Machine, net: NetworkSnapshot): List<RoutePlanner.Planned> =
+        RoutePlanner.plan(machine.addresses(), net, rememberedRoute(machine.id, net.key))
+
     private fun moveSecret(from: String, to: String) {
         val moved = secret(from)
         if (moved != null && secret(to) == null) secrets.put("machine:$to", moved)

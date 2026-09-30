@@ -539,4 +539,7 @@
     <string name="source_custom">你的镜像</string>
     <string name="source_direct">直连</string>
     <string name="source_untried">还没试过</string>
+
+    <!-- device groups: merge -->
+    <string name="computers_merged">已合并为一台电脑。</string>
 </resources>
