@@ -130,7 +130,7 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
         private set
     /** `demo`, `cloud`, or a machine id. */
     var activeMachine by mutableStateOf("demo")
-        private set
+        internal set
     var showMachines by mutableStateOf(false)
     var editMachine by mutableStateOf<Machine?>(null)
     var connectivity by mutableStateOf<Connectivity?>(null)
@@ -141,7 +141,7 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
         internal set
     /** The network as the dial order sees it (Wi-Fi subnet, mobile data, which VPN). */
     var network by mutableStateOf(NetworkSnapshot.UNKNOWN)
-        private set
+        internal set
     private var networkWatcher: NetworkWatcher? = null
     private var rerouteJob: Job? = null
     /** When the link last changed address (uptime ms), to damp upgrades. */
