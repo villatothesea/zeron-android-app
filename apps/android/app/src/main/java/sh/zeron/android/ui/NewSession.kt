@@ -327,10 +327,10 @@ fun NewSessionSheet(model: ZeronModel, onDismiss: () -> Unit) {
                             )
                         }
                     } else {
-                        val (h, list) = open
+                        val list = open.value
                         add(MenuEntry(list.first().harnessLabel, back = true) { modelHarness = null })
                         list.forEach { m ->
-                            add(MenuEntry(m.label, checked = m.harness == harness && m.id == modelId, icon = { _ -> BrandMark(h, colors, 16.dp) }) {
+                            add(MenuEntry(m.label, checked = m.harness == harness && m.id == modelId) {
                                 harness = m.harness
                                 modelId = m.id
                                 effort = null
@@ -346,7 +346,10 @@ fun NewSessionSheet(model: ZeronModel, onDismiss: () -> Unit) {
                 }
                 else -> null to emptyList()
             }
-            AnchoredMenu(colors, anchor, title, entries, loading = id == "branch" && refs == null, onDismiss = close)
+            // A drill-down swaps the whole list: give each level its own panel.
+            androidx.compose.runtime.key(id, modelHarness, projectSortOpen) {
+                AnchoredMenu(colors, anchor, title, entries, loading = id == "branch" && refs == null, onDismiss = close)
+            }
         }
         if (browsing) {
             NewProjectScreen(model, initialDeviceId = project?.deviceId ?: hostId, onClose = { browsing = false }, onCreated = { id, name ->

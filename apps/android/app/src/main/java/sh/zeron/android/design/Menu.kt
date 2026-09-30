@@ -195,7 +195,8 @@ fun MenuPanel(
  */
 @Composable
 fun MenuDivider(colors: ZeronColors, modifier: Modifier = Modifier) {
-    HorizontalDivider(color = colors.hairline, thickness = 0.5.dp, modifier = modifier)
+    // iOS separator tone: `hairline` alone vanishes on the dark glass panel.
+    HorizontalDivider(color = colors.text.copy(alpha = if (colors.dark) 0.14f else 0.12f), thickness = 0.5.dp, modifier = modifier)
 }
 
 /**
