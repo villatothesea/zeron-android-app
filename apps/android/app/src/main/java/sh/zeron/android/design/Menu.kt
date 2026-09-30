@@ -1,5 +1,7 @@
 package sh.zeron.android.design
 
+import sh.zeron.android.R
+import androidx.compose.ui.res.stringResource
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
@@ -94,7 +96,7 @@ fun MenuPanel(
             HorizontalDivider(color = colors.hairline, modifier = Modifier.padding(bottom = 2.dp))
         }
         if (loading && entries.isEmpty()) {
-            Text("Loading…", color = colors.tertiary, fontFamily = ZeronType.Sans, fontSize = 16.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp))
+            Text(stringResource(R.string.loading), color = colors.tertiary, fontFamily = ZeronType.Sans, fontSize = 16.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp))
         }
         entries.forEachIndexed { index, entry ->
             if (entry.header) {

@@ -150,7 +150,7 @@ fun ZeronApp(model: ZeronModel) {
 private fun AppContent(model: ZeronModel, colors: ZeronColors) {
     val phase = model.phase
     when {
-        phase is ZeronModel.Phase.Loading -> CenterMessage(colors, "Opening the workspace…")
+        phase is ZeronModel.Phase.Loading -> CenterMessage(colors, stringResource(R.string.opening_workspace))
         phase is ZeronModel.Phase.Failed -> Column(
             Modifier.fillMaxSize().background(colors.background).padding(24.dp),
             verticalArrangement = Arrangement.Center,
@@ -158,9 +158,9 @@ private fun AppContent(model: ZeronModel, colors: ZeronColors) {
         ) {
             Text(phase.message, color = colors.danger, fontFamily = ZeronType.Sans)
             Spacer(Modifier.height(16.dp))
-            Text("Try the demo", color = colors.background, modifier = Modifier.clip(RoundedCornerShape(20.dp)).background(colors.text).clickable { model.enterDemo() }.padding(horizontal = 18.dp, vertical = 12.dp))
+            Text(stringResource(R.string.try_demo), color = colors.background, modifier = Modifier.clip(RoundedCornerShape(20.dp)).background(colors.text).clickable { model.enterDemo() }.padding(horizontal = 18.dp, vertical = 12.dp))
             Spacer(Modifier.height(10.dp))
-            Text("Accounts & Computers…", color = colors.text, modifier = Modifier.clip(RoundedCornerShape(20.dp)).background(colors.controlFill).clickable { model.showMachines = true }.padding(horizontal = 18.dp, vertical = 12.dp))
+            Text(stringResource(R.string.accounts_computers_ellipsis), color = colors.text, modifier = Modifier.clip(RoundedCornerShape(20.dp)).background(colors.controlFill).clickable { model.showMachines = true }.padding(horizontal = 18.dp, vertical = 12.dp))
         }
         phase is ZeronModel.Phase.SignedOut || model.showSignIn -> SignInScreen(model)
         else -> Shell(model, colors)
@@ -191,7 +191,7 @@ private fun AppContent(model: ZeronModel, colors: ZeronColors) {
                 if (model.toastUndo != null) {
                     Spacer(Modifier.width(6.dp))
                     Text(
-                        "Undo",
+                        stringResource(R.string.undo),
                         color = if (colors.dark) Color(0xFF5B43E8) else Color(0xFFB4A8FF),
                         fontFamily = ZeronType.Sans,
                         fontWeight = FontWeight.SemiBold,
@@ -273,6 +273,7 @@ private fun Shell(model: ZeronModel, colors: ZeronColors) {
  */
 @Composable
 private fun RowMenusOverlay(model: ZeronModel, colors: ZeronColors, menus: RowMenuHost, onPrompt: (Prompt) -> Unit) {
+    val context = LocalContext.current
     val screenHeight = with(androidx.compose.ui.platform.LocalDensity.current) {
         androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp.toPx()
     }
@@ -284,32 +285,32 @@ private fun RowMenusOverlay(model: ZeronModel, colors: ZeronColors, menus: RowMe
             return@let
         }
         val sections = model.workspace?.front?.sections.orEmpty()
-        val rename = MenuEntry("Rename…", icon = { c -> Glyph(Glyphs.Rename, 17.dp, c) }) {
-            onPrompt(Prompt("Rename", row.title, "Rename") { value -> if (value.isNotEmpty()) model.rename(row.id, value) })
+        val rename = MenuEntry(stringResource(R.string.rename_ellipsis), icon = { c -> Glyph(Glyphs.Rename, 17.dp, c) }) {
+            onPrompt(Prompt(context.getString(R.string.rename), row.title, context.getString(R.string.rename)) { value -> if (value.isNotEmpty()) model.rename(row.id, value) })
         }
         val entries = if (target.archived || row.archived) {
             listOf(
-                MenuEntry("Unarchive", icon = { c -> Glyph(Glyphs.Unarchive, 18.dp, c) }) { model.unarchive(row.id) },
+                MenuEntry(stringResource(R.string.unarchive), icon = { c -> Glyph(Glyphs.Unarchive, 18.dp, c) }) { model.unarchive(row.id) },
                 rename,
             )
         } else {
             buildList {
                 add(
-                    MenuEntry(if (row.pinned) "Unpin" else "Pin", icon = { c -> if (row.pinned) PinSlashGlyph(17.dp, c) else Glyph(Glyphs.Pin, 17.dp, c) }) {
+                    MenuEntry(stringResource(if (row.pinned) R.string.unpin else R.string.pin), icon = { c -> if (row.pinned) PinSlashGlyph(17.dp, c) else Glyph(Glyphs.Pin, 17.dp, c) }) {
                         model.pin(row.id, !row.pinned)
                     },
                 )
                 sections.filter { it.id != row.sectionId }.forEach { section ->
-                    add(MenuEntry("Move to ${section.name}", icon = { c -> Glyph(Glyphs.Folder, 17.dp, c) }) { model.move(row.id, section.id) })
+                    add(MenuEntry(stringResource(R.string.move_to_named, section.name), icon = { c -> Glyph(Glyphs.Folder, 17.dp, c) }) { model.move(row.id, section.id) })
                 }
-                if (row.sectionId != null) add(MenuEntry("No Section", icon = { c -> Glyph(Glyphs.Tray, 17.dp, c) }) { model.move(row.id, null) })
+                if (row.sectionId != null) add(MenuEntry(stringResource(R.string.no_section), icon = { c -> Glyph(Glyphs.Tray, 17.dp, c) }) { model.move(row.id, null) })
                 add(
-                    MenuEntry("New Section…", icon = { c -> Glyph(Glyphs.FolderPlus, 17.dp, c) }) {
-                        onPrompt(Prompt("New Section", "", "Create") { value -> if (value.isNotEmpty()) model.createSection(value) })
+                    MenuEntry(stringResource(R.string.new_section_ellipsis), icon = { c -> Glyph(Glyphs.FolderPlus, 17.dp, c) }) {
+                        onPrompt(Prompt(context.getString(R.string.new_section), "", context.getString(R.string.create)) { value -> if (value.isNotEmpty()) model.createSection(value) })
                     },
                 )
                 add(rename)
-                add(MenuEntry("Archive", destructive = true, icon = { c -> Glyph(Glyphs.Archive, 17.dp, c) }) { model.archive(row.id) })
+                add(MenuEntry(stringResource(R.string.archive), destructive = true, icon = { c -> Glyph(Glyphs.Archive, 17.dp, c) }) { model.archive(row.id) })
             }
         }
         AnchoredMenu(colors, target.anchor, title = null, entries = entries, above = target.anchor.center.y > screenHeight * 0.55f) { menus.row = null }
@@ -331,30 +332,30 @@ private fun RowMenusOverlay(model: ZeronModel, colors: ZeronColors, menus: RowMe
                     },
                 )
             }
-            add(MenuEntry("No Section", checked = row.sectionId == null, icon = { c -> Glyph(Glyphs.Tray, 17.dp, c) }) { model.move(row.id, null) })
+            add(MenuEntry(stringResource(R.string.no_section), checked = row.sectionId == null, icon = { c -> Glyph(Glyphs.Tray, 17.dp, c) }) { model.move(row.id, null) })
             add(
-                MenuEntry("New Section…", icon = { c -> Glyph(Glyphs.FolderPlus, 17.dp, c) }) {
-                    onPrompt(Prompt("New Section", "", "Create") { value -> if (value.isNotEmpty()) model.createSection(value) })
+                MenuEntry(stringResource(R.string.new_section_ellipsis), icon = { c -> Glyph(Glyphs.FolderPlus, 17.dp, c) }) {
+                    onPrompt(Prompt(context.getString(R.string.new_section), "", context.getString(R.string.create)) { value -> if (value.isNotEmpty()) model.createSection(value) })
                 },
             )
         }
-        AnchoredMenu(colors, target.anchor, title = "Move to Section", entries = entries, above = target.anchor.center.y > screenHeight * 0.55f) { menus.move = null }
+        AnchoredMenu(colors, target.anchor, title = stringResource(R.string.move_to_section), entries = entries, above = target.anchor.center.y > screenHeight * 0.55f) { menus.move = null }
     }
     menus.header?.let { target ->
         // iOS headerMenu: Pinned gets Open + Reorder… (the folder screen), a
         // section gets Open + Rename/Delete. "Recent" never opens a menu.
         val entries = buildList {
-            add(MenuEntry("Open", icon = { c -> Glyph(Glyphs.Folder, 17.dp, c) }) { model.openFolder(target.id, target.title) })
+            add(MenuEntry(stringResource(R.string.open), icon = { c -> Glyph(Glyphs.Folder, 17.dp, c) }) { model.openFolder(target.id, target.title) })
             val section = target.section
             if (section == null) {
-                add(MenuEntry("Reorder…", icon = { c -> Glyph(Glyphs.ArrowUp, 17.dp, c) }) { model.openFolder(target.id, target.title) })
+                add(MenuEntry(stringResource(R.string.reorder_ellipsis), icon = { c -> Glyph(Glyphs.ArrowUp, 17.dp, c) }) { model.openFolder(target.id, target.title) })
             } else {
                 add(
-                    MenuEntry("Rename Section…", icon = { c -> Glyph(Glyphs.Rename, 17.dp, c) }) {
-                        onPrompt(Prompt("Rename Section", section.name, "Rename") { value -> if (value.isNotEmpty()) model.renameSection(section.id, value) })
+                    MenuEntry(stringResource(R.string.rename_section_ellipsis), icon = { c -> Glyph(Glyphs.Rename, 17.dp, c) }) {
+                        onPrompt(Prompt(context.getString(R.string.rename_section), section.name, context.getString(R.string.rename)) { value -> if (value.isNotEmpty()) model.renameSection(section.id, value) })
                     },
                 )
-                add(MenuEntry("Delete Section", destructive = true, icon = { c -> Glyph(Glyphs.Archive, 17.dp, c) }) { model.deleteSection(section.id) })
+                add(MenuEntry(stringResource(R.string.delete_section), destructive = true, icon = { c -> Glyph(Glyphs.Archive, 17.dp, c) }) { model.deleteSection(section.id) })
             }
         }
         AnchoredMenu(colors, target.anchor, title = target.title, entries = entries, above = target.anchor.center.y > screenHeight * 0.55f) { menus.header = null }
@@ -390,7 +391,7 @@ private fun NameDialog(colors: ZeronColors, prompt: Prompt, onDismiss: () -> Uni
             )
         },
         confirmButton = { TextButton(onClick = { onConfirm(text.trim()) }) { Text(prompt.confirm) } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) } },
     )
 }
 
@@ -403,12 +404,14 @@ private fun SessionsScreen(model: ZeronModel, colors: ZeronColors, onPrompt: (Pr
     val refreshScope = rememberCoroutineScope()
     val mode = model.listMode
     val homeColor = remember(model.client) { model.homeColorIndex() }
+    val context = LocalContext.current
+    val pinnedTitle = stringResource(R.string.pinned)
     // Keyed on the snapshot itself: ZeronModel only swaps `workspace` when its
     // content changed, so streaming updates elsewhere do not rebuild the list.
     // By Project (default): Pinned, the user's sections, then one foldable
     // group per project ("~" for project-less sessions). By Activity: one flat
     // list, live turns first, then unread, then the rest.
-    val groups = remember(front, mode, homeColor) {
+    val groups = remember(front, mode, homeColor, pinnedTitle) {
         val seen = HashSet<String>()
         fun fresh(list: List<SessionRow>) = list.filter { seen.add(it.id) }
         val out = ArrayList<ListGroup>()
@@ -418,7 +421,7 @@ private fun SessionsScreen(model: ZeronModel, colors: ZeronColors, onPrompt: (Pr
             return@remember out
         }
         val pinned = fresh(front?.pinned.orEmpty())
-        if (pinned.isNotEmpty()) out.add(ListGroup("pinned", "Pinned", pinned))
+        if (pinned.isNotEmpty()) out.add(ListGroup("pinned", pinnedTitle, pinned))
         front?.sections.orEmpty().forEach { section -> out.add(ListGroup(section.id, section.name, fresh(section.sessions), section = section)) }
         SessionGrouping.projectGroups(fresh(front?.recent.orEmpty())).forEach { g ->
             // The "~" group wears the desktop's home tile ("H").
@@ -533,7 +536,7 @@ private fun SessionsScreen(model: ZeronModel, colors: ZeronColors, onPrompt: (Pr
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
             Text(
-                "Sessions",
+                stringResource(R.string.sessions),
                 color = colors.text,
                 fontFamily = ZeronType.Sans,
                 fontWeight = FontWeight.Bold,
@@ -569,17 +572,17 @@ private fun SessionsScreen(model: ZeronModel, colors: ZeronColors, onPrompt: (Pr
                 menuAnchor,
                 title = null,
                 entries = buildList {
-                    add(menuSection("View"))
-                    add(MenuEntry("By Project", checked = mode == ZeronModel.ListMode.Project, icon = { c -> Glyph(Glyphs.Folder, 17.dp, c) }) { model.applyListMode(ZeronModel.ListMode.Project) })
-                    add(MenuEntry("By Activity", checked = mode == ZeronModel.ListMode.Activity, icon = { c -> Glyph(Glyphs.Recent, 17.dp, c) }) { model.applyListMode(ZeronModel.ListMode.Activity) })
+                    add(menuSection(stringResource(R.string.list_view)))
+                    add(MenuEntry(stringResource(R.string.by_project), checked = mode == ZeronModel.ListMode.Project, icon = { c -> Glyph(Glyphs.Folder, 17.dp, c) }) { model.applyListMode(ZeronModel.ListMode.Project) })
+                    add(MenuEntry(stringResource(R.string.by_activity), checked = mode == ZeronModel.ListMode.Activity, icon = { c -> Glyph(Glyphs.Recent, 17.dp, c) }) { model.applyListMode(ZeronModel.ListMode.Activity) })
                     add(menuSection())
                     add(
-                        MenuEntry("New Section…", icon = { c -> Glyph(Glyphs.FolderPlus, 17.dp, c) }) {
-                            onPrompt(Prompt("New Section", "", "Create") { value -> if (value.isNotEmpty()) model.createSection(value) })
+                        MenuEntry(stringResource(R.string.new_section_ellipsis), icon = { c -> Glyph(Glyphs.FolderPlus, 17.dp, c) }) {
+                            onPrompt(Prompt(context.getString(R.string.new_section), "", context.getString(R.string.create)) { value -> if (value.isNotEmpty()) model.createSection(value) })
                         },
                     )
-                    if (mode == ZeronModel.ListMode.Project) add(MenuEntry("Collapse All", icon = { c -> Glyph(Glyphs.Tray, 17.dp, c) }) { model.collapseAll() })
-                    add(MenuEntry("Archived", icon = { c -> Glyph(Glyphs.Archive, 17.dp, c) }) { model.openFolder("archived", "Archived") })
+                    if (mode == ZeronModel.ListMode.Project) add(MenuEntry(stringResource(R.string.collapse_all), icon = { c -> Glyph(Glyphs.Tray, 17.dp, c) }) { model.collapseAll() })
+                    add(MenuEntry(stringResource(R.string.archived), icon = { c -> Glyph(Glyphs.Archive, 17.dp, c) }) { model.openFolder("archived", context.getString(R.string.archived)) })
                 },
                 above = false,
             ) { menu = false }
@@ -676,22 +679,22 @@ private fun SessionRowView(
     var bounds by remember { mutableStateOf(androidx.compose.ui.geometry.Rect.Zero) }
     val latestRow by rememberUpdatedState(row)
     // The snapshot's `timeLabel` goes stale; re-derive it against LocalNow.
-    val timeLabel = RelativeTime.label(row.lastActivityMs, LocalNow.current)
+    val timeLabel = RelativeTime.label(row.lastActivityMs, LocalNow.current, LocalContext.current.resources)
     // iOS: leading Pin/Unpin (accent); trailing Archive + Move (Archive is
     // the outermost, full-swipe action) or a lone Unarchive when archived.
     val leading = if (archived) null else SwipeAction(
-        title = if (row.pinned) "Unpin" else "Pin",
+        title = stringResource(if (row.pinned) R.string.unpin else R.string.pin),
         color = colors.accent,
         icon = { tint -> if (row.pinned) PinSlashGlyph(20.dp, tint) else Glyph(Glyphs.Pin, 20.dp, tint) },
         // The gesture outlives recompositions: act on the row's current state.
         onAction = { model.pin(latestRow.id, !latestRow.pinned) },
     )
     val trailing = if (archived) {
-        listOf(SwipeAction("Unarchive", colors.accent, { tint -> Glyph(Glyphs.Unarchive, 20.dp, tint) }) { model.unarchive(latestRow.id) })
+        listOf(SwipeAction(stringResource(R.string.unarchive), colors.accent, { tint -> Glyph(Glyphs.Unarchive, 20.dp, tint) }) { model.unarchive(latestRow.id) })
     } else {
         listOf(
-            SwipeAction("Archive", colors.secondary, { tint -> Glyph(Glyphs.Archive, 20.dp, tint) }) { model.archive(latestRow.id) },
-            SwipeAction("Move", Color(0xFF5E6AD2), { tint -> Glyph(Glyphs.Folder, 20.dp, tint) }) {
+            SwipeAction(stringResource(R.string.archive), colors.secondary, { tint -> Glyph(Glyphs.Archive, 20.dp, tint) }) { model.archive(latestRow.id) },
+            SwipeAction(stringResource(R.string.move), Color(0xFF5E6AD2), { tint -> Glyph(Glyphs.Folder, 20.dp, tint) }) {
                 menus.move = RowMenuTarget(latestRow.id, archived = false, anchor = bounds)
             },
         )
@@ -767,7 +770,7 @@ private fun SessionRowView(
                         if (corner != null) {
                             StatusMark(corner.mark, colors, Modifier.size(12.dp))
                             Spacer(Modifier.width(5.dp))
-                            Text(corner.word, color = corner.color, fontFamily = ZeronType.Sans, fontWeight = FontWeight.Medium, fontSize = 13.sp)
+                            Text(stringResource(corner.word), color = corner.color, fontFamily = ZeronType.Sans, fontWeight = FontWeight.Medium, fontSize = 13.sp)
                         } else {
                             Text(timeLabel, color = colors.time, fontFamily = ZeronType.Sans, fontWeight = FontWeight.Medium, fontSize = 13.sp)
                         }
@@ -855,17 +858,17 @@ internal fun PrBadge(pr: PullRequest, colors: ZeronColors) {
     }
 }
 
-private data class Corner(val word: String, val color: Color, val mark: MarkKind)
+private data class Corner(@androidx.annotation.StringRes val word: Int, val color: Color, val mark: MarkKind)
 
 private fun cornerOf(row: SessionRow, colors: ZeronColors): Corner? = statusCorner(row.sendState, row.indicator, colors, unseen = row.unseen)
 
 private fun statusCorner(sendState: SendState?, indicator: ChatIndicator, colors: ZeronColors, unseen: Boolean = false): Corner? {
-    if (sendState == SendState.FAILED) return Corner("Failed", colors.danger, MarkKind.Dot(colors.danger))
+    if (sendState == SendState.FAILED) return Corner(R.string.status_failed, colors.danger, MarkKind.Dot(colors.danger))
     return when (indicator) {
-        ChatIndicator.WORKING -> Corner("Working", colors.working, MarkKind.Spinner)
-        ChatIndicator.AWAITING_INPUT -> Corner("Input", colors.input, MarkKind.Dot(colors.input))
-        ChatIndicator.ERRORED -> Corner("Failed", colors.failed, MarkKind.Dot(colors.failed))
-        ChatIndicator.COMPLETED -> if (unseen) Corner("Done", colors.done, MarkKind.Check(colors.done)) else null
+        ChatIndicator.WORKING -> Corner(R.string.status_working, colors.working, MarkKind.Spinner)
+        ChatIndicator.AWAITING_INPUT -> Corner(R.string.status_input, colors.input, MarkKind.Dot(colors.input))
+        ChatIndicator.ERRORED -> Corner(R.string.status_failed, colors.failed, MarkKind.Dot(colors.failed))
+        ChatIndicator.COMPLETED -> if (unseen) Corner(R.string.status_done, colors.done, MarkKind.Check(colors.done)) else null
         ChatIndicator.IDLE -> null
     }
 }
@@ -882,11 +885,17 @@ private fun FolderScreen(model: ZeronModel, colors: ZeronColors, folder: ZeronMo
                 contentAlignment = Alignment.Center,
             ) { BackChevron(colors.text, Modifier.size(18.dp)) }
             Spacer(Modifier.width(10.dp))
-            Text(folder.title, color = colors.text, fontFamily = ZeronType.Sans, fontWeight = FontWeight.SemiBold, fontSize = 17.sp)
+            Text(
+                when (folder.id) {
+                    "archived" -> stringResource(R.string.archived)
+                    "pinned" -> stringResource(R.string.pinned)
+                    else -> folder.title
+                },
+                color = colors.text, fontFamily = ZeronType.Sans, fontWeight = FontWeight.SemiBold, fontSize = 17.sp)
         }
         if (rows.isEmpty()) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("Nothing here", color = colors.secondary, fontFamily = ZeronType.Sans)
+                Text(stringResource(R.string.nothing_here), color = colors.secondary, fontFamily = ZeronType.Sans)
             }
         } else if (folder.id == "pinned") {
             // Pins are an ordered list: drag the grip to reorder (synced).
@@ -1006,7 +1015,7 @@ private fun SearchScreen(model: ZeronModel, colors: ZeronColors) {
                 contentAlignment = Alignment.Center,
             ) { BackChevron(colors.text, Modifier.size(18.dp)) }
             Spacer(Modifier.width(10.dp))
-            Text("Search", color = colors.text, fontFamily = ZeronType.Sans, fontWeight = FontWeight.SemiBold, fontSize = 17.sp)
+            Text(stringResource(R.string.search), color = colors.text, fontFamily = ZeronType.Sans, fontWeight = FontWeight.SemiBold, fontSize = 17.sp)
         }
         BasicTextField(
             value = model.searchQuery,
@@ -1016,14 +1025,14 @@ private fun SearchScreen(model: ZeronModel, colors: ZeronColors) {
             modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(colors.controlFill).padding(horizontal = 14.dp, vertical = 12.dp),
             decorationBox = { inner ->
                 Box {
-                    if (model.searchQuery.isEmpty()) Text("Sessions, projects, messages", color = colors.tertiary, fontFamily = ZeronType.Sans, fontSize = 16.sp)
+                    if (model.searchQuery.isEmpty()) Text(stringResource(R.string.search_placeholder), color = colors.tertiary, fontFamily = ZeronType.Sans, fontSize = 16.sp)
                     inner()
                 }
             },
         )
         if (model.searchQuery.isNotBlank() && results.isEmpty()) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("No matches", color = colors.secondary, fontFamily = ZeronType.Sans)
+                Text(stringResource(R.string.no_matches), color = colors.secondary, fontFamily = ZeronType.Sans)
             }
         } else {
             LazyColumn(Modifier.weight(1f).padding(top = 8.dp)) {
@@ -1042,7 +1051,7 @@ private fun SettingsScreen(model: ZeronModel, colors: ZeronColors) {
     val picker = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.GetContent()) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
         val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: return@rememberLauncherForActivityResult
-        model.setWallpaper(bytes, uri.lastPathSegment ?: "Wallpaper")
+        model.setWallpaper(bytes, uri.lastPathSegment ?: context.getString(R.string.wallpaper))
     }
     var effects by remember { mutableStateOf(false) }
     var confirmOut by remember { mutableStateOf(false) }
@@ -1055,42 +1064,42 @@ private fun SettingsScreen(model: ZeronModel, colors: ZeronColors) {
                     contentAlignment = Alignment.Center,
                 ) { BackChevron(colors.text, Modifier.size(18.dp)) }
                 Spacer(Modifier.width(10.dp))
-                Text("Settings", color = colors.text, fontFamily = ZeronType.Sans, fontWeight = FontWeight.SemiBold, fontSize = 17.sp)
+                Text(stringResource(R.string.settings), color = colors.text, fontFamily = ZeronType.Sans, fontWeight = FontWeight.SemiBold, fontSize = 17.sp)
             }
         }
-        item { GroupLabel(colors, "Account") }
+        item { GroupLabel(colors, stringResource(R.string.settings_account)) }
         item {
             val conn = model.connectivity
             val sub = when {
-                model.client?.isDemo() == true -> "Offline workspace · tap to switch"
+                model.client?.isDemo() == true -> stringResource(R.string.settings_demo_sub)
                 model.client?.isDirect() == true -> directSummary(model.directStatus).replaceFirstChar { it.uppercase() }
-                else -> "Signed in · ${model.client?.orgId()}"
+                else -> stringResource(R.string.signed_in_org, model.client?.orgId().orEmpty())
             }
-            SettingRow(colors, "Accounts & Computers", "${model.activeTitle()} · $sub", onClick = { model.showMachines = true }, trailing = {
+            SettingRow(colors, stringResource(R.string.accounts_computers), "${model.activeTitle()} · $sub", onClick = { model.showMachines = true }, trailing = {
                 val online = model.client?.isDemo() == true ||
                     (if (model.client?.isDirect() == true) model.directStatus?.phase == uniffi.zeron_core.DirectPhase.LIVE else conn?.state == uniffi.zeron_core.ConnectivityState.CONNECTED)
                 Box(Modifier.size(8.dp).clip(CircleShape).background(if (online) colors.success else colors.tertiary))
             })
         }
-        item { SettingRow(colors, "Add Computer (SSH)…", "Connect straight to Zeron on your PC over SSH", onClick = { model.editMachine = Machine() }) }
+        item { SettingRow(colors, stringResource(R.string.add_computer_ssh), stringResource(R.string.add_computer_ssh_sub), onClick = { model.editMachine = Machine() }) }
         if (model.client?.isDirect() == true) {
-            item { SettingRow(colors, "Connection Details", "Link state, engine version, streams and log", onClick = { model.showLinkDetails = true }) }
+            item { SettingRow(colors, stringResource(R.string.connection_details), stringResource(R.string.connection_details_sub), onClick = { model.showLinkDetails = true }) }
         }
-        item { GroupLabel(colors, "Devices") }
+        item { GroupLabel(colors, stringResource(R.string.settings_devices)) }
         val devices = model.workspace?.devices.orEmpty()
         if (devices.isEmpty()) {
-            item { SettingRow(colors, "This device", "No other hosts in the demo") }
+            item { SettingRow(colors, stringResource(R.string.this_device), stringResource(R.string.no_other_hosts)) }
         } else {
             items(devices, key = { it.id }) { device ->
-                SettingRow(colors, device.name, if (device.online) "Online" else "Offline", trailing = {
+                SettingRow(colors, device.name, stringResource(if (device.online) R.string.online else R.string.offline), trailing = {
                     Box(Modifier.size(8.dp).clip(CircleShape).background(if (device.online) colors.success else colors.tertiary))
                 })
             }
         }
-        item { GroupLabel(colors, "Appearance") }
+        item { GroupLabel(colors, stringResource(R.string.settings_appearance)) }
         item {
-            listOf(0 to "System", 1 to "Light", 2 to "Dark").forEach { (mode, label) ->
-                SettingRow(colors, label, null, onClick = { model.applyAppearance(mode) }, trailing = {
+            listOf(0 to R.string.appearance_system, 1 to R.string.appearance_light, 2 to R.string.appearance_dark).forEach { (mode, label) ->
+                SettingRow(colors, stringResource(label), null, onClick = { model.applyAppearance(mode) }, trailing = {
                     if (model.appearance == mode) Text("✓", color = colors.accent, fontSize = 16.sp)
                 })
             }
@@ -1109,40 +1118,40 @@ private fun SettingsScreen(model: ZeronModel, colors: ZeronColors) {
                 })
             }
         }
-        item { GroupLabel(colors, "Wallpaper") }
+        item { GroupLabel(colors, stringResource(R.string.wallpaper)) }
         item {
-            SettingRow(colors, if (model.wallpaper != null) "Change Wallpaper…" else "Choose Wallpaper…", if (model.wallpaper != null) model.wallpaperName() else "Shown behind new chats and the sessions list", onClick = { picker.launch("image/*") })
+            SettingRow(colors, stringResource(if (model.wallpaper != null) R.string.change_wallpaper else R.string.choose_wallpaper), if (model.wallpaper != null) model.wallpaperName() else stringResource(R.string.wallpaper_sub), onClick = { picker.launch("image/*") })
         }
         if (model.wallpaper != null) {
-            item { SettingRow(colors, "Effect", ZeronModel.effectLabel(model.wallpaperEffect), onClick = { effects = true }) }
-            item { SettingRow(colors, "Remove Wallpaper", null, destructive = true, onClick = { model.clearWallpaper() }) }
+            item { SettingRow(colors, stringResource(R.string.wallpaper_effect_row), stringResource(ZeronModel.effectLabel(model.wallpaperEffect)), onClick = { effects = true }) }
+            item { SettingRow(colors, stringResource(R.string.remove_wallpaper), null, destructive = true, onClick = { model.clearWallpaper() }) }
         }
-        item { GroupLabel(colors, "Sessions") }
-        item { SettingRow(colors, "Search", "Sessions, projects, messages", onClick = { model.tab = ZeronModel.Tab.Search }) }
-        item { SettingRow(colors, "Archived Sessions", null, onClick = { model.tab = ZeronModel.Tab.Sessions; model.openFolder("archived", "Archived") }) }
-        item { SettingRow(colors, "New Project", "Browse a host folder", onClick = { newProject = true }) }
-        item { GroupLabel(colors, "About") }
+        item { GroupLabel(colors, stringResource(R.string.sessions)) }
+        item { SettingRow(colors, stringResource(R.string.search), stringResource(R.string.search_placeholder), onClick = { model.tab = ZeronModel.Tab.Search }) }
+        item { SettingRow(colors, stringResource(R.string.archived_sessions), null, onClick = { model.tab = ZeronModel.Tab.Sessions; model.openFolder("archived", context.getString(R.string.archived)) }) }
+        item { SettingRow(colors, stringResource(R.string.new_project), stringResource(R.string.new_project_sub), onClick = { newProject = true }) }
+        item { GroupLabel(colors, stringResource(R.string.settings_about)) }
         item {
             val newer = model.updateRelease?.takeIf { it.newer }
-            SettingRow(colors, "Check for Updates", newer?.let { "${it.name} is available" } ?: "${sh.zeron.android.BuildConfig.VERSION_NAME} · build ${sh.zeron.android.BuildConfig.VERSION_CODE}", onClick = { model.checkForUpdates() }, trailing = {
+            SettingRow(colors, stringResource(R.string.check_for_updates), newer?.let { stringResource(R.string.update_available, it.name) } ?: stringResource(R.string.version_build, sh.zeron.android.BuildConfig.VERSION_NAME, sh.zeron.android.BuildConfig.VERSION_CODE), onClick = { model.checkForUpdates() }, trailing = {
                 if (newer != null) Box(Modifier.size(9.dp).clip(CircleShape).background(colors.accent))
             })
         }
         item { Spacer(Modifier.height(18.dp)) }
         if (model.activeMachine == "cloud") {
-            item { SettingRow(colors, "Sign Out", "Local drafts stay on this device.", destructive = true, onClick = { confirmOut = true }) }
+            item { SettingRow(colors, stringResource(R.string.sign_out), stringResource(R.string.sign_out_sub), destructive = true, onClick = { confirmOut = true }) }
         }
         item { Spacer(Modifier.height(32.dp)) }
     }
     if (effects) {
         AlertDialog(
             onDismissRequest = { effects = false },
-            title = { Text("Wallpaper Effect") },
+            title = { Text(stringResource(R.string.wallpaper_effect_title)) },
             text = {
                 Column {
                     WallpaperEffect.entries.forEach { effect ->
                         Text(
-                            ZeronModel.effectLabel(effect),
+                            stringResource(ZeronModel.effectLabel(effect)),
                             color = if (effect == model.wallpaperEffect) colors.accent else colors.text,
                             modifier = Modifier.fillMaxWidth().clickable {
                                 model.applyWallpaperEffect(effect)
@@ -1153,23 +1162,23 @@ private fun SettingsScreen(model: ZeronModel, colors: ZeronColors) {
                     }
                 }
             },
-            confirmButton = { TextButton(onClick = { effects = false }) { Text("Close") } },
+            confirmButton = { TextButton(onClick = { effects = false }) { Text(stringResource(R.string.close)) } },
         )
     }
     if (confirmOut) {
         AlertDialog(
             onDismissRequest = { confirmOut = false },
-            title = { Text("Sign out?") },
-            text = { Text("Local drafts stay on this device.") },
-            confirmButton = { TextButton(onClick = { confirmOut = false; model.signOut() }) { Text("Sign Out") } },
-            dismissButton = { TextButton(onClick = { confirmOut = false }) { Text("Cancel") } },
+            title = { Text(stringResource(R.string.sign_out_confirm)) },
+            text = { Text(stringResource(R.string.sign_out_sub)) },
+            confirmButton = { TextButton(onClick = { confirmOut = false; model.signOut() }) { Text(stringResource(R.string.sign_out)) } },
+            dismissButton = { TextButton(onClick = { confirmOut = false }) { Text(stringResource(R.string.cancel)) } },
         )
     }
     if (newProject) {
         Box(Modifier.fillMaxSize().background(colors.background)) {
             NewProjectScreen(model, onClose = { newProject = false }, onCreated = { id, name ->
                 newProject = false
-                model.showToast("Added $name")
+                model.showToast(context.getString(R.string.project_added, name))
                 model.newSessionProject = id
                 model.showNewSession = true
             })

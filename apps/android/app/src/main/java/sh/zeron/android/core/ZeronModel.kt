@@ -1,5 +1,6 @@
 package sh.zeron.android.core
 
+import sh.zeron.android.R
 import android.app.Application
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -991,12 +992,13 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
             else -> WallpaperEffect.NONE
         }
 
-        fun effectLabel(effect: WallpaperEffect) = when (effect) {
-            WallpaperEffect.NONE -> "None"
-            WallpaperEffect.DITHER -> "Dither"
-            WallpaperEffect.ASCII -> "ASCII"
-            WallpaperEffect.HALFTONE -> "Halftone"
-            WallpaperEffect.SCANLINES -> "Scanlines"
+        @androidx.annotation.StringRes
+        fun effectLabel(effect: WallpaperEffect): Int = when (effect) {
+            WallpaperEffect.NONE -> R.string.effect_none
+            WallpaperEffect.DITHER -> R.string.effect_dither
+            WallpaperEffect.ASCII -> R.string.effect_ascii
+            WallpaperEffect.HALFTONE -> R.string.effect_halftone
+            WallpaperEffect.SCANLINES -> R.string.effect_scanlines
         }
     }
 }
