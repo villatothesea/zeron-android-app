@@ -30,6 +30,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathFillType
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.vector.PathParser
@@ -121,20 +122,33 @@ sealed interface MarkKind {
 fun ProjectTile(name: String, colorIndex: Int, colors: ZeronColors, size: Dp) {
     val tone = colors.project(colorIndex)
     val letter = name.trim().firstOrNull()?.uppercaseChar()?.toString() ?: "?"
-    Box(
-        modifier = Modifier
+    val context = LocalContext.current
+    val face = remember { FontChain.face(context, uniffi.zeron_core.FaceRole.MONO_MEDIUM) }
+    val ink = tone.copy(alpha = 0.85f)
+    // 13pt desktop tile → radius 3, letter 9pt, scaled with the tile. The
+    // letter is drawn, not laid out as Text: a Text line box (ascent +
+    // descent, font padding) put the capital visibly low. Here its glyph box
+    // is centred exactly, like iOS centring the capital rather than the line.
+    Canvas(
+        Modifier
             .size(size)
             .clip(RoundedCornerShape(size * 3f / 13f))
             .background(tone.copy(alpha = 0.08f)),
-        contentAlignment = androidx.compose.ui.Alignment.Center,
     ) {
-        androidx.compose.material3.Text(
-            text = letter,
-            color = tone.copy(alpha = 0.85f),
-            fontFamily = ZeronType.Mono,
-            fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
-            fontSize = with(LocalDensity.current) { (size * 9f / 13f).toSp() },
-        )
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            typeface = face
+            textSize = this@Canvas.size.width * 9f / 13f
+            color = android.graphics.Color.argb(
+                (ink.alpha * 255).toInt(),
+                (ink.red * 255).toInt(),
+                (ink.green * 255).toInt(),
+                (ink.blue * 255).toInt(),
+            )
+        }
+        val glyph = android.graphics.Rect().also { paint.getTextBounds(letter, 0, letter.length, it) }
+        val x = this.size.width / 2f - (glyph.left + glyph.right) / 2f
+        val y = this.size.height / 2f - (glyph.top + glyph.bottom) / 2f
+        drawContext.canvas.nativeCanvas.drawText(letter, x, y, paint)
     }
 }
 
