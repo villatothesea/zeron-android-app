@@ -63,6 +63,10 @@ class TranscriptListView(context: Context) : View(context) {
     var imageFor: (String) -> Bitmap? = { null }
     var requestImage: (String) -> Unit = {}
     var onDistanceFromBottom: (Float) -> Unit = {}
+    /** The user's own messages in transcript order, re-sent when they change (the message navigator). */
+    var onUserMarks: (List<UserMark>) -> Unit = {}
+    /** Index into the last [onUserMarks] list of the message being read (the last one at or above the top). */
+    var onActiveUserMark: (Int) -> Unit = {}
     var savedScroll: Float = 0f
     var onScroll: (Float) -> Unit = {}
     /** A drag or fling started (true) or ended (false). */
@@ -181,9 +185,64 @@ class TranscriptListView(context: Context) : View(context) {
         if (following) scroll = maxScroll
         scroll = scroll.coerceIn(0f, maxScroll)
         frame = next
+        refreshUserMarks(next)
         onDistanceFromBottom(maxScroll - scroll)
         onScroll(scroll)
+        reportActiveMark()
         invalidate()
+    }
+
+    // ── message navigator ───────────────────────────────────────────────
+
+    private var userMarks: List<UserMark> = emptyList()
+    private var marksRowCount = -1
+    private var marksWidth = -1
+    private var marksAt = 0L
+    private var activeMark = -1
+
+    /**
+     * Re-derive the user-message marks: whenever rows were added or removed
+     * or the width changed (reflow moves them), else at most once a second
+     * while frames stream in (a streaming reply only changes rows below).
+     */
+    private fun refreshUserMarks(frame: LayoutFrame) {
+        val count = frame.rowCount().toInt()
+        val now = android.os.SystemClock.uptimeMillis()
+        if (count == marksRowCount && width == marksWidth && now - marksAt < 1_000) return
+        marksRowCount = count
+        marksWidth = width
+        marksAt = now
+        val marks = ArrayList<UserMark>()
+        for (row in frame.rowsIn(0f, frame.totalHeight() + 1f)) {
+            if (row.kind != uniffi.zeron_core.RowKind.USER) continue
+            val text = (frame.messageText(row.index) ?: frame.display(row.index)?.copyText).orEmpty()
+            // One message can span rows (a long one's disclosure): keep the first.
+            if (marks.isNotEmpty() && marks.last().text == text && text.isNotEmpty()) continue
+            marks += UserMark(row.key, row.y, text)
+        }
+        if (marks != userMarks) {
+            userMarks = marks
+            activeMark = -1
+            onUserMarks(marks)
+        }
+    }
+
+    /** The message being read (index into the marks), for tests. */
+    internal val activeUserMark: Int get() = activeMark
+    internal val userMarkCount: Int get() = userMarks.size
+    internal fun userMarkKey(i: Int): ULong? = userMarks.getOrNull(i)?.key
+    internal fun distanceFromBottomPx(): Float = maxScrollPx() - scroll
+
+    private fun reportActiveMark() {
+        if (userMarks.isEmpty()) return
+        // The reading line: a little below the header edge, like the desktop
+        // rail's own-send inset.
+        val top = scroll / density + 24f
+        val i = MessageNav.activeIndex(userMarks.map { it.y }, top)
+        if (i != activeMark) {
+            activeMark = i
+            onActiveUserMark(i)
+        }
     }
 
     /** Glide so the row [key] sits just below the header (the navigator's tap). */
@@ -822,6 +881,7 @@ class TranscriptListView(context: Context) : View(context) {
             following = maxScroll - scroll < 48f * density
             onDistanceFromBottom(maxScroll - scroll)
             onScroll(scroll)
+            reportActiveMark()
             postInvalidateOnAnimation()
         } else if (scrollingNow && !tracking) {
             setScrolling(false)
@@ -834,6 +894,7 @@ class TranscriptListView(context: Context) : View(context) {
         following = maxScroll - scroll < 80f * density
         onDistanceFromBottom(maxScroll - scroll)
         onScroll(scroll)
+        reportActiveMark()
         savedScroll = scroll
         invalidate()
     }

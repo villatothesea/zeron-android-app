@@ -619,4 +619,11 @@
     <plurals name="home_stats_failed">
         <item quantity="other">%1$d 个失败</item>
     </plurals>
+    <!-- 会话消息导航（右侧你的消息大纲） -->
+    <string name="msg_nav_open">你的消息：点按跳转</string>
+    <string name="msg_nav_title">你的消息</string>
+    <string name="msg_nav_attachment">附件</string>
+    <plurals name="msg_nav_more">
+        <item quantity="other">另 %d 条</item>
+    </plurals>
 </resources>

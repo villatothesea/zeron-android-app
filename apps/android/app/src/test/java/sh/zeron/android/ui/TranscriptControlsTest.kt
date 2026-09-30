@@ -96,6 +96,33 @@ class TranscriptControlsTest {
         scenario.close()
     }
 
+    @Test
+    fun navigatorListsYourMessagesAndJumps() {
+        launch("chat-zh")
+        // One message of yours: no navigator.
+        assertEquals(0, compose.onAllNodesWithTag("msg-nav").fetchSemanticsNodes().size)
+        val handle = model.client!!.openSession("chat-zh")
+        for (text in listOf("把第二个代码块改成异步版本", "再补一个单元测试")) {
+            handle.send(SendRequest(text = text, attachments = emptyList(), worktree = null, busy = BusyPolicy.QUEUE))
+            settle(1500)
+        }
+        settleUntil("the navigator") { compose.onAllNodesWithTag("msg-nav").fetchSemanticsNodes().isNotEmpty() }
+        settleUntil("three of your messages") { (transcript()?.userMarkCount ?: 0) >= 3 }
+        compose.onNodeWithTag("msg-nav").performClick()
+        settle()
+        val items = compose.onAllNodesWithTag("msg-nav-item").fetchSemanticsNodes().size
+        assertTrue("one preview per message, got $items", items >= 3)
+        // The first message: the transcript glides up, away from the bottom.
+        compose.onAllNodesWithTag("msg-nav-item")[0].performClick()
+        settle(300)
+        glide(transcript()!!)
+        assertEquals(0, compose.onAllNodesWithTag("msg-nav-card").fetchSemanticsNodes().size)
+        val view = transcript()!!
+        assertEquals("reading your first message", 0, view.activeUserMark)
+        assertTrue("away from the bottom", view.distanceFromBottomPx() > 0f)
+        scenario.close()
+    }
+
     /** Robolectric doesn't draw the AndroidView, so run its glide (computeScroll) by hand. */
     private fun glide(view: TranscriptListView) {
         repeat(30) {

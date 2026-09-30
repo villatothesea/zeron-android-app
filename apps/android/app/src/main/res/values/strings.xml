@@ -627,4 +627,12 @@
         <item quantity="one">%1$d failed</item>
         <item quantity="other">%1$d failed</item>
     </plurals>
+    <!-- Session message navigator (right-edge outline of your messages) -->
+    <string name="msg_nav_open">Your messages: jump to one</string>
+    <string name="msg_nav_title">Your messages</string>
+    <string name="msg_nav_attachment">Attachment</string>
+    <plurals name="msg_nav_more">
+        <item quantity="one">+%d more</item>
+        <item quantity="other">+%d more</item>
+    </plurals>
 </resources>

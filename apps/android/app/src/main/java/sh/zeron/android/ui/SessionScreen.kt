@@ -182,6 +182,8 @@ fun SessionScreen(model: ZeronModel, chatId: String) {
     // Only whether the jump-to-bottom button shows, not the raw distance: a
     // state write per scrolled pixel recomposed the whole chat screen.
     var awayFromBottom by remember { mutableStateOf(false) }
+    var userMarks by remember { mutableStateOf(emptyList<UserMark>()) }
+    var activeMark by remember { mutableStateOf(-1) }
     // Unsent text survives leaving the chat and app restarts (iOS Drafts).
     val drafts = remember { context.getSharedPreferences("drafts", android.content.Context.MODE_PRIVATE) }
     var draft by remember(chatId) { mutableStateOf(drafts.getString(chatId, "") ?: "") }
@@ -307,6 +309,8 @@ fun SessionScreen(model: ZeronModel, chatId: String) {
                     if (away != awayFromBottom) awayFromBottom = away
                 }
                 host.onScrollActive = { model.scrolling = it }
+                host.onUserMarks = { userMarks = it }
+                host.onActiveUserMark = { activeMark = it }
                 relay.onReady = { host.requestFrame() }
             },
         )
@@ -464,6 +468,19 @@ fun SessionScreen(model: ZeronModel, chatId: String) {
                     },
                 )
             }
+        }
+        // Message navigator (desktop MessageRail): right-middle of the
+        // transcript, between the header and the composer.
+        if (composerTop > 0 && rootHeight > 0) {
+            val topDp = with(density) { (headerPx + headerGapPx).toDp() }
+            val bottomDp = with(density) { (rootHeight - composerTop + gapPx).coerceAtLeast(0).toDp() }
+            MessageNavigator(
+                marks = userMarks,
+                active = activeMark,
+                colors = colors,
+                onPick = { view?.scrollToRow(it.key) },
+                modifier = Modifier.padding(top = topDp, bottom = bottomDp),
+            )
         }
         // iOS jump-to-latest: a 40pt glass circle 16 from the trailing edge,
         // 12 above the composer, popping in once you're away from the bottom.
