@@ -322,4 +322,33 @@
     <string name="trust_new_key">信任新密钥</string>
     <string name="delete_named">删除“%1$s”？</string>
     <string name="delete_machine_body">其保存的密钥或密码将从此手机中移除。</string>
+
+    <!-- New Session and New Project (folder browser) -->
+    <string name="project">项目</string>
+    <string name="new_worktree">新建工作树</string>
+    <string name="current_branch">当前分支</string>
+    <string name="choose_host">选择主机</string>
+    <string name="new_session">新建会话</string>
+    <string name="new_session_headline">今天要做点什么？</string>
+    <string name="new_session_placeholder">描述任务</string>
+    <string name="choose_project_or_host">请选择一个项目或可运行的主机。</string>
+    <string name="start_session_failed">无法创建会话</string>
+    <string name="host_offline_suffix">%1$s · 离线</string>
+    <string name="no_project_ellipsis">无项目…</string>
+    <string name="new_project_ellipsis">新建项目…</string>
+    <string name="add_computer_ellipsis">添加电脑…</string>
+    <string name="run_on">运行于</string>
+    <string name="checkout">检出</string>
+    <string name="branch">分支</string>
+    <string name="checked_out">已检出</string>
+    <string name="no_branches">未找到分支</string>
+    <string name="read_folder_failed">无法读取该文件夹</string>
+    <string name="home_folder">主目录</string>
+    <string name="device_offline">%1$s 已离线。</string>
+    <string name="folders_truncated">仅显示前面的部分文件夹。</string>
+    <string name="no_folders">这里没有文件夹。</string>
+    <string name="create_project_failed">无法创建项目</string>
+    <string name="adding">正在添加…</string>
+    <string name="use_folder_named">使用“%1$s”</string>
+    <string name="use_this_folder">使用此文件夹</string>
 </resources>

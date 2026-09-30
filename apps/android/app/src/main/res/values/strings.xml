@@ -326,4 +326,33 @@
     <string name="trust_new_key">Trust new key</string>
     <string name="delete_named">Delete %1$s?</string>
     <string name="delete_machine_body">Its saved key or password is removed from this phone.</string>
+
+    <!-- New Session and New Project (folder browser) -->
+    <string name="project">Project</string>
+    <string name="new_worktree">New worktree</string>
+    <string name="current_branch">Current branch</string>
+    <string name="choose_host">Choose host</string>
+    <string name="new_session">New Session</string>
+    <string name="new_session_headline">What are we building?</string>
+    <string name="new_session_placeholder">Describe the task</string>
+    <string name="choose_project_or_host">Choose a project or a host that can run it.</string>
+    <string name="start_session_failed">Couldn\'t start the session</string>
+    <string name="host_offline_suffix">%1$s · offline</string>
+    <string name="no_project_ellipsis">No Project…</string>
+    <string name="new_project_ellipsis">New Project…</string>
+    <string name="add_computer_ellipsis">Add Computer…</string>
+    <string name="run_on">Run on</string>
+    <string name="checkout">Checkout</string>
+    <string name="branch">Branch</string>
+    <string name="checked_out">Checked out</string>
+    <string name="no_branches">No branches found</string>
+    <string name="read_folder_failed">Couldn\'t read that folder</string>
+    <string name="home_folder">Home</string>
+    <string name="device_offline">%1$s is offline.</string>
+    <string name="folders_truncated">Only the first folders are shown.</string>
+    <string name="no_folders">No folders here.</string>
+    <string name="create_project_failed">Couldn\'t create the project</string>
+    <string name="adding">Adding…</string>
+    <string name="use_folder_named">Use “%1$s”</string>
+    <string name="use_this_folder">Use this folder</string>
 </resources>

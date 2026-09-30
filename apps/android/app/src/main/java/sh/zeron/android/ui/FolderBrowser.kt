@@ -1,5 +1,8 @@
 package sh.zeron.android.ui
 
+import sh.zeron.android.R
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -112,6 +115,7 @@ object HostPaths {
 @Composable
 fun NewProjectScreen(model: ZeronModel, initialDeviceId: String? = null, onClose: () -> Unit, onCreated: (String, String) -> Unit) {
     val colors = LocalZeronColors.current
+    val context = LocalContext.current
     val client = model.client ?: return
     val devices = remember(model.workspace) { client.executionDevices().ifEmpty { client.devices() } }
     var deviceId by remember { mutableStateOf(initialDeviceId ?: devices.firstOrNull { it.online }?.id ?: devices.firstOrNull()?.id ?: client.deviceId()) }
@@ -141,7 +145,7 @@ fun NewProjectScreen(model: ZeronModel, initialDeviceId: String? = null, onClose
             if (path == null) home = next.path
             repoHint = repoHint + next.entries.filter { it.isDir }.associate { HostPaths.join(next.path, it.name) to it.isRepo }
         } catch (t: Throwable) {
-            error = t.message ?: "Couldn't read that folder"
+            error = t.message ?: context.getString(R.string.read_folder_failed)
         } finally {
             busy = false
         }
@@ -150,9 +154,9 @@ fun NewProjectScreen(model: ZeronModel, initialDeviceId: String? = null, onClose
     val current = listing?.path
     Column(Modifier.fillMaxSize().background(colors.background).statusBarsPadding().navigationBarsPadding()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("Cancel", color = colors.text, fontFamily = ZeronType.Sans, fontSize = 16.sp, modifier = Modifier.clip(RoundedCornerShape(10.dp)).clickable(onClick = onClose).padding(10.dp))
+            Text(stringResource(R.string.cancel), color = colors.text, fontFamily = ZeronType.Sans, fontSize = 16.sp, modifier = Modifier.clip(RoundedCornerShape(10.dp)).clickable(onClick = onClose).padding(10.dp))
             Text(
-                current?.let { HostPaths.name(it) } ?: "New Project",
+                current?.let { HostPaths.name(it) } ?: stringResource(R.string.new_project),
                 color = colors.text,
                 fontFamily = ZeronType.Sans,
                 fontWeight = FontWeight.SemiBold,
@@ -167,7 +171,7 @@ fun NewProjectScreen(model: ZeronModel, initialDeviceId: String? = null, onClose
         if (devices.size > 1) {
             Row(Modifier.padding(horizontal = 16.dp, vertical = 4.dp).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 devices.forEach { d ->
-                    LocationChip(colors, d.name + if (d.online) "" else " · offline", selected = d.id == deviceId, icon = { c -> Glyph(Glyphs.Computer, 15.dp, c) }) {
+                    LocationChip(colors, if (d.online) d.name else stringResource(R.string.host_offline_suffix, d.name), selected = d.id == deviceId, icon = { c -> Glyph(Glyphs.Computer, 15.dp, c) }) {
                         if (d.id != deviceId) {
                             deviceId = d.id
                             path = null
@@ -180,14 +184,14 @@ fun NewProjectScreen(model: ZeronModel, initialDeviceId: String? = null, onClose
         }
         // Browse roots: home, then every drive / volume the host reports.
         Row(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            LocationChip(colors, "Home", selected = current != null && current == home, icon = { c -> Glyph(Glyphs.Home, 15.dp, c) }) { path = null }
+            LocationChip(colors, stringResource(R.string.home_folder), selected = current != null && current == home, icon = { c -> Glyph(Glyphs.Home, 15.dp, c) }) { path = null }
             drives.forEach { d ->
                 val onDrive = current != null && current != home && HostPaths.isWindows(d.path) && current.startsWith(d.path.take(2), ignoreCase = true)
                 LocationChip(colors, d.name, selected = onDrive, icon = { c -> Glyph(Glyphs.Drive, 15.dp, c) }) { path = d.path }
             }
         }
         Text(
-            current ?: if (busy) "Loading…" else "",
+            current ?: if (busy) stringResource(R.string.loading) else "",
             color = colors.secondary,
             fontFamily = ZeronType.Mono,
             fontSize = 12.5.sp,
@@ -196,7 +200,7 @@ fun NewProjectScreen(model: ZeronModel, initialDeviceId: String? = null, onClose
             modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
         )
         error?.let {
-            Text(if (device?.online == false) "${device.name} is offline." else it, color = colors.danger, fontFamily = ZeronType.Sans, fontSize = 14.sp, modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp))
+            Text(if (device?.online == false) stringResource(R.string.device_offline, device.name) else it, color = colors.danger, fontFamily = ZeronType.Sans, fontSize = 14.sp, modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp))
         }
         HorizontalDivider(color = colors.hairline, modifier = Modifier.padding(top = 6.dp))
         val folders = listing?.entries.orEmpty().filter { it.isDir }
@@ -215,12 +219,12 @@ fun NewProjectScreen(model: ZeronModel, initialDeviceId: String? = null, onClose
             }
             if (listing?.truncated == true) {
                 item(key = "truncated") {
-                    Text("Only the first folders are shown.", color = colors.tertiary, fontFamily = ZeronType.Sans, fontSize = 13.sp, modifier = Modifier.padding(20.dp))
+                    Text(stringResource(R.string.folders_truncated), color = colors.tertiary, fontFamily = ZeronType.Sans, fontSize = 13.sp, modifier = Modifier.padding(20.dp))
                 }
             }
             if (listing != null && folders.isEmpty()) {
                 item(key = "empty") {
-                    Text("No folders here.", color = colors.tertiary, fontFamily = ZeronType.Sans, fontSize = 14.sp, modifier = Modifier.padding(20.dp))
+                    Text(stringResource(R.string.no_folders), color = colors.tertiary, fontFamily = ZeronType.Sans, fontSize = 14.sp, modifier = Modifier.padding(20.dp))
                 }
             }
         }
@@ -242,7 +246,7 @@ fun NewProjectScreen(model: ZeronModel, initialDeviceId: String? = null, onClose
                             model.refreshPull()
                             onCreated(id, HostPaths.name(folder))
                         } catch (t: Throwable) {
-                            model.showToast(t.message ?: "Couldn't create the project")
+                            model.showToast(t.message ?: context.getString(R.string.create_project_failed))
                         } finally {
                             creating = false
                         }
@@ -251,7 +255,7 @@ fun NewProjectScreen(model: ZeronModel, initialDeviceId: String? = null, onClose
             contentAlignment = Alignment.Center,
         ) {
             Text(
-                if (creating) "Adding…" else current?.let { "Use “${HostPaths.name(it)}”" } ?: "Use this folder",
+                if (creating) stringResource(R.string.adding) else current?.let { stringResource(R.string.use_folder_named, HostPaths.name(it)) } ?: stringResource(R.string.use_this_folder),
                 color = if (usable) colors.background else colors.tertiary,
                 fontFamily = ZeronType.Sans,
                 fontWeight = FontWeight.SemiBold,

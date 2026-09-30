@@ -1,5 +1,8 @@
 package sh.zeron.android.ui
 
+import sh.zeron.android.R
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -95,6 +98,7 @@ private suspend fun hostModels(client: CoreClient, device: String): List<ModelCh
 @Composable
 fun NewSessionSheet(model: ZeronModel, onDismiss: () -> Unit) {
     val colors = LocalZeronColors.current
+    val context = LocalContext.current
     val client = model.client ?: return
     val projects = model.workspace?.projects.orEmpty()
     val hosts = remember(model.workspace) { client.executionDevices() }
@@ -143,12 +147,12 @@ fun NewSessionSheet(model: ZeronModel, onDismiss: () -> Unit) {
 
     val chips = buildList {
         if (projectId != null) {
-            val name = project?.name ?: addedNames[projectId] ?: "Project"
+            val name = project?.name ?: addedNames[projectId] ?: stringResource(R.string.project)
             add(Chip("project", name, colorIndex = project?.colorIndex?.toInt() ?: 0))
-            if (project?.gitDetected == true) add(Chip("branch", if (worktree) "New worktree" else branch ?: "Current branch"))
+            if (project?.gitDetected == true) add(Chip("branch", if (worktree) stringResource(R.string.new_worktree) else branch ?: stringResource(R.string.current_branch)))
         } else {
-            add(Chip("project", "No project"))
-            add(Chip("host", hosts.firstOrNull { it.id == hostId }?.name ?: "Choose host"))
+            add(Chip("project", stringResource(R.string.no_project)))
+            add(Chip("host", hosts.firstOrNull { it.id == hostId }?.name ?: stringResource(R.string.choose_host)))
         }
         // Never the harness name in place of a model.
         val modelTitle = current?.label ?: modelId?.let { modelLabel(harness, it) } ?: harnessLabel(harness)
@@ -167,14 +171,14 @@ fun NewSessionSheet(model: ZeronModel, onDismiss: () -> Unit) {
                 .padding(horizontal = 12.dp),
         ) {
             Row(Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("Close", color = colors.text, fontFamily = ZeronType.Sans, fontSize = 16.sp, modifier = Modifier.clip(RoundedCornerShape(10.dp)).clickable(onClick = onDismiss).padding(10.dp))
-                Text("New Session", color = colors.text, fontFamily = ZeronType.Sans, fontWeight = FontWeight.SemiBold, fontSize = 17.sp, modifier = Modifier.weight(1f), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                Text(stringResource(R.string.close), color = colors.text, fontFamily = ZeronType.Sans, fontSize = 16.sp, modifier = Modifier.clip(RoundedCornerShape(10.dp)).clickable(onClick = onDismiss).padding(10.dp))
+                Text(stringResource(R.string.new_session), color = colors.text, fontFamily = ZeronType.Sans, fontWeight = FontWeight.SemiBold, fontSize = 17.sp, modifier = Modifier.weight(1f), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
                 Spacer(Modifier.width(60.dp))
             }
             Column(Modifier.weight(1f).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
                 BrandMark(harness, colors, 34.dp)
                 Spacer(Modifier.height(14.dp))
-                Text("What are we building?", color = colors.text, fontFamily = ZeronType.Sans, fontWeight = FontWeight.SemiBold, fontSize = 22.sp)
+                Text(stringResource(R.string.new_session_headline), color = colors.text, fontFamily = ZeronType.Sans, fontWeight = FontWeight.SemiBold, fontSize = 22.sp)
             }
             Box(Modifier.fillMaxWidth().padding(bottom = 8.dp), contentAlignment = Alignment.Center) {
                 Box(Modifier.widthIn(max = 768.dp).fillMaxWidth()) {
@@ -182,7 +186,7 @@ fun NewSessionSheet(model: ZeronModel, onDismiss: () -> Unit) {
                         colors = colors,
                         text = text,
                         onText = { text = it },
-                        placeholder = "Describe the task",
+                        placeholder = stringResource(R.string.new_session_placeholder),
                         running = false,
                         canSteer = false,
                         focused = true,
@@ -198,7 +202,7 @@ fun NewSessionSheet(model: ZeronModel, onDismiss: () -> Unit) {
                                 projectId != null -> SessionTarget.Project(projectId!!)
                                 hostId != null -> SessionTarget.Projectless(hostId!!)
                                 else -> {
-                                    model.showToast("Choose a project or a host that can run it.")
+                                    model.showToast(context.getString(R.string.choose_project_or_host))
                                     return@send
                                 }
                             }
@@ -211,7 +215,7 @@ fun NewSessionSheet(model: ZeronModel, onDismiss: () -> Unit) {
                                 onDismiss()
                                 model.openSession(id)
                             } catch (t: Throwable) {
-                                model.showToast(t.message ?: "Couldn't start the session")
+                                model.showToast(t.message ?: context.getString(R.string.start_session_failed))
                             }
                         },
                         mentionSearch = search@{ q ->
@@ -226,13 +230,14 @@ fun NewSessionSheet(model: ZeronModel, onDismiss: () -> Unit) {
         chipMenu?.let { (id, anchor) ->
             val close = { chipMenu = null }
             val (title, entries) = when (id) {
-                "project" -> "Project" to buildList {
+                "project" -> stringResource(R.string.project) to buildList {
                     // Projects grouped by computer, like the iOS inline sections.
                     projects.groupBy { it.deviceId }.entries
                         .sortedBy { (_, list) -> list.first().deviceName ?: "" }
                         .forEach { (_, list) ->
                             val head = list.first()
-                            add(menuSection((head.deviceName ?: "Host") + if (head.deviceOnline) "" else " · offline"))
+                            val hostName = head.deviceName ?: stringResource(R.string.host_fallback)
+                            add(menuSection(if (head.deviceOnline) hostName else stringResource(R.string.host_offline_suffix, hostName)))
                             list.forEach { p ->
                                 add(MenuEntry(p.name, checked = p.id == projectId, icon = { c -> Glyph(Glyphs.Folder, 17.dp, c) }) {
                                     projectId = p.id
@@ -243,31 +248,31 @@ fun NewSessionSheet(model: ZeronModel, onDismiss: () -> Unit) {
                             }
                         }
                     add(menuSection())
-                    add(MenuEntry("No Project…", checked = projectId == null, icon = { c -> Glyph(Glyphs.Tray, 17.dp, c) }) {
+                    add(MenuEntry(stringResource(R.string.no_project_ellipsis), checked = projectId == null, icon = { c -> Glyph(Glyphs.Tray, 17.dp, c) }) {
                         projectId = null
                         hostId = hostId ?: (hosts.firstOrNull { it.online } ?: hosts.firstOrNull())?.id
                     })
-                    add(MenuEntry("New Project…", icon = { c -> Glyph(Glyphs.FolderPlus, 17.dp, c) }) { browsing = true })
+                    add(MenuEntry(stringResource(R.string.new_project_ellipsis), icon = { c -> Glyph(Glyphs.FolderPlus, 17.dp, c) }) { browsing = true })
                     add(menuSection())
-                    add(MenuEntry("Add Computer…", icon = { c -> Glyph(Glyphs.Computer, 17.dp, c) }) { model.editMachine = Machine() })
+                    add(MenuEntry(stringResource(R.string.add_computer_ellipsis), icon = { c -> Glyph(Glyphs.Computer, 17.dp, c) }) { model.editMachine = Machine() })
                 }
-                "host" -> "Run on" to buildList {
+                "host" -> stringResource(R.string.run_on) to buildList {
                     hosts.forEach { h ->
-                        add(MenuEntry(h.name, subtitle = if (h.online) "Online" else "Offline", checked = h.id == hostId, icon = { c -> Glyph(Glyphs.Computer, 17.dp, c) }) { hostId = h.id })
+                        add(MenuEntry(h.name, subtitle = stringResource(if (h.online) R.string.online else R.string.offline), checked = h.id == hostId, icon = { c -> Glyph(Glyphs.Computer, 17.dp, c) }) { hostId = h.id })
                     }
                     add(menuSection())
-                    add(MenuEntry("Add Computer…", icon = { c -> Glyph(Glyphs.Computer, 17.dp, c) }) { model.editMachine = Machine() })
+                    add(MenuEntry(stringResource(R.string.add_computer_ellipsis), icon = { c -> Glyph(Glyphs.Computer, 17.dp, c) }) { model.editMachine = Machine() })
                 }
-                "branch" -> "Checkout" to buildList {
-                    add(MenuEntry("New worktree", checked = worktree) { worktree = !worktree })
-                    add(menuSection("Branch"))
+                "branch" -> stringResource(R.string.checkout) to buildList {
+                    add(MenuEntry(stringResource(R.string.new_worktree), checked = worktree) { worktree = !worktree })
+                    add(menuSection(stringResource(R.string.branch)))
                     val list = refs.orEmpty()
                     list.forEach { ref ->
-                        add(MenuEntry(ref.name, subtitle = if (ref.current) "Checked out" else null, checked = ref.name == (branch ?: list.firstOrNull()?.name)) { branch = ref.name })
+                        add(MenuEntry(ref.name, subtitle = if (ref.current) stringResource(R.string.checked_out) else null, checked = ref.name == (branch ?: list.firstOrNull()?.name)) { branch = ref.name })
                     }
-                    if (refs != null && list.isEmpty()) add(MenuEntry("No branches found") {})
+                    if (refs != null && list.isEmpty()) add(MenuEntry(stringResource(R.string.no_branches)) {})
                 }
-                "model" -> "Model" to buildList {
+                "model" -> stringResource(R.string.model) to buildList {
                     models.groupBy { it.harness }.entries.sortedBy { it.key }.forEach { (h, list) ->
                         add(menuSection(list.first().harnessLabel))
                         list.forEach { m ->
@@ -279,7 +284,7 @@ fun NewSessionSheet(model: ZeronModel, onDismiss: () -> Unit) {
                         }
                     }
                 }
-                "effort" -> "Reasoning effort" to current?.efforts.orEmpty().let { levels ->
+                "effort" -> stringResource(R.string.reasoning_effort) to current?.efforts.orEmpty().let { levels ->
                     // The chip shows the middle level while nothing is picked
                     // (the engine default); check that same row so they agree.
                     val shown = effort ?: levels.getOrNull(levels.size / 2)
