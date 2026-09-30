@@ -23,6 +23,11 @@ val keystoreProps = (findProperty("zeronKeystoreProperties") as String?)?.let { 
     Properties().apply { file(path).inputStream().use { load(it) } }
 }
 
+// Release APKs carry only arm64-v8a (every supported phone); the x86_64 core
+// adds ~14 MB and is only for emulators. -PzeronWithX86_64=true (build-apk.sh:
+// ZERON_WITH_X86_64=1) puts it back into release; debug always takes both.
+val releaseAbis = if ((findProperty("zeronWithX86_64") as String?) == "true") listOf("arm64-v8a", "x86_64") else listOf("arm64-v8a")
+
 android {
     namespace = "sh.zeron.android"
     compileSdk = 35
@@ -36,9 +41,6 @@ android {
         // Boot into the demo workspace when nothing is set up yet (both the
         // shipped release build and local debug builds).
         buildConfigField("boolean", "DEMO_BY_DEFAULT", "true")
-        ndk {
-            abiFilters += listOf("arm64-v8a", "x86_64")
-        }
     }
 
     signingConfigs {
@@ -60,10 +62,12 @@ android {
         release {
             isMinifyEnabled = false
             signingConfigs.findByName("zeron")?.let { signingConfig = it }
+            ndk { abiFilters += releaseAbis }
         }
         debug {
             isDebuggable = true
             signingConfigs.findByName("zeron")?.let { signingConfig = it }
+            ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
         }
     }
 

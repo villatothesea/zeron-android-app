@@ -13,7 +13,7 @@ export ANDROID_HOME="$HOME/Android/Sdk"   # or %LOCALAPPDATA%\Android\Sdk on Win
 scripts/android/build-apk.sh
 ```
 
-The script builds `libzeron_mobile.so` for **arm64-v8a** and **x86_64**, generates the UniFFI Kotlin bindings, applies the small Kotlin 2 compatibility patch, and runs `./gradlew :app:assembleDebug` (or `:app:assembleRelease` when the release signing key is available; shipped builds are the non-debuggable release variant, which scrolls much more smoothly).
+The script builds `libzeron_mobile.so` for **arm64-v8a** (add **x86_64** for an emulator with `ZERON_WITH_X86_64=1 scripts/android/build-apk.sh`), generates the UniFFI Kotlin bindings, applies the small Kotlin 2 compatibility patch, and runs `./gradlew :app:assembleDebug` (or `:app:assembleRelease` when the release signing key is available; shipped builds are the non-debuggable release variant, which scrolls much more smoothly).
 
 The APK is (release builds: `.../apk/release/app-release.apk`):
 
@@ -27,7 +27,7 @@ Install it on an emulator or device:
 adb install -r apps/android/app/build/outputs/apk/debug/app-debug.apk
 ```
 
-x86_64 is the ABI the Windows Android Studio emulator uses. arm64-v8a is for devices and Apple Silicon emulators.
+x86_64 is the ABI the Windows Android Studio emulator uses (build it with `ZERON_WITH_X86_64=1`; release APKs ship arm64-v8a only unless `-PzeronWithX86_64=true`). arm64-v8a is for devices and Apple Silicon emulators.
 
 ### What you need
 

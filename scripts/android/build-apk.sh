@@ -1,10 +1,11 @@
 #!/bin/bash
-# One-command APK (x86_64 + arm64-v8a), demo mode by default.
+# One-command APK (arm64-v8a; add x86_64 for emulators), demo mode by default.
 #
 # With the release key present this builds the shipped `release` variant
 # (not debuggable, much faster UI); without it, a debug-key debug build.
 #
 #   scripts/android/build-apk.sh
+#   ZERON_WITH_X86_64=1 scripts/android/build-apk.sh   # also x86_64 (emulator)
 #
 # Version: apps/android/version.properties (ZERON_VERSION_CODE / _NAME override).
 # Signing: $ZERON_KEYSTORE_PROPERTIES or ~/zeron-keys/keystore.properties if present.
@@ -23,7 +24,12 @@ fi
 export ANDROID_HOME="$SDK"
 export ANDROID_SDK_ROOT="$SDK"
 
+ABIS="arm64-v8a"
+[[ "${ZERON_WITH_X86_64:-}" == "1" ]] && ABIS="arm64-v8a x86_64"
+export ZERON_ANDROID_ABIS="$ABIS"
 export ZERON_REQUIRE_NDK=1
+# Drop last run's libraries so an ABI that isn't built now can't be copied.
+rm -rf "$ROOT/target/android-core/jniLibs"
 "$ROOT/scripts/android/build-core.sh" "$ROOT/target/android-core"
 
 APP_JNI="$ROOT/apps/android/app/src/main/jniLibs"
@@ -37,7 +43,7 @@ STRIP=""
 if [[ -n "$NDK" ]]; then
   STRIP="$(find "$NDK/toolchains/llvm/prebuilt" -name llvm-strip \( -type f -o -type l \) 2>/dev/null | head -1 || true)"
 fi
-for abi in arm64-v8a x86_64; do
+for abi in $ABIS; do
   src="$ROOT/target/android-core/jniLibs/$abi/libzeron_mobile.so"
   if [[ ! -f "$src" ]]; then
     echo "error: missing $src — cargo-ndk did not produce $abi" >&2
@@ -77,6 +83,7 @@ if [[ -f "$KEYPROPS" ]]; then
 else
   echo "warning: $KEYPROPS not found; using the debug key (in-app updates won't install over releases)" >&2
 fi
+[[ "${ZERON_WITH_X86_64:-}" == "1" ]] && GRADLE_ARGS+=("-PzeronWithX86_64=true")
 [[ -n "${ZERON_VERSION_CODE:-}" ]] && GRADLE_ARGS+=("-PzeronVersionCode=$ZERON_VERSION_CODE")
 [[ -n "${ZERON_VERSION_NAME:-}" ]] && GRADLE_ARGS+=("-PzeronVersionName=$ZERON_VERSION_NAME")
 if [[ -f "$KEYPROPS" ]]; then
