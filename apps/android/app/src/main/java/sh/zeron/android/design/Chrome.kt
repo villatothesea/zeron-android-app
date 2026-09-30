@@ -145,11 +145,17 @@ fun BrandMark(harness: String?, colors: ZeronColors, size: Dp, modifier: Modifie
     val tint = colors.brandTint(harness)
     Canvas(modifier.size(size)) {
         val s = spec ?: return@Canvas
-        val path = s.path
-        val sx = this.size.width / s.w
-        val sy = this.size.height / s.h
-        withTransform({ scale(sx, sy, pivot = Offset.Zero) }) {
-            drawPath(path, tint)
+        // Aspect-fit and centre: the marks' viewBoxes aren't square (Devin is
+        // 263×300, Cursor 467×532, OpenCode 24×30), and scaling x and y
+        // separately stretched them wide in the square slot.
+        val k = minOf(this.size.width / s.w, this.size.height / s.h)
+        val dx = (this.size.width - s.w * k) / 2f
+        val dy = (this.size.height - s.h * k) / 2f
+        withTransform({
+            translate(dx, dy)
+            scale(k, k, pivot = Offset.Zero)
+        }) {
+            drawPath(s.path, tint)
         }
     }
 }
