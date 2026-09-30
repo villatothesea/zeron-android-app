@@ -154,7 +154,13 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
     var updateError by mutableStateOf<String?>(null)
     var updateStatus by mutableStateOf<UpdateStatus?>(null)
     var showUpdate by mutableStateOf(false)
-    private var downloadedApk: File? = null
+    internal var downloadedApk by mutableStateOf<File?>(null)
+    private var downloadJob: Job? = null
+    private var checkJob: Job? = null
+    /** The running download was started by auto-update (the badge stays hidden until it's ready). */
+    private var downloadIsAuto by mutableStateOf(false)
+    var autoUpdate by mutableStateOf(updater.autoUpdate)
+        private set
 
     var client: CoreClient? = null
         private set
@@ -489,10 +495,83 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
 
     // ── updates ───────────────────────────────────────────────────────────
 
+    /** Title-bar update badge: arrow (tap = download), ring while downloading, checkmark (tap = install). */
+    enum class UpdateBadge { AVAILABLE, DOWNLOADING, READY }
+
+    val updateBadge: UpdateBadge?
+        get() {
+            if (updateRelease?.newer != true) return null
+            val p = updateProgress
+            return when {
+                p == 1f && downloadedApk != null -> UpdateBadge.READY
+                p != null && downloadIsAuto -> null
+                p != null -> UpdateBadge.DOWNLOADING
+                else -> UpdateBadge.AVAILABLE
+            }
+        }
+
+    /**
+     * App start and every return to the foreground. Checks at most every few
+     * hours (Updater.QUIET_MS), remembers what it found, drops stale APKs,
+     * picks up an APK that's already downloaded, and with auto-update on
+     * downloads a newer release while on an unmetered network. Never installs.
+     */
     private fun quietUpdateCheck() {
-        if (!updater.dueForQuietCheck()) return
-        viewModelScope.launch {
-            runCatching { updater.latest() }.onSuccess { if (it.newer) updateRelease = it }
+        if (checkJob?.isActive == true) return
+        checkJob = viewModelScope.launch {
+            if (updateRelease == null) updateRelease = updater.lastKnown()?.takeIf { it.newer }
+            if (updater.dueForQuietCheck()) {
+                runCatching { updater.latest() }.onSuccess { found ->
+                    // The check screen may have loaded something newer meanwhile.
+                    if (updateRelease == null || found.versionCode >= updateRelease!!.versionCode) updateRelease = found
+                }
+            }
+            val release = updateRelease
+            withContext(Dispatchers.IO) { updater.cleanStale(release) }
+            if (release == null || !release.newer) {
+                downloadedApk = null
+                return@launch
+            }
+            if (downloadedApk == null) {
+                updater.cached(release)?.let { apk ->
+                    downloadedApk = apk
+                    updateProgress = 1f
+                }
+            }
+            if (downloadedApk == null && autoUpdate && !networkMetered()) startDownload(install = false, auto = true)
+        }
+    }
+
+    private fun networkMetered(): Boolean =
+        getApplication<Application>().getSystemService(android.net.ConnectivityManager::class.java)?.isActiveNetworkMetered ?: true
+
+    fun applyAutoUpdate(on: Boolean) {
+        autoUpdate = on
+        updater.autoUpdate = on
+        if (on) {
+            quietUpdateCheck()
+        } else if (downloadIsAuto && downloadJob?.isActive == true) {
+            // Keeps the .part file; a later download resumes it.
+            downloadJob?.cancel()
+        }
+    }
+
+    /** Badge tap: download (arrow), open the details (downloading), install (checkmark). */
+    fun tapUpdateBadge() {
+        when (updateBadge) {
+            UpdateBadge.AVAILABLE -> startDownload(install = false, auto = false)
+            UpdateBadge.DOWNLOADING -> showUpdate = true
+            UpdateBadge.READY -> {
+                if (downloadedApk?.exists() == true) {
+                    installUpdate()
+                } else {
+                    // The system cleared the cache: back to the arrow.
+                    downloadedApk = null
+                    updateProgress = null
+                    showToast(str(R.string.badge_download_failed))
+                }
+            }
+            null -> {}
         }
     }
 
@@ -511,26 +590,52 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** Update screen button: download (or pick up the running one), then install. */
     fun downloadUpdate() {
+        if (downloadJob?.isActive == true) {
+            downloadIsAuto = false
+            installWhenDone = true
+            return
+        }
+        startDownload(install = true, auto = false)
+    }
+
+    private var installWhenDone = false
+
+    /** One download at a time; [auto] ones stay silent and hide the badge until ready. */
+    private fun startDownload(install: Boolean, auto: Boolean) {
         val release = updateRelease ?: return
+        if (downloadJob?.isActive == true) return
         updateError = null
         updateProgress = 0f
         updateStatus = null
-        viewModelScope.launch {
+        downloadIsAuto = auto
+        installWhenDone = install
+        downloadJob = viewModelScope.launch {
             try {
                 val apk = updater.download(release) { p ->
-                    val f = if (p.total > 0) p.done.toFloat() / p.total else 0f
+                    val f = if (p.total > 0) (p.done.toFloat() / p.total).coerceAtMost(0.999f) else 0f
                     val status = UpdateStatus(p.source, p.done, p.total, p.bytesPerSec)
-                    main.post { updateProgress = f; updateStatus = status }
+                    main.post { if (downloadJob?.isActive == true) { updateProgress = f; updateStatus = status } }
                 }
                 downloadedApk = apk
                 updateProgress = 1f
                 updateStatus = null
-                installUpdate()
-            } catch (t: Throwable) {
+                downloadIsAuto = false
+                if (installWhenDone) installUpdate()
+            } catch (c: kotlinx.coroutines.CancellationException) {
                 updateProgress = null
                 updateStatus = null
+                downloadIsAuto = false
+                throw c
+            } catch (t: Throwable) {
+                val wasAuto = downloadIsAuto
+                updateProgress = null
+                updateStatus = null
+                downloadIsAuto = false
                 updateError = t.message ?: str(R.string.update_download_failed)
+                // Auto: quiet, the arrow shows up to retry by hand. Badge: say why.
+                if (!wasAuto && !showUpdate) showToast(str(R.string.badge_download_failed))
             }
         }
     }
@@ -1047,6 +1152,7 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
     fun onForeground() {
         client?.onForeground()
         if (awaitingInstallGrant && updater.canInstall()) installUpdate()
+        quietUpdateCheck()
     }
     fun onBackground() { client?.onBackground() }
 

@@ -482,4 +482,14 @@
     <string name="conn_hint_offline">No connection to Zeron Cloud. Check the network.</string>
     <string name="conn_kind_unknown">Not connected</string>
     <string name="conn_hint_unknown">See the details below, or open Connection Details.</string>
+
+    <!-- Auto-update: settings toggle and title-bar badge -->
+    <string name="auto_update">Auto-check &amp; download updates</string>
+    <string name="auto_update_sub_on">Checks every few hours and downloads new versions on Wi-Fi. You still confirm the install.</string>
+    <string name="auto_update_sub_off">Still checks in the background; tap the arrow in the title bar to download.</string>
+    <string name="badge_available_desc">Update %1$s available. Tap to download.</string>
+    <string name="badge_downloading_desc">Downloading update, %1$d%%</string>
+    <string name="badge_ready_desc">Update %1$s ready. Tap to install.</string>
+    <string name="badge_details">Update details</string>
+    <string name="badge_download_failed">Couldn’t download the update. Tap the arrow to try again.</string>
 </resources>

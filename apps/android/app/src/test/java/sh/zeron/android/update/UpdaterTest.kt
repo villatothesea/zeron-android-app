@@ -139,4 +139,36 @@ class UpdaterTest {
             assertEquals("The file from GitHub isn't signed with the Zeron release key, so it won't be installed.", e.message)
         }
     }
+
+    @Test fun foundReleaseIsRememberedAcrossRestarts() = runBlocking {
+        route("/api$repo") { _, r -> val b = json("round9-6", "https://github.com/dl.apk").toByteArray(); r.head(200, b.size.toLong()); r.body(b) }
+        val found = updater().latest()
+        // A fresh Updater (app restart) reads it back without a network call.
+        assertEquals(found, updater().lastKnown())
+    }
+
+    @Test fun cachedApkIsPickedUpAndStaleOnesAreDropped() = runBlocking {
+        route("/web/dl.apk") { _, r -> r.head(200, apk.size.toLong()); r.body(apk) }
+        val u = updater()
+        val rel = Updater.Release("round9-7", "round9-7", "", 90_700, "a.apk", "", "$web/dl.apk", apk.size.toLong(), "", sha)
+        assertNull(u.cached(rel))
+        val file = u.download(rel) {}
+        assertEquals(file, u.cached(rel))
+        // A leftover from an older release goes; the newer one stays.
+        val old = File(file.parentFile, "round1-1.apk").apply { writeBytes(byteArrayOf(1)) }
+        u.cleanStale(rel)
+        assertTrue(file.exists())
+        assertTrue(!old.exists())
+        // Nothing newer than the running build: everything goes.
+        u.cleanStale(null)
+        assertTrue(!file.exists())
+        assertNull(u.cached(rel))
+    }
+
+    @Test fun autoUpdateDefaultsOn() {
+        val u = updater()
+        assertTrue(u.autoUpdate)
+        u.autoUpdate = false
+        assertTrue(!updater().autoUpdate)
+    }
 }

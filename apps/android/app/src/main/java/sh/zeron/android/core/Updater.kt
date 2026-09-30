@@ -68,7 +68,69 @@ class Updater(
         get() = prefs.getLong("lastCheck", 0)
         set(value) = prefs.edit().putLong("lastCheck", value).apply()
 
-    fun dueForQuietCheck(now: Long = System.currentTimeMillis()) = now - lastCheckMs > DAY_MS
+    /** Background checks: at most every [QUIET_MS] (app start / return to foreground). */
+    fun dueForQuietCheck(now: Long = System.currentTimeMillis()) = now - lastCheckMs > QUIET_MS
+
+    /**
+     * Settings "Auto-check & download updates" (default on): download a newer
+     * release in the background on an unmetered network, so the title-bar
+     * badge turns straight into "ready to install". Off: the background check
+     * still runs and the badge offers the download. Never installs by itself.
+     */
+    var autoUpdate: Boolean
+        get() = prefs.getBoolean("autoUpdate", true)
+        set(value) = prefs.edit().putBoolean("autoUpdate", value).apply()
+
+    /** The last release a check found, so the badge survives an app restart. */
+    fun lastKnown(): Release? = prefs.getString("lastRelease", null)?.let { raw ->
+        runCatching {
+            val o = JSONObject(raw)
+            Release(
+                tag = o.getString("tag"),
+                name = o.getString("name"),
+                notes = o.optString("notes"),
+                versionCode = o.getLong("versionCode"),
+                assetName = o.getString("assetName"),
+                assetApiUrl = o.optString("assetApiUrl"),
+                downloadUrl = o.getString("downloadUrl"),
+                size = o.optLong("size", 0),
+                htmlUrl = o.optString("htmlUrl"),
+                sha256 = if (o.isNull("sha256")) null else o.optString("sha256").ifBlank { null },
+            )
+        }.getOrNull()
+    }
+
+    private fun remember(release: Release) {
+        val o = JSONObject()
+            .put("tag", release.tag).put("name", release.name).put("notes", release.notes)
+            .put("versionCode", release.versionCode).put("assetName", release.assetName)
+            .put("assetApiUrl", release.assetApiUrl).put("downloadUrl", release.downloadUrl)
+            .put("size", release.size).put("htmlUrl", release.htmlUrl).put("sha256", release.sha256 ?: JSONObject.NULL)
+        prefs.edit().putString("lastRelease", o.toString()).apply()
+    }
+
+    private val updatesDir: File get() = File(context.cacheDir, "updates")
+
+    /**
+     * Drop cached downloads that can't be installed as an update: everything
+     * when [keep] is null or not newer than this build, else other releases'.
+     */
+    fun cleanStale(keep: Release?) {
+        val files = updatesDir.listFiles() ?: return
+        files.filter { keep == null || !keep.newer || !it.name.startsWith(keep.tag) }.forEach { it.delete() }
+    }
+
+    /** [release]'s APK if it's already downloaded and still verifies, else null. */
+    suspend fun cached(release: Release): File? = withContext(Dispatchers.IO) {
+        val done = File(updatesDir, "${release.tag}.apk")
+        if (done.exists() && verifies(done, release)) done else null
+    }
+
+    private fun verifies(apk: File, release: Release): Boolean {
+        val sizeOk = release.size <= 0 || apk.length() == release.size
+        val shaOk = sizeOk && (release.sha256 == null || UpdateDownloader.sha256Of(apk) == release.sha256)
+        return shaOk && checkSignature(apk) != Signature.MISMATCH
+    }
 
     /** Key of the download source that worked last ([UpdateSources.Source.key]). */
     var preferredSource: String?
@@ -105,6 +167,7 @@ class Updater(
             }
             ?: throw UpdateError(str(R.string.update_err_check_all) + "\n" + failures.joinToString("\n") { "• $it" })
         lastCheckMs = System.currentTimeMillis()
+        remember(release)
         release
     }
 
@@ -236,13 +299,11 @@ class Updater(
      * (when GitHub's API gave them) and is signed with this app's key.
      */
     suspend fun download(release: Release, progress: (UpdateDownloader.Progress) -> Unit): File = withContext(Dispatchers.IO) {
-        val dir = File(context.cacheDir, "updates").apply { mkdirs() }
+        val dir = updatesDir.apply { mkdirs() }
         dir.listFiles()?.filter { !it.name.startsWith(release.tag) }?.forEach { it.delete() }
         val done = File(dir, "${release.tag}.apk")
         if (done.exists()) {
-            val sizeOk = release.size <= 0 || done.length() == release.size
-            val shaOk = release.sha256 == null || UpdateDownloader.sha256Of(done) == release.sha256
-            if (sizeOk && shaOk && checkSignature(done) != Signature.MISMATCH) return@withContext done
+            if (verifies(done, release)) return@withContext done
             done.delete()
         }
         val part = File(dir, "${release.tag}.apk.part")
@@ -342,7 +403,7 @@ class Updater(
         const val WEB = "https://github.com"
         const val REPO = "villatothesea/zeron-android-app"
         const val API = "https://api.github.com"
-        const val DAY_MS = 24L * 60 * 60 * 1000
+        const val QUIET_MS = 6L * 60 * 60 * 1000
         val USER_AGENT = "zeron-android/${BuildConfig.VERSION_NAME}"
     }
 }

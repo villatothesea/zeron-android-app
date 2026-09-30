@@ -477,4 +477,14 @@
     <string name="conn_hint_offline">无法连接 Zeron Cloud，请检查网络。</string>
     <string name="conn_kind_unknown">未连接</string>
     <string name="conn_hint_unknown">请查看下方详细信息，或打开“连接详情”。</string>
+
+    <!-- Auto-update: settings toggle and title-bar badge -->
+    <string name="auto_update">自动检查并下载更新</string>
+    <string name="auto_update_sub_on">每隔几小时检查一次，连 Wi-Fi 时自动下载新版本；安装前仍需你确认。</string>
+    <string name="auto_update_sub_off">仍会在后台检查；轻点标题栏的箭头再下载。</string>
+    <string name="badge_available_desc">有新版本 %1$s，轻点下载。</string>
+    <string name="badge_downloading_desc">正在下载更新，%1$d%%</string>
+    <string name="badge_ready_desc">新版本 %1$s 已就绪，轻点安装。</string>
+    <string name="badge_details">更新详情</string>
+    <string name="badge_download_failed">更新下载失败，轻点箭头重试。</string>
 </resources>
