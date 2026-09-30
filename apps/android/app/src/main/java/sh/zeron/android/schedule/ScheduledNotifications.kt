@@ -1,5 +1,6 @@
 package sh.zeron.android.schedule
 
+import sh.zeron.android.core.AppLanguage
 import android.Manifest
 import android.app.Notification
 import android.app.NotificationChannel
@@ -25,10 +26,10 @@ object ScheduledNotifications {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val nm = context.getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(
-            NotificationChannel(CHANNEL_PROGRESS, context.getString(R.string.schedule_channel_progress), NotificationManager.IMPORTANCE_LOW),
+            NotificationChannel(CHANNEL_PROGRESS, AppLanguage.string(context, R.string.schedule_channel_progress), NotificationManager.IMPORTANCE_LOW),
         )
         nm.createNotificationChannel(
-            NotificationChannel(CHANNEL_RESULT, context.getString(R.string.schedule_channel_result), NotificationManager.IMPORTANCE_DEFAULT),
+            NotificationChannel(CHANNEL_RESULT, AppLanguage.string(context, R.string.schedule_channel_result), NotificationManager.IMPORTANCE_DEFAULT),
         )
     }
 
@@ -43,7 +44,7 @@ object ScheduledNotifications {
         channels(context)
         return NotificationCompat.Builder(context, CHANNEL_PROGRESS)
             .setSmallIcon(R.drawable.ic_stat_schedule)
-            .setContentTitle(context.getString(R.string.schedule_notif_sending))
+            .setContentTitle(AppLanguage.string(context, R.string.schedule_notif_sending))
             .setProgress(0, 0, true)
             .setOngoing(true)
             .setSilent(true)
@@ -53,12 +54,12 @@ object ScheduledNotifications {
 
     fun result(context: Context, result: ScheduledSender.Result) {
         val (message, title, body) = when (result) {
-            is ScheduledSender.Result.Sent -> Triple(result.message, context.getString(R.string.schedule_notif_sent), excerpt(result.message))
-            is ScheduledSender.Result.Pending -> Triple(result.message, context.getString(R.string.schedule_notif_pending), context.getString(R.string.schedule_notif_pending_body))
+            is ScheduledSender.Result.Sent -> Triple(result.message, AppLanguage.string(context, R.string.schedule_notif_sent), excerpt(result.message))
+            is ScheduledSender.Result.Pending -> Triple(result.message, AppLanguage.string(context, R.string.schedule_notif_pending), AppLanguage.string(context, R.string.schedule_notif_pending_body))
             is ScheduledSender.Result.Failed -> Triple(
                 result.message,
-                context.getString(R.string.schedule_notif_failed),
-                context.getString(R.string.schedule_notif_failed_body, result.reason, result.message.text),
+                AppLanguage.string(context, R.string.schedule_notif_failed),
+                AppLanguage.string(context, R.string.schedule_notif_failed_body, result.reason, result.message.text),
             )
             ScheduledSender.Result.Gone -> return
         }

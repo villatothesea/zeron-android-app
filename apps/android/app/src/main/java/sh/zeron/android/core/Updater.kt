@@ -1,5 +1,6 @@
 package sh.zeron.android.core
 
+import sh.zeron.android.R
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -41,6 +42,8 @@ class Updater(private val context: Context) {
 
     class UpdateError(message: String) : IOException(message)
 
+    private fun str(id: Int, vararg args: Any): String = AppLanguage.string(context, id, *args)
+
     private val prefs = context.getSharedPreferences("zeron-update", 0)
     private val secrets = SecretStore(context)
 
@@ -63,16 +66,16 @@ class Updater(private val context: Context) {
         val conn = open(URL("$API/repos/$REPO/releases/latest"), json = true, auth = true)
         val release = try {
             val code = conn.responseCode
-            if (code == 404) throw UpdateError("No release published yet.")
-            if (code == 401) throw UpdateError("GitHub rejected the token (401). Clear or replace it in Settings.")
+            if (code == 404) throw UpdateError(str(R.string.update_err_no_release))
+            if (code == 401) throw UpdateError(str(R.string.update_err_401))
             if (code == 403 || code == 429) {
                 // The unauthenticated API allows 60 calls/hour per IP, and
                 // carrier NAT shares that IP widely. The web redirect has no
                 // such limit, so fall back to it before giving up.
-                if (!token.isNullOrBlank()) throw UpdateError("GitHub rate limit reached for this token. Try again later.")
+                if (!token.isNullOrBlank()) throw UpdateError(str(R.string.update_err_rate_token))
                 null
             } else {
-                if (code !in 200..299) throw UpdateError("GitHub answered HTTP $code. Try again.")
+                if (code !in 200..299) throw UpdateError(str(R.string.update_err_http, code))
                 parse(JSONObject(conn.inputStream.bufferedReader().use { it.readText() }))
             }
         } finally {
@@ -90,14 +93,14 @@ class Updater(private val context: Context) {
         val conn = open(URL("$WEB/$REPO/releases/latest"), json = false, auth = false)
         val location = try {
             if (conn.responseCode !in 300..399) {
-                throw UpdateError("GitHub rate limit reached and the release page didn't redirect. Try again later, or add a read-only token.")
+                throw UpdateError(str(R.string.update_err_rate_redirect))
             }
             conn.getHeaderField("Location")
         } finally {
             conn.disconnect()
         }
         val tag = location?.substringAfter("/releases/tag/", "")?.substringBefore('?')?.let { Uri.decode(it) }
-        if (tag.isNullOrBlank()) throw UpdateError("No release published yet.")
+        if (tag.isNullOrBlank()) throw UpdateError(str(R.string.update_err_no_release))
         val asset = "zeron-android-$tag.apk"
         return Release(
             tag = tag,
@@ -123,7 +126,7 @@ class Updater(private val context: Context) {
                 if (asset == null || a.optString("name") == "zeron-android-$tag.apk") asset = a
             }
         }
-        asset ?: throw UpdateError("Release $tag has no APK attached.")
+        asset ?: throw UpdateError(str(R.string.update_err_no_apk, tag))
         val code = Regex("""versionCode\s*[:=]\s*(\d+)""").find(notes)?.groupValues?.get(1)?.toLongOrNull()
             ?: versionFromTag(tag)
         return Release(
@@ -189,15 +192,13 @@ class Updater(private val context: Context) {
             } catch (e: IOException) {
                 if (e is UpdateError || ++attempt >= 4) {
                     throw if (e is UpdateError) e else UpdateError(
-                        "Download interrupted (${e.message ?: e.javaClass.simpleName}). " +
-                            "Tap Download again to resume" +
-                            (if (m == null) ", or set a download mirror in Settings." else "."),
+                        str(if (m == null) R.string.update_err_interrupted_mirror else R.string.update_err_interrupted, e.message ?: e.javaClass.simpleName),
                     )
                 }
                 Thread.sleep(2_000L * attempt)
             }
         }
-        if (!part.renameTo(done)) throw UpdateError("Couldn't save the download.")
+        if (!part.renameTo(done)) throw UpdateError(str(R.string.update_err_save))
         done
     }
 
@@ -212,11 +213,11 @@ class Updater(private val context: Context) {
             if (have > 0) conn.setRequestProperty("Range", "bytes=$have-")
             val code = conn.responseCode
             if (code in 300..399) {
-                val next = conn.getHeaderField("Location") ?: throw UpdateError("Bad redirect from GitHub.")
+                val next = conn.getHeaderField("Location") ?: throw UpdateError(str(R.string.update_err_redirect))
                 conn.disconnect()
                 url = URL(url, next)
                 auth = false // never send the token to the CDN
-                if (++hops > 6) throw UpdateError("Too many redirects.")
+                if (++hops > 6) throw UpdateError(str(R.string.update_err_redirects))
                 continue
             }
             if (code == 416) {
@@ -226,7 +227,7 @@ class Updater(private val context: Context) {
             }
             if (code !in 200..299) {
                 conn.disconnect()
-                throw UpdateError("Download failed: HTTP $code. Try again later.")
+                throw UpdateError(str(R.string.update_err_download_http, code))
             }
             val append = code == 206
             val base = if (append) have else 0L

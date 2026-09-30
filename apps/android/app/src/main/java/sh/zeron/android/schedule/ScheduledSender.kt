@@ -1,5 +1,7 @@
 package sh.zeron.android.schedule
 
+import sh.zeron.android.core.AppLanguage
+import sh.zeron.android.R
 import android.content.Context
 import android.os.SystemClock
 import kotlinx.coroutines.delay
@@ -36,10 +38,10 @@ class ScheduledSender(private val context: Context) {
         var owned: CoreClient? = null
         try {
             val client = live?.client ?: openWithRetry(message.workspace, deadline).also { owned = it }
-            if (!awaitLink(client, deadline)) return Result.Failed(message, linkError(client) ?: "Couldn't connect in time")
+            if (!awaitLink(client, deadline)) return Result.Failed(message, linkError(client) ?: AppLanguage.string(context, R.string.sched_connect_timeout))
             return send(client, message, deadline)
         } catch (t: CoreConnect.Unavailable) {
-            return Result.Failed(message, t.message ?: "Unavailable")
+            return Result.Failed(message, t.message ?: AppLanguage.string(context, R.string.sched_unavailable))
         } catch (t: Throwable) {
             return Result.Failed(message, t.message ?: t.javaClass.simpleName)
         } finally {
@@ -98,7 +100,7 @@ class ScheduledSender(private val context: Context) {
                 val h = handle ?: client.openSession(message.chatId).also { handle = it }
                 outcome = h.send(SendRequest(text = message.text, attachments = emptyList(), worktree = null, busy = BusyPolicy.QUEUE))
             } catch (t: Throwable) {
-                if (SystemClock.elapsedRealtime() >= deadline) return Result.Failed(message, t.message ?: "Couldn't send")
+                if (SystemClock.elapsedRealtime() >= deadline) return Result.Failed(message, t.message ?: AppLanguage.string(context, R.string.sched_send_failed))
                 delay(2_000)
             }
         }

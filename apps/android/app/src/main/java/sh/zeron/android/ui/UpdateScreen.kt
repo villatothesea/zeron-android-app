@@ -1,5 +1,8 @@
 package sh.zeron.android.ui
 
+import sh.zeron.android.R
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -45,6 +48,7 @@ import sh.zeron.android.design.glassSurface
 @Composable
 fun UpdateScreen(model: ZeronModel) {
     val colors = LocalZeronColors.current
+    val context = LocalContext.current
     val release = model.updateRelease
     var advanced by remember { mutableStateOf(false) }
     var token by remember { mutableStateOf("") }
@@ -56,20 +60,20 @@ fun UpdateScreen(model: ZeronModel) {
                 BackChevron(colors.text, Modifier.size(18.dp))
             }
             Spacer(Modifier.width(10.dp))
-            Text("Software Update", color = colors.text, fontFamily = ZeronType.Sans, fontWeight = FontWeight.SemiBold, fontSize = 17.sp)
+            Text(stringResource(R.string.software_update), color = colors.text, fontFamily = ZeronType.Sans, fontWeight = FontWeight.SemiBold, fontSize = 17.sp)
         }
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
-            GroupLabel(colors, "Installed")
-            SettingRow(colors, BuildConfig.VERSION_NAME, "Build ${BuildConfig.VERSION_CODE}")
-            GroupLabel(colors, "Latest on GitHub")
+            GroupLabel(colors, stringResource(R.string.update_installed))
+            SettingRow(colors, BuildConfig.VERSION_NAME, stringResource(R.string.update_build, BuildConfig.VERSION_CODE))
+            GroupLabel(colors, stringResource(R.string.update_latest_github))
             when {
-                model.updateChecking -> SettingRow(colors, "Checking…", "github.com/villatothesea/zeron-android-app")
-                release == null -> SettingRow(colors, "Not checked yet", null, onClick = { model.checkForUpdates() })
+                model.updateChecking -> SettingRow(colors, stringResource(R.string.update_checking), "github.com/villatothesea/zeron-android-app")
+                release == null -> SettingRow(colors, stringResource(R.string.update_not_checked), null, onClick = { model.checkForUpdates() })
                 else -> {
                     SettingRow(
                         colors,
                         release.name,
-                        if (release.newer) "Build ${release.versionCode} · newer than this one" else "Build ${release.versionCode} · you're up to date",
+                        stringResource(if (release.newer) R.string.update_build_newer else R.string.update_build_current, release.versionCode.toInt()),
                     )
                     if (release.notes.isNotBlank()) {
                         // Release notes are GitHub Markdown: render, don't show the raw text.
@@ -86,7 +90,7 @@ fun UpdateScreen(model: ZeronModel) {
                 Box(Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)).background(colors.controlFill)) {
                     Box(Modifier.fillMaxWidth(p.coerceIn(0f, 1f)).height(6.dp).clip(RoundedCornerShape(3.dp)).background(colors.accent))
                 }
-                Text(if (p >= 1f) "Downloaded. Opening the installer…" else "Downloading… ${(p * 100).toInt()}%", color = colors.secondary, fontFamily = ZeronType.Sans, fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp))
+                Text(if (p >= 1f) stringResource(R.string.update_downloaded) else stringResource(R.string.update_downloading, (p * 100).toInt()), color = colors.secondary, fontFamily = ZeronType.Sans, fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp))
             }
             model.updateError?.let {
                 Text(it, color = colors.danger, fontFamily = ZeronType.Sans, fontSize = 14.sp, modifier = Modifier.padding(top = 10.dp))
@@ -94,38 +98,38 @@ fun UpdateScreen(model: ZeronModel) {
             Spacer(Modifier.height(14.dp))
             val busy = model.updateChecking || (model.updateProgress != null && model.updateProgress!! < 1f)
             if (release != null && release.newer) {
-                Button(colors, if (model.updateProgress == 1f) "Install" else "Download & Install", primary = true, enabled = !busy) {
+                Button(colors, stringResource(if (model.updateProgress == 1f) R.string.update_install else R.string.update_download_install), primary = true, enabled = !busy) {
                     if (model.updateProgress == 1f) model.installUpdate() else model.downloadUpdate()
                 }
                 Spacer(Modifier.height(8.dp))
             }
-            Button(colors, "Check Again", enabled = !busy) { model.checkForUpdates() }
+            Button(colors, stringResource(R.string.update_check_again), enabled = !busy) { model.checkForUpdates() }
             Text(
-                "Android asks you to confirm every install. The first time, allow “Install unknown apps” for Zeron.",
+                stringResource(R.string.update_install_hint),
                 color = colors.secondary, fontFamily = ZeronType.Sans, fontSize = 12.sp, modifier = Modifier.padding(top = 10.dp, start = 4.dp),
             )
-            GroupLabel(colors, "Advanced")
+            GroupLabel(colors, stringResource(R.string.update_advanced))
             if (!advanced) {
-                SettingRow(colors, "Download mirror & GitHub token", if (model.updater.mirror != null) "Mirror: ${model.updater.mirror}" else "Off", onClick = { advanced = true })
+                SettingRow(colors, stringResource(R.string.update_mirror_token), model.updater.mirror?.let { stringResource(R.string.update_mirror_value, it) } ?: stringResource(R.string.off), onClick = { advanced = true })
             } else {
-                Text("Mirror prefix (optional), e.g. https://ghfast.top/: it is put in front of the GitHub download URL.", color = colors.secondary, fontFamily = ZeronType.Sans, fontSize = 12.sp, modifier = Modifier.padding(start = 4.dp, bottom = 4.dp))
+                Text(stringResource(R.string.update_mirror_hint), color = colors.secondary, fontFamily = ZeronType.Sans, fontSize = 12.sp, modifier = Modifier.padding(start = 4.dp, bottom = 4.dp))
                 Input(colors, mirror, "https://mirror.example/", password = false) { mirror = it }
                 Spacer(Modifier.height(8.dp))
-                Text("GitHub token (optional, read-only): only to avoid API rate limits.", color = colors.secondary, fontFamily = ZeronType.Sans, fontSize = 12.sp, modifier = Modifier.padding(start = 4.dp, bottom = 4.dp))
-                Input(colors, token, if (hasToken) "Saved (paste to replace)" else "github_pat_…", password = true) { token = it }
+                Text(stringResource(R.string.update_token_hint), color = colors.secondary, fontFamily = ZeronType.Sans, fontSize = 12.sp, modifier = Modifier.padding(start = 4.dp, bottom = 4.dp))
+                Input(colors, token, if (hasToken) stringResource(R.string.saved_paste_replace) else "github_pat_…", password = true) { token = it }
                 Spacer(Modifier.height(8.dp))
                 Row {
-                    Button(colors, "Save", primary = true, modifier = Modifier.weight(1f)) {
+                    Button(colors, stringResource(R.string.save), primary = true, modifier = Modifier.weight(1f)) {
                         model.updater.mirror = mirror.ifBlank { null }
                         if (token.isNotBlank()) model.updater.token = token
                         token = ""
                         advanced = false
-                        model.showToast("Saved")
+                        model.showToast(context.getString(R.string.saved))
                     }
                     Spacer(Modifier.width(8.dp))
-                    Button(colors, "Clear token", modifier = Modifier.weight(1f)) {
+                    Button(colors, stringResource(R.string.clear_token), modifier = Modifier.weight(1f)) {
                         model.updater.token = null
-                        model.showToast("Token removed")
+                        model.showToast(context.getString(R.string.token_removed))
                     }
                 }
             }

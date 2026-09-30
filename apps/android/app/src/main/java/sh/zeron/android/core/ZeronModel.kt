@@ -152,7 +152,7 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
      * fixture accounts; the demo host reports none.
      */
     var agentUsageSource: suspend (deviceId: String, force: Boolean) -> List<uniffi.zeron_core.AgentUsage> = { deviceId, force ->
-        (client ?: error("Not connected")).listAgentUsage(deviceId, force)
+        (client ?: error(str(R.string.not_connected))).listAgentUsage(deviceId, force)
     }
     var text: TextSystem? = null
         private set
@@ -226,6 +226,9 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
             AppCompatDelegate.setDefaultNightMode(night)
         }
     }
+
+    /** A string in the app's chosen language (the model has no activity context). */
+    private fun str(id: Int, vararg args: Any): String = AppLanguage.string(getApplication(), id, *args)
 
     fun showToast(message: String) {
         val token = ++toastToken
@@ -347,7 +350,7 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
         showMachines = false
         showSignIn = false
         val target = runCatching { machineStore.target(machine) }.getOrElse {
-            phase = Phase.Failed(it.message ?: "Couldn't read this machine's key")
+            phase = Phase.Failed(it.message ?: str(R.string.machine_key_failed))
             return
         }
         start(uniffi.zeron_core.Credentials.Direct(target), demo = false, dir = CoreConnect.dataDirName(machine.id), active = machine.id)
@@ -364,9 +367,9 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun activeTitle(): String = when (activeMachine) {
-        "demo" -> "Demo"
+        "demo" -> str(R.string.demo)
         "cloud" -> "Zeron Cloud"
-        else -> machines.firstOrNull { it.id == activeMachine }?.title() ?: "Machine"
+        else -> machines.firstOrNull { it.id == activeMachine }?.title() ?: str(R.string.machine_fallback)
     }
 
     fun saveMachine(machine: Machine, secret: String?) {
@@ -418,7 +421,7 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
             try {
                 updateRelease = updater.latest()
             } catch (t: Throwable) {
-                updateError = t.message ?: "Couldn't reach GitHub. Check the network and try again."
+                updateError = t.message ?: str(R.string.update_check_failed)
             } finally {
                 updateChecking = false
             }
@@ -440,7 +443,7 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
                 installUpdate()
             } catch (t: Throwable) {
                 updateProgress = null
-                updateError = t.message ?: "Download failed. Try again."
+                updateError = t.message ?: str(R.string.update_download_failed)
             }
         }
     }
@@ -468,7 +471,7 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
         settingsStack.clear()
         phase = Phase.SignedOut
         showSignIn = true
-        showToast("Signed out")
+        showToast(str(R.string.toast_signed_out))
     }
 
     private fun demoCredentials() = CoreConnect.demoCredentials()
@@ -513,7 +516,7 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
                 }
             } catch (t: Throwable) {
                 withContext(Dispatchers.Main) {
-                    phase = Phase.Failed(t.message ?: "Couldn't open the workspace")
+                    phase = Phase.Failed(t.message ?: str(R.string.open_workspace_failed))
                 }
             }
         }
@@ -725,13 +728,13 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
     /** Pin or unpin, then offer Undo (a swipe or tap can land by accident). */
     fun pin(id: String, pinned: Boolean) {
         val done = attempt { if (pinned) it.pinSession(id) else it.unpinSession(id) }
-        if (done) showUndo(if (pinned) "Pinned" else "Unpinned") { attempt { if (pinned) it.unpinSession(id) else it.pinSession(id) } }
+        if (done) showUndo(str(if (pinned) R.string.toast_pinned else R.string.toast_unpinned)) { attempt { if (pinned) it.unpinSession(id) else it.pinSession(id) } }
     }
     fun archive(id: String) {
-        if (attempt { it.archiveSession(id) }) showUndo("Archived") { attempt { it.unarchiveSession(id) } }
+        if (attempt { it.archiveSession(id) }) showUndo(str(R.string.toast_archived)) { attempt { it.unarchiveSession(id) } }
     }
     fun unarchive(id: String) {
-        if (attempt { it.unarchiveSession(id) }) showUndo("Unarchived") { attempt { it.archiveSession(id) } }
+        if (attempt { it.unarchiveSession(id) }) showUndo(str(R.string.toast_unarchived)) { attempt { it.archiveSession(id) } }
     }
     fun rename(id: String, title: String) = attempt { it.renameSession(id, title) }
     fun move(id: String, section: String?) = attempt { it.assignSection(id, section) }
@@ -746,7 +749,7 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
             body(c)
             true
         } catch (t: Throwable) {
-            showToast(t.message ?: "Couldn't update")
+            showToast(t.message ?: str(R.string.generic_update_failed))
             false
         }
         requestRefresh()
@@ -765,14 +768,14 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
 
     fun completeAuth(url: String) {
         val callback = parseAuthCallback(url) ?: run {
-            signInError = "Sign-in didn't complete. Try again."
+            signInError = str(R.string.signin_incomplete_retry)
             return
         }
         when (callback) {
             is AuthCallback.Error -> signInError = callback.description ?: callback.error
             is AuthCallback.Code -> {
                 if (authState != null && callback.state != null && callback.state != authState) {
-                    signInError = "Sign-in didn't complete. Try again."
+                    signInError = str(R.string.signin_incomplete_retry)
                     return
                 }
                 viewModelScope.launch {
@@ -783,7 +786,7 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
                         val exchange = authExchangeCode(edge, callback.code)
                         val orgs = authListOrgs(edge, exchange.tokens.accessToken)
                         if (orgs.isEmpty()) {
-                            signInError = "This account isn't in an organization yet."
+                            signInError = str(R.string.signin_no_org)
                         } else if (orgs.size == 1) {
                             finishOrg(exchange.user.id, orgs[0], exchange.tokens.refreshToken)
                         } else {
@@ -791,7 +794,7 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
                             authOrgs = orgs
                         }
                     } catch (t: Throwable) {
-                        signInError = t.message ?: "Sign-in didn't complete."
+                        signInError = t.message ?: str(R.string.signin_incomplete)
                     } finally {
                         signInBusy = false
                     }
@@ -808,7 +811,7 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
             try {
                 finishOrg(pending.first, org, pending.second.refreshToken)
             } catch (t: Throwable) {
-                signInError = t.message ?: "Couldn't join that organization."
+                signInError = t.message ?: str(R.string.join_org_failed)
             } finally {
                 signInBusy = false
             }
