@@ -565,24 +565,18 @@ fun SessionScreen(model: ZeronModel, chatId: String) {
             )
         }
         if (renaming) {
+            val submit = {
+                val name = renameText.trim()
+                if (name.isNotEmpty()) model.rename(chatId, name)
+                renaming = false
+            }
             AlertDialog(
                 onDismissRequest = { renaming = false },
                 title = { Text(stringResource(R.string.rename)) },
                 text = {
-                    BasicTextField(
-                        value = renameText,
-                        onValueChange = { renameText = it },
-                        textStyle = TextStyle(color = colors.text, fontFamily = ZeronType.Sans, fontSize = 16.sp),
-                        modifier = Modifier.fillMaxWidth(),
-                    )
+                    AutoFocusNameField(renameText, colors, onChange = { renameText = it }, modifier = Modifier.fillMaxWidth(), onDone = submit)
                 },
-                confirmButton = {
-                    TextButton(onClick = {
-                        val name = renameText.trim()
-                        if (name.isNotEmpty()) model.rename(chatId, name)
-                        renaming = false
-                    }) { Text(stringResource(R.string.rename)) }
-                },
+                confirmButton = { TextButton(onClick = submit) { Text(stringResource(R.string.rename)) } },
                 dismissButton = { TextButton(onClick = { renaming = false }) { Text(stringResource(R.string.cancel)) } },
             )
         }

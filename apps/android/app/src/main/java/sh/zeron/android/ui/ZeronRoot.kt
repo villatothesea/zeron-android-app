@@ -395,12 +395,12 @@ private fun NameDialog(colors: ZeronColors, prompt: Prompt, onDismiss: () -> Uni
         onDismissRequest = onDismiss,
         title = { Text(prompt.title, fontFamily = ZeronType.Sans) },
         text = {
-            BasicTextField(
-                value = text,
-                onValueChange = { text = it },
-                textStyle = TextStyle(color = colors.text, fontFamily = ZeronType.Sans, fontSize = 16.sp),
-                cursorBrush = SolidColor(colors.accent),
+            AutoFocusNameField(
+                prompt.initial,
+                colors,
+                onChange = { text = it },
                 modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                onDone = { onConfirm(text.trim()) },
             )
         },
         confirmButton = { TextButton(onClick = { onConfirm(text.trim()) }) { Text(prompt.confirm) } },
