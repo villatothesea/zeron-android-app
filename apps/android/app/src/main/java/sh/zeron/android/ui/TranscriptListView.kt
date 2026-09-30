@@ -514,7 +514,7 @@ class TranscriptListView(context: Context) : View(context) {
             }
             is WidgetKind.Working -> {
                 drawSpinner(canvas, w.x, w.y + (w.h - 14f) / 2f, 14f, 14f, colors, trailer = true, now = now)
-                val word = if (kind.streaming) "Writing" else "Working"
+                val word = context.getString(if (kind.streaming) sh.zeron.android.R.string.status_writing else sh.zeron.android.R.string.status_working)
                 val secs = kind.sinceMs?.let { max(0L, (System.currentTimeMillis() - it) / 1000) } ?: 0L
                 val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     typeface = faces[FaceRole.SANS_MEDIUM] ?: faces[FaceRole.SANS]
@@ -529,7 +529,7 @@ class TranscriptListView(context: Context) : View(context) {
                 if (secs > 0) {
                     val tx = x + paint.measureText(label)
                     paint.color = colors.tertiary.toArgb()
-                    canvas.drawText("  ${ElapsedFormat.format(secs)}", tx, baseline, paint)
+                    canvas.drawText("  ${ElapsedFormat.format(secs, resources)}", tx, baseline, paint)
                 }
                 animate = true
             }

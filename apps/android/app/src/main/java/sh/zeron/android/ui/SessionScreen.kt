@@ -2,6 +2,8 @@
 
 package sh.zeron.android.ui
 
+import sh.zeron.android.R
+import androidx.compose.ui.res.stringResource
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.background
@@ -273,7 +275,7 @@ fun SessionScreen(model: ZeronModel, chatId: String) {
                 host.onCopy = { textToCopy ->
                     val cm = context.getSystemService(android.content.ClipboardManager::class.java)
                     cm.setPrimaryClip(android.content.ClipData.newPlainText("zeron", textToCopy))
-                    model.showToast("Copied")
+                    model.showToast(context.getString(R.string.copied))
                 }
                 host.onLink = { url ->
                     if (url.startsWith("http")) {
@@ -327,7 +329,7 @@ fun SessionScreen(model: ZeronModel, chatId: String) {
                     Spacer(Modifier.width(8.dp))
                     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.widthIn(max = 230.dp)) {
                         Text(
-                            chrome.title.ifBlank { row?.title ?: "Session" },
+                            chrome.title.ifBlank { row?.title ?: stringResource(R.string.session_fallback) },
                             color = colors.text,
                             fontFamily = ZeronType.Sans,
                             fontWeight = FontWeight.SemiBold,
@@ -335,7 +337,7 @@ fun SessionScreen(model: ZeronModel, chatId: String) {
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
-                        val project = row?.project?.name ?: "No project"
+                        val project = row?.project?.name ?: stringResource(R.string.no_project)
                         val hostName = chrome.host.name
                         Text(
                             if (hostName != null) "$project @ $hostName" else project,
@@ -392,7 +394,7 @@ fun SessionScreen(model: ZeronModel, chatId: String) {
                     colors = colors,
                     text = draft,
                     onText = { draft = it },
-                    placeholder = if (editingQueue != null) "Edit queued message" else "Message ${row?.harness?.let { runCatching { harnessLabel(it) }.getOrNull() } ?: "the agent"}",
+                    placeholder = if (editingQueue != null) stringResource(R.string.composer_edit_queued) else stringResource(R.string.composer_placeholder, row?.harness?.let { runCatching { harnessLabel(it) }.getOrNull() } ?: stringResource(R.string.the_agent)),
                     running = running,
                     canSteer = chrome.host.capabilities.midTurnSteering == true,
                     focused = focused,
@@ -425,12 +427,12 @@ fun SessionScreen(model: ZeronModel, chatId: String) {
                                         when (val start = handle.beginQueuedEdit(editing, client.deviceId())) {
                                             is QueueEditStart.Acquired -> {
                                                 val finish = handle.finishQueuedEdit(start.lease, QueueEditAction.COMMIT, body)
-                                                if (finish != QueueEditFinish.FINISHED) model.showToast("Couldn't save the edit")
+                                                if (finish != QueueEditFinish.FINISHED) model.showToast(context.getString(R.string.edit_save_failed))
                                             }
-                                            else -> model.showToast("That message isn't editable right now")
+                                            else -> model.showToast(context.getString(R.string.queued_not_editable))
                                         }
                                     } catch (t: Throwable) {
-                                        model.showToast(t.message ?: "Couldn't save the edit")
+                                        model.showToast(t.message ?: context.getString(R.string.edit_save_failed))
                                     }
                                 }
                                 editingQueue = null
@@ -452,7 +454,7 @@ fun SessionScreen(model: ZeronModel, chatId: String) {
                             sendFailure = null
                         } catch (t: Throwable) {
                             // Kept in the pill until the next send (iOS sendFailure).
-                            sendFailure = "Couldn't send: ${t.message ?: "unknown error"}"
+                            sendFailure = context.getString(R.string.send_failed, t.message ?: context.getString(R.string.unknown_error))
                         }
                     },
                     mentionSearch = { q ->
@@ -493,25 +495,25 @@ fun SessionScreen(model: ZeronModel, chatId: String) {
                 menuAnchor,
                 title = null,
                 entries = listOf(
-                    MenuEntry(if (pinned) "Unpin" else "Pin", icon = { c -> if (pinned) PinSlashGlyph(17.dp, c) else Glyph(Glyphs.Pin, 17.dp, c) }) {
+                    MenuEntry(stringResource(if (pinned) R.string.unpin else R.string.pin), icon = { c -> if (pinned) PinSlashGlyph(17.dp, c) else Glyph(Glyphs.Pin, 17.dp, c) }) {
                         model.pin(chatId, !pinned)
                     },
-                    MenuEntry("Rename…", icon = { c -> Glyph(Glyphs.Rename, 17.dp, c) }) {
+                    MenuEntry(stringResource(R.string.rename_ellipsis), icon = { c -> Glyph(Glyphs.Rename, 17.dp, c) }) {
                         renameText = chrome.title.ifBlank { current?.title ?: "" }
                         renaming = true
                     },
-                    MenuEntry("Copy Transcript", icon = { c -> Glyph(Glyphs.Copy, 17.dp, c) }) {
+                    MenuEntry(stringResource(R.string.copy_transcript), icon = { c -> Glyph(Glyphs.Copy, 17.dp, c) }) {
                         val text = runCatching { engine.frame().let { f -> try { f.plainText() } finally { f.close() } } }.getOrDefault("")
                         if (text.isBlank()) {
-                            model.showToast("Nothing to copy yet")
+                            model.showToast(context.getString(R.string.nothing_to_copy))
                         } else {
                             val cm = context.getSystemService(android.content.ClipboardManager::class.java)
                             cm.setPrimaryClip(android.content.ClipData.newPlainText("transcript", text))
-                            model.showToast("Transcript copied")
+                            model.showToast(context.getString(R.string.transcript_copied))
                         }
                     },
-                    MenuEntry("Usage", icon = { c -> GaugeGlyph(c, Modifier.size(17.dp)) }) { focusManager.clearFocus(); usageOpen = true },
-                    MenuEntry("Archive", destructive = true, icon = { c -> Glyph(Glyphs.Archive, 17.dp, c) }) {
+                    MenuEntry(stringResource(R.string.usage), icon = { c -> GaugeGlyph(c, Modifier.size(17.dp)) }) { focusManager.clearFocus(); usageOpen = true },
+                    MenuEntry(stringResource(R.string.archive), destructive = true, icon = { c -> Glyph(Glyphs.Archive, 17.dp, c) }) {
                         model.archive(chatId)
                         model.back()
                     },
@@ -553,7 +555,7 @@ fun SessionScreen(model: ZeronModel, chatId: String) {
                 Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.92f)).clickable { lightbox = null },
                 contentAlignment = Alignment.Center,
             ) {
-                Image(bmp.asImageBitmap(), contentDescription = "Attachment", modifier = Modifier.fillMaxWidth().padding(16.dp), contentScale = ContentScale.Fit)
+                Image(bmp.asImageBitmap(), contentDescription = stringResource(R.string.attachment), modifier = Modifier.fillMaxWidth().padding(16.dp), contentScale = ContentScale.Fit)
             }
         }
         detail?.let { (title, body) ->
@@ -561,13 +563,13 @@ fun SessionScreen(model: ZeronModel, chatId: String) {
                 onDismissRequest = { detail = null },
                 title = { Text(title) },
                 text = { Text(body, modifier = Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState())) },
-                confirmButton = { TextButton(onClick = { detail = null }) { Text("Close") } },
+                confirmButton = { TextButton(onClick = { detail = null }) { Text(stringResource(R.string.close)) } },
             )
         }
         if (renaming) {
             AlertDialog(
                 onDismissRequest = { renaming = false },
-                title = { Text("Rename") },
+                title = { Text(stringResource(R.string.rename)) },
                 text = {
                     BasicTextField(
                         value = renameText,
@@ -581,9 +583,9 @@ fun SessionScreen(model: ZeronModel, chatId: String) {
                         val name = renameText.trim()
                         if (name.isNotEmpty()) model.rename(chatId, name)
                         renaming = false
-                    }) { Text("Rename") }
+                    }) { Text(stringResource(R.string.rename)) }
                 },
-                dismissButton = { TextButton(onClick = { renaming = false }) { Text("Cancel") } },
+                dismissButton = { TextButton(onClick = { renaming = false }) { Text(stringResource(R.string.cancel)) } },
             )
         }
     }
@@ -624,40 +626,40 @@ private fun ChipMenu(
             client.setSessionConfig(chatId, change(current))
             model.refreshPull()
         } catch (t: Throwable) {
-            model.showToast(t.message ?: "Couldn't change the session")
+            model.showToast(t.message ?: context.getString(R.string.change_session_failed))
         }
     }
     val pr = row?.pullRequest
     val (title, entries) = when (chip.id) {
-        "model" -> "Model" to models.orEmpty().map { m ->
+        "model" -> stringResource(R.string.model) to models.orEmpty().map { m ->
             MenuEntry(m.label, subtitle = m.description, checked = m.id == row?.model) { setConfig { it.copy(model = m.id) } }
         }
         "effort" -> {
             val all = models.orEmpty()
             val levels = all.firstOrNull { it.id == row?.model }?.reasoningLevels ?: all.firstOrNull()?.reasoningLevels ?: emptyList()
-            "Reasoning effort" to levels.map { l ->
+            stringResource(R.string.reasoning_effort) to levels.map { l ->
                 MenuEntry(reasoningLabel(l), checked = l == row?.reasoning) { setConfig { it.copy(reasoning = l) } }
             }
         }
         "pr" -> (pr?.title ?: "") to listOfNotNull(
             pr?.let { p ->
-                MenuEntry("Open Pull Request", icon = { c -> AssetIcon("tool-global", 16.dp, c) }) {
+                MenuEntry(stringResource(R.string.open_pull_request), icon = { c -> AssetIcon("tool-global", 16.dp, c) }) {
                     runCatching { context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(p.url))) }
                 }
             },
             pr?.let { p ->
-                MenuEntry("Copy Link", icon = { c -> AssetIcon("fileicon-files-link", 16.dp, c) }) {
+                MenuEntry(stringResource(R.string.copy_link), icon = { c -> AssetIcon("fileicon-files-link", 16.dp, c) }) {
                     val cm = context.getSystemService(android.content.ClipboardManager::class.java)
                     cm.setPrimaryClip(android.content.ClipData.newPlainText("pull request", p.url))
-                    model.showToast("Copied")
+                    model.showToast(context.getString(R.string.copied))
                 }
             },
         )
         "branch" -> (row?.branch ?: "") to listOf(
-            MenuEntry("Copy Branch Name", icon = { c -> AssetIcon("tool-git-branch", 16.dp, c) }) {
+            MenuEntry(stringResource(R.string.copy_branch_name), icon = { c -> AssetIcon("tool-git-branch", 16.dp, c) }) {
                 val cm = context.getSystemService(android.content.ClipboardManager::class.java)
                 cm.setPrimaryClip(android.content.ClipData.newPlainText("branch", row?.branch ?: ""))
-                model.showToast("Copied")
+                model.showToast(context.getString(R.string.copied))
             },
         )
         else -> null to emptyList()
@@ -690,18 +692,18 @@ private fun StatusPill(
     }
     val progress = chrome.transferProgress
     val (dot, text) = when {
-        editing -> colors.input to "Editing queued message · Tap to cancel"
+        editing -> colors.input to stringResource(R.string.pill_editing)
         sendFailure != null -> colors.danger to sendFailure
-        chrome.sendState == SendState.FAILED -> colors.danger to "Not delivered · Tap to retry"
-        chrome.sendState == SendState.QUEUED -> colors.tertiary to "${chrome.host.name ?: "Host"} is offline — will send when it's back"
-        progress != null && progress < 1.0 -> colors.accent to "Uploading · ${Math.round(progress * 100)}%"
-        connectivity?.state == uniffi.zeron_core.ConnectivityState.OFFLINE -> colors.tertiary to "Offline — sends are saved"
-        retryAt != null -> colors.tertiary to "Reconnecting in ${((retryAt - now) / 1000).coerceAtLeast(1)}s"
+        chrome.sendState == SendState.FAILED -> colors.danger to stringResource(R.string.pill_not_delivered)
+        chrome.sendState == SendState.QUEUED -> colors.tertiary to stringResource(R.string.pill_host_offline, chrome.host.name ?: stringResource(R.string.host_fallback))
+        progress != null && progress < 1.0 -> colors.accent to stringResource(R.string.pill_uploading, Math.round(progress * 100).toInt())
+        connectivity?.state == uniffi.zeron_core.ConnectivityState.OFFLINE -> colors.tertiary to stringResource(R.string.pill_offline)
+        retryAt != null -> colors.tertiary to stringResource(R.string.pill_reconnecting, ((retryAt - now) / 1000).coerceAtLeast(1).toInt())
         chrome.queueError != null -> colors.danger to chrome.queueError!!
         working -> {
-            val word = if (chrome.live.streaming) "Writing" else "Working"
+            val word = stringResource(if (chrome.live.streaming) R.string.status_writing else R.string.status_working)
             val secs = chrome.live.workingSinceMs?.let { ((now - it) / 1000).coerceAtLeast(0) } ?: 0L
-            colors.working to if (secs > 0) "$word · ${ElapsedFormat.format(secs)}" else "$word…"
+            colors.working to if (secs > 0) "$word · ${ElapsedFormat.format(secs, LocalContext.current.resources)}" else "$word…"
         }
         else -> return
     }
@@ -733,13 +735,13 @@ private fun QueueCard(
     onEdit: (uniffi.zeron_core.QueueItem) -> Unit,
 ) {
     Column(Modifier.fillMaxWidth().glassSurface(colors, 22.dp).padding(12.dp)) {
-        Text("Queued", color = colors.secondary, fontFamily = ZeronType.Sans, fontWeight = FontWeight.Medium, fontSize = 12.sp)
+        Text(stringResource(R.string.queued), color = colors.secondary, fontFamily = ZeronType.Sans, fontWeight = FontWeight.Medium, fontSize = 12.sp)
         items.forEachIndexed { index, item ->
             // iOS QueuePanel gate labels: who holds the row, or why it waits.
             val gate = when (val g = item.gate) {
-                is uniffi.zeron_core.QueueGate.Editing -> if (g.mine) "Editing" else "Being edited"
-                is uniffi.zeron_core.QueueGate.ReviewRequired -> "Needs review"
-                null -> if (item.actionPending) "Updating" else null
+                is uniffi.zeron_core.QueueGate.Editing -> stringResource(if (g.mine) R.string.queue_editing else R.string.queue_being_edited)
+                is uniffi.zeron_core.QueueGate.ReviewRequired -> stringResource(R.string.queue_needs_review)
+                null -> if (item.actionPending) stringResource(R.string.queue_updating) else null
             }
             Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
@@ -750,9 +752,9 @@ private fun QueueCard(
                     Text("↑", color = if (index > 0) colors.secondary else colors.tertiary.copy(alpha = 0.4f), fontSize = 15.sp, modifier = Modifier.clickable(enabled = index > 0) { onMove(item.id, -1) }.padding(6.dp))
                     Text("↓", color = if (index < items.size - 1) colors.secondary else colors.tertiary.copy(alpha = 0.4f), fontSize = 15.sp, modifier = Modifier.clickable(enabled = index < items.size - 1) { onMove(item.id, 1) }.padding(6.dp))
                 }
-                Text("Edit", color = colors.accent, fontSize = 13.sp, modifier = Modifier.clickable { onEdit(item) }.padding(6.dp))
-                Text("Now", color = colors.text, fontSize = 13.sp, modifier = Modifier.clickable { onNow(item.id) }.padding(6.dp))
-                Text("Remove", color = colors.danger, fontSize = 13.sp, modifier = Modifier.clickable { onRemove(item.id) }.padding(6.dp))
+                Text(stringResource(R.string.edit), color = colors.accent, fontSize = 13.sp, modifier = Modifier.clickable { onEdit(item) }.padding(6.dp))
+                Text(stringResource(R.string.queue_send_now), color = colors.text, fontSize = 13.sp, modifier = Modifier.clickable { onNow(item.id) }.padding(6.dp))
+                Text(stringResource(R.string.remove), color = colors.danger, fontSize = 13.sp, modifier = Modifier.clickable { onRemove(item.id) }.padding(6.dp))
             }
         }
     }
@@ -764,7 +766,7 @@ private fun QuestionCard(questions: List<UserInputQuestion>, colors: ZeronColors
     val picks = remember(questions) { mutableMapOf<String, MutableSet<String>>() }
     val q = questions.getOrNull(page) ?: return
     Column(Modifier.fillMaxWidth().glassSurface(colors, 26.dp).padding(16.dp)) {
-        Text("${page + 1} of ${questions.size} · ${q.header}", color = colors.secondary, fontFamily = ZeronType.Sans, fontSize = 12.5.sp)
+        Text(stringResource(R.string.question_progress, page + 1, questions.size, q.header), color = colors.secondary, fontFamily = ZeronType.Sans, fontSize = 12.5.sp)
         Spacer(Modifier.height(8.dp))
         Text(q.question, color = colors.text, fontFamily = ZeronType.Sans, fontWeight = FontWeight.SemiBold, fontSize = 17.sp)
         Spacer(Modifier.height(12.dp))
@@ -793,8 +795,8 @@ private fun QuestionCard(questions: List<UserInputQuestion>, colors: ZeronColors
             )
         }
         Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text("Back", color = colors.secondary, modifier = Modifier.clickable { if (page > 0) page-- }.padding(8.dp))
-            Text(if (page == questions.lastIndex) "Send" else "Next", color = colors.text, fontWeight = FontWeight.SemiBold, modifier = Modifier.clickable {
+            Text(stringResource(R.string.back), color = colors.secondary, modifier = Modifier.clickable { if (page > 0) page-- }.padding(8.dp))
+            Text(stringResource(if (page == questions.lastIndex) R.string.send else R.string.next), color = colors.text, fontWeight = FontWeight.SemiBold, modifier = Modifier.clickable {
                 if (page < questions.lastIndex) page++ else onSubmit(finish(questions, picks))
             }.padding(8.dp))
         }
@@ -1046,9 +1048,9 @@ private fun SendButton(
                 anchor,
                 title = null,
                 entries = listOfNotNull(
-                    MenuEntry("Queue for next turn") { onSend(Delivery.Queue) },
-                    if (canSteer) MenuEntry("Steer now") { onSend(Delivery.Steer) } else null,
-                    MenuEntry("Stop and send", destructive = true) { onSend(Delivery.Interrupt) },
+                    MenuEntry(stringResource(R.string.deliver_queue)) { onSend(Delivery.Queue) },
+                    if (canSteer) MenuEntry(stringResource(R.string.deliver_steer)) { onSend(Delivery.Steer) } else null,
+                    MenuEntry(stringResource(R.string.deliver_interrupt), destructive = true) { onSend(Delivery.Interrupt) },
                     onSchedule?.let { MenuEntry(scheduleTitle) { it() } },
                 ),
                 above = true,
@@ -1071,12 +1073,12 @@ fun SignInScreen(model: ZeronModel) {
             Spacer(Modifier.height(12.dp))
             Text("Zeron", color = colors.text, fontFamily = ZeronType.Sans, fontWeight = FontWeight.SemiBold, fontSize = 34.sp)
             Spacer(Modifier.height(8.dp))
-            Text("Your coding agents, from anywhere.", color = colors.secondary, fontFamily = ZeronType.Sans, fontSize = 17.sp)
+            Text(stringResource(R.string.signin_tagline), color = colors.secondary, fontFamily = ZeronType.Sans, fontSize = 17.sp)
         }
         Column {
             model.signInError?.let { Text(it, color = colors.danger, fontFamily = ZeronType.Sans, fontSize = 14.sp, modifier = Modifier.padding(bottom = 12.dp)) }
             model.authOrgs?.let { orgs ->
-                Text("Choose an organization", color = colors.text, fontFamily = ZeronType.Sans, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(bottom = 8.dp))
+                Text(stringResource(R.string.choose_org), color = colors.text, fontFamily = ZeronType.Sans, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(bottom = 8.dp))
                 orgs.forEach { org ->
                     Text(org.name, color = colors.text, modifier = Modifier.fillMaxWidth().clickable { model.chooseOrg(org) }.padding(vertical = 10.dp), fontFamily = ZeronType.Sans, fontSize = 16.sp)
                 }
@@ -1089,34 +1091,25 @@ fun SignInScreen(model: ZeronModel) {
                 }.padding(vertical = 15.dp),
                 contentAlignment = Alignment.Center,
             ) {
-                Text(if (model.signInBusy) "Signing in…" else "Sign In", color = colors.background, fontFamily = ZeronType.Sans, fontWeight = FontWeight.SemiBold, fontSize = 17.sp)
+                Text(stringResource(if (model.signInBusy) R.string.signing_in else R.string.sign_in), color = colors.background, fontFamily = ZeronType.Sans, fontWeight = FontWeight.SemiBold, fontSize = 17.sp)
             }
             Spacer(Modifier.height(12.dp))
             Box(
                 Modifier.fillMaxWidth().clip(RoundedCornerShape(28.dp)).background(colors.controlFill).clickable { model.enterDemo() }.padding(vertical = 15.dp),
                 contentAlignment = Alignment.Center,
             ) {
-                Text("Explore the demo", color = colors.text, fontFamily = ZeronType.Sans, fontWeight = FontWeight.Medium, fontSize = 17.sp)
+                Text(stringResource(R.string.explore_demo), color = colors.text, fontFamily = ZeronType.Sans, fontWeight = FontWeight.Medium, fontSize = 17.sp)
             }
             Spacer(Modifier.height(12.dp))
             Box(
                 Modifier.fillMaxWidth().clip(RoundedCornerShape(28.dp)).background(colors.controlFill).clickable { model.showMachines = true }.padding(vertical = 15.dp),
                 contentAlignment = Alignment.Center,
             ) {
-                Text("Connect to your computer (SSH)", color = colors.text, fontFamily = ZeronType.Sans, fontWeight = FontWeight.Medium, fontSize = 17.sp)
+                Text(stringResource(R.string.connect_ssh), color = colors.text, fontFamily = ZeronType.Sans, fontWeight = FontWeight.Medium, fontSize = 17.sp)
             }
         }
     }
 }
-
-private val ChatIndicator.word: String?
-    get() = when (this) {
-        ChatIndicator.WORKING -> "Working"
-        ChatIndicator.AWAITING_INPUT -> "Input"
-        ChatIndicator.ERRORED -> "Failed"
-        ChatIndicator.COMPLETED -> "Done"
-        ChatIndicator.IDLE -> null
-    }
 
 /**
  * Soft edges on a horizontally scrolling row (like iOS's scroll edge effect):
