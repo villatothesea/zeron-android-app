@@ -14,7 +14,51 @@ import java.util.Calendar
 import java.util.TimeZone
 import java.util.UUID
 
-/** A message to send into a session later. [atMs] is phone wall-clock epoch millis. */
+/**
+ * What a scheduled first message starts: the New Session screen's picks at
+ * the moment it was scheduled (project or projectless host, CLI, model,
+ * effort, branch / new worktree). [label] (project or host name) is for
+ * display only.
+ */
+data class NewSessionSpec(
+    val projectId: String? = null,
+    val hostId: String? = null,
+    val harness: String,
+    val model: String? = null,
+    val effort: String? = null,
+    val branch: String? = null,
+    val worktree: Boolean = false,
+    val projectPath: String? = null,
+    val label: String = "",
+) {
+    fun toJson(): JSONObject = JSONObject()
+        .put("projectId", projectId ?: JSONObject.NULL).put("hostId", hostId ?: JSONObject.NULL)
+        .put("harness", harness).put("model", model ?: JSONObject.NULL).put("effort", effort ?: JSONObject.NULL)
+        .put("branch", branch ?: JSONObject.NULL).put("worktree", worktree)
+        .put("projectPath", projectPath ?: JSONObject.NULL).put("label", label)
+
+    companion object {
+        private fun JSONObject.str(key: String): String? = if (isNull(key)) null else optString(key).ifBlank { null }
+
+        fun fromJson(o: JSONObject) = NewSessionSpec(
+            projectId = o.str("projectId"),
+            hostId = o.str("hostId"),
+            harness = o.getString("harness"),
+            model = o.str("model"),
+            effort = o.str("effort"),
+            branch = o.str("branch"),
+            worktree = o.optBoolean("worktree"),
+            projectPath = o.str("projectPath"),
+            label = o.optString("label"),
+        )
+    }
+}
+
+/**
+ * A message to send later. [atMs] is phone wall-clock epoch millis. Either
+ * into an existing session ([chatId]) or, with [newSession], as the first
+ * message of a session created at fire time ([chatId] is then empty).
+ */
 data class ScheduledMessage(
     val id: String = UUID.randomUUID().toString(),
     /** `demo`, `cloud` or a saved machine id (see CoreConnect). */
@@ -24,10 +68,12 @@ data class ScheduledMessage(
     val atMs: Long,
     /** For notifications only. */
     val chatTitle: String = "",
+    val newSession: NewSessionSpec? = null,
 ) {
     fun toJson(): JSONObject = JSONObject()
         .put("id", id).put("workspace", workspace).put("chatId", chatId)
         .put("text", text).put("atMs", atMs).put("chatTitle", chatTitle)
+        .apply { newSession?.let { put("newSession", it.toJson()) } }
 
     companion object {
         fun fromJson(o: JSONObject) = ScheduledMessage(
@@ -37,6 +83,7 @@ data class ScheduledMessage(
             text = o.getString("text"),
             atMs = o.getLong("atMs"),
             chatTitle = o.optString("chatTitle"),
+            newSession = o.optJSONObject("newSession")?.let { NewSessionSpec.fromJson(it) },
         )
     }
 }

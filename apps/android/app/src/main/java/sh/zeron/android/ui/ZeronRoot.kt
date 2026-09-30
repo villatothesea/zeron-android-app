@@ -484,10 +484,16 @@ private fun SessionsScreen(model: ZeronModel, colors: ZeronColors, onPrompt: (Pr
                 modifier = Modifier.align(Alignment.TopCenter).padding(top = headerBottom),
             )
         }) {
+            val scheduledNew = rememberScheduledNewSessions(model.activeMachine)
+            val cancelScheduled = { message: sh.zeron.android.schedule.ScheduledMessage ->
+                sh.zeron.android.schedule.ScheduledAlarms.cancel(context, message.id)
+                model.showToast(context.getString(R.string.schedule_cancelled))
+            }
             if (rows.isEmpty()) {
                 val topInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
                 Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(top = topInset + ListHeaderHeight + ListHeaderGap)) {
                     DirectBanner(model, colors)
+                    ScheduledNewSessionRows(colors, scheduledNew, onCancel = cancelScheduled)
                     Box(Modifier.fillMaxWidth().padding(32.dp).padding(top = 120.dp), contentAlignment = Alignment.Center) {
                         Text(emptySessionsText(model), color = colors.secondary, fontFamily = ZeronType.Sans, fontSize = 16.sp)
                     }
@@ -500,6 +506,7 @@ private fun SessionsScreen(model: ZeronModel, colors: ZeronColors, onPrompt: (Pr
                     contentPadding = PaddingValues(top = topInset + ListHeaderHeight + ListHeaderGap, bottom = 28.dp),
                 ) {
                     item(key = "direct-banner") { DirectBanner(model, colors) }
+                    if (scheduledNew.isNotEmpty()) item(key = "scheduled-new") { ScheduledNewSessionRows(colors, scheduledNew, onCancel = cancelScheduled) }
                     groups.forEach { group ->
                         val folded = group.title != null && model.isCollapsed(group.id)
                         if (group.title != null) {

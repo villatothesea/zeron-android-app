@@ -73,4 +73,18 @@ class ScheduledAlarmsTest {
         assertEquals(2, times.size)
         assertTrue(times[0] >= System.currentTimeMillis())
     }
+
+    @Test
+    fun newSessionSpecSurvivesTheStore() {
+        val spec = NewSessionSpec(
+            projectId = "p1", harness = "codex", model = "gpt-5", effort = "high",
+            branch = "main", worktree = true, projectPath = "/src/zeron", label = "zeron",
+        )
+        val m = message("n", 60_000).copy(chatId = "", newSession = spec)
+        ScheduledStore(app).add(m)
+        assertEquals(m, ScheduledStore(app).get("n"))
+        // Old entries (no newSession key) still read.
+        val plain = message("p", 60_000)
+        assertNull(ScheduledMessage.fromJson(plain.toJson()).newSession)
+    }
 }

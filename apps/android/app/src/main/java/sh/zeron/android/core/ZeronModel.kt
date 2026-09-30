@@ -26,7 +26,6 @@ import kotlinx.coroutines.withContext
 import sh.zeron.android.BuildConfig
 import uniffi.zeron_core.AuthCallback
 import uniffi.zeron_core.AuthOrg
-import uniffi.zeron_core.ChatConfig
 import uniffi.zeron_core.ChatIndicator
 import uniffi.zeron_core.ClientEvent
 import uniffi.zeron_core.ClientListener
@@ -38,7 +37,6 @@ import uniffi.zeron_core.DemoOptions
 import uniffi.zeron_core.FaceData
 import uniffi.zeron_core.FaceRole
 import uniffi.zeron_core.PlatformMeasurer
-import uniffi.zeron_core.SandboxLevel
 import uniffi.zeron_core.SessionRow
 import uniffi.zeron_core.StreamSpeed
 import uniffi.zeron_core.TextSystem
@@ -1129,13 +1127,7 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
 
     fun wallpaperName(): String? = prefs.getString("wallpaperName", null)
 
-    fun defaultConfig(harness: String, model: String?, effort: String?) = ChatConfig(
-        harness = harness,
-        model = model,
-        reasoning = effort,
-        modelOptions = emptyMap(),
-        sandbox = SandboxLevel.WORKSPACE_WRITE,
-    )
+    fun defaultConfig(harness: String, model: String?, effort: String?) = NewSessionConfig.chatConfig(harness, model, effort)
 
     private fun watchNetwork() {
         val cm = getApplication<Application>().getSystemService(ConnectivityManager::class.java) ?: return

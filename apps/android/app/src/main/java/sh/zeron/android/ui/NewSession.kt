@@ -122,6 +122,11 @@ fun NewSessionSheet(model: ZeronModel, onDismiss: () -> Unit) {
     var projectSortOpen by remember { mutableStateOf(false) }
     var refs by remember { mutableStateOf<List<RepoRef>?>(null) }
     LaunchedEffect(Unit) { model.newSessionProject = null }
+    var scheduleOpen by remember { mutableStateOf(false) }
+    val pendingNew = rememberScheduledNewSessions(model.activeMachine)
+    val notificationPermission = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestPermission(),
+    ) { }
 
     val project = projects.firstOrNull { it.id == projectId }
     val device = project?.deviceId ?: hostId ?: hosts.firstOrNull()?.id ?: ""
@@ -188,7 +193,14 @@ fun NewSessionSheet(model: ZeronModel, onDismiss: () -> Unit) {
                 Text(stringResource(R.string.new_session_headline), color = colors.text, fontFamily = ZeronType.Sans, fontWeight = FontWeight.SemiBold, fontSize = 22.sp)
             }
             Box(Modifier.fillMaxWidth().padding(bottom = 8.dp), contentAlignment = Alignment.Center) {
-                Box(Modifier.widthIn(max = 768.dp).fillMaxWidth()) {
+                Column(Modifier.widthIn(max = 768.dp).fillMaxWidth()) {
+                    pendingNew.forEach { message ->
+                        ScheduledChip(colors, message, detail = message.newSession?.label) {
+                            sh.zeron.android.schedule.ScheduledAlarms.cancel(context, message.id)
+                            if (text.isBlank()) text = message.text
+                            model.showToast(context.getString(R.string.schedule_cancelled))
+                        }
+                    }
                     ComposerBar(
                         colors = colors,
                         text = text,
@@ -234,6 +246,7 @@ fun NewSessionSheet(model: ZeronModel, onDismiss: () -> Unit) {
                             runCatching { client.searchFiles(p.deviceId, null, p.id, q) }.getOrDefault(emptyList())
                         },
                         onMention = { path, dir -> text = text.replace(Regex("@[^\\s]*$"), fileMentionLink(path, dir) + " ") },
+                        onSchedule = { scheduleOpen = true },
                     )
                 }
             }
@@ -349,6 +362,48 @@ fun NewSessionSheet(model: ZeronModel, onDismiss: () -> Unit) {
             // A drill-down swaps the whole list: give each level its own panel.
             androidx.compose.runtime.key(id, modelHarness, projectSortOpen) {
                 AnchoredMenu(colors, anchor, title, entries, loading = id == "branch" && refs == null, onDismiss = close)
+            }
+        }
+        if (scheduleOpen) {
+            ScheduleSendDialog(colors, onDismiss = { scheduleOpen = false }) { atMs ->
+                scheduleOpen = false
+                val body = text.trim()
+                if (body.isEmpty()) return@ScheduleSendDialog
+                if (projectId == null && hostId == null) {
+                    model.showToast(context.getString(R.string.choose_project_or_host))
+                    return@ScheduleSendDialog
+                }
+                // The same picks an immediate send would use, frozen now.
+                val label = project?.name ?: projectId?.let { addedNames[it] } ?: hosts.firstOrNull { it.id == hostId }?.name.orEmpty()
+                val spec = sh.zeron.android.schedule.NewSessionSpec(
+                    projectId = projectId,
+                    hostId = if (projectId == null) hostId else null,
+                    harness = harness,
+                    model = modelId,
+                    effort = effort,
+                    branch = branch,
+                    worktree = worktree && project != null,
+                    projectPath = project?.path,
+                    label = label,
+                )
+                sh.zeron.android.schedule.ScheduledAlarms.schedule(
+                    context,
+                    sh.zeron.android.schedule.ScheduledMessage(
+                        workspace = model.activeMachine,
+                        chatId = "",
+                        text = body,
+                        atMs = atMs,
+                        chatTitle = context.getString(R.string.sched_new_session_title, label),
+                        newSession = spec,
+                    ),
+                )
+                text = ""
+                model.showToast(context.getString(R.string.sched_new_toast, scheduleWhenText(context, atMs)))
+                if (android.os.Build.VERSION.SDK_INT >= 33 &&
+                    androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED
+                ) {
+                    notificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                }
             }
         }
         if (browsing) {

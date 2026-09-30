@@ -498,4 +498,9 @@
     <string name="schedule_custom">自定义</string>
     <string name="schedule_when_tomorrow">明天 %1$s</string>
     <string name="schedule_when_date">%1$s %2$s</string>
+
+    <!-- Scheduled send from the New Session screen -->
+    <string name="sched_new_session_title">新会话 · %1$s</string>
+    <string name="sched_new_home_title">定时新会话 · %1$s</string>
+    <string name="sched_new_toast">已定时 %1$s 开始新会话</string>
 </resources>

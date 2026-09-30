@@ -13,6 +13,10 @@ import uniffi.zeron_core.DirectPhase
 import uniffi.zeron_core.SendOutcome
 import uniffi.zeron_core.SendRequest
 import uniffi.zeron_core.SendState
+import uniffi.zeron_core.NewSession
+import uniffi.zeron_core.SessionTarget
+import uniffi.zeron_core.WorktreeSpec
+import sh.zeron.android.core.NewSessionConfig
 
 /**
  * Delivers one scheduled message: reuse the app's client when it is on the
@@ -91,14 +95,19 @@ class ScheduledSender(private val context: Context) {
     private fun linkError(client: CoreClient): String? =
         runCatching { client.directStatus()?.lastError }.getOrNull()
 
-    private suspend fun send(client: CoreClient, message: ScheduledMessage, deadline: Long): Result {
+    private suspend fun send(client: CoreClient, original: ScheduledMessage, deadline: Long): Result {
         // The session list may still be syncing right after the link comes up.
+        var message = original
+        val spec = message.newSession
         var outcome: SendOutcome? = null
         var handle: uniffi.zeron_core.SessionHandle? = null
         while (outcome == null) {
             try {
+                // New session: create it exactly like an immediate send from
+                // the New Session screen, once (the id is kept across retries).
+                if (spec != null && message.chatId.isEmpty()) message = message.copy(chatId = createSession(client, spec))
                 val h = handle ?: client.openSession(message.chatId).also { handle = it }
-                outcome = h.send(SendRequest(text = message.text, attachments = emptyList(), worktree = null, busy = BusyPolicy.QUEUE))
+                outcome = h.send(SendRequest(text = message.text, attachments = emptyList(), worktree = spec?.let { worktreeSpec(it) }, busy = BusyPolicy.QUEUE))
             } catch (t: Throwable) {
                 if (SystemClock.elapsedRealtime() >= deadline) return Result.Failed(message, t.message ?: AppLanguage.string(context, R.string.sched_send_failed))
                 delay(2_000)
@@ -124,6 +133,19 @@ class ScheduledSender(private val context: Context) {
         }
         return Result.Pending(message)
     }
+
+    private fun createSession(client: CoreClient, spec: NewSessionSpec): String {
+        val target = when {
+            spec.projectId != null -> SessionTarget.Project(spec.projectId)
+            spec.hostId != null -> SessionTarget.Projectless(spec.hostId)
+            else -> throw IllegalStateException(AppLanguage.string(context, R.string.choose_project_or_host))
+        }
+        return client.createSession(NewSession(target, NewSessionConfig.chatConfig(spec.harness, spec.model, spec.effort), if (spec.worktree) null else spec.branch, null, null))
+    }
+
+    /** "New worktree" rides on the first send, as in the New Session screen. */
+    private fun worktreeSpec(spec: NewSessionSpec): WorktreeSpec? =
+        if (spec.worktree && spec.projectPath != null && spec.projectId != null) WorktreeSpec(spec.projectPath, spec.branch ?: "HEAD", spec.projectId) else null
 
     companion object {
         /** About two minutes of connection retries. */

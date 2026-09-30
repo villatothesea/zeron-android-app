@@ -24,6 +24,7 @@ import androidx.compose.material3.TimePickerDefaults
 import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -337,9 +338,9 @@ private fun NumberField(colors: ZeronColors, well: Color, value: String, max: In
     )
 }
 
-/** Above the composer: "Scheduled for 01:20 · Cancel" (iOS status-pill geometry). */
+/** Above the composer: "Scheduled for 01:20 · Cancel" (iOS status-pill geometry); [detail] after the time. */
 @Composable
-internal fun ScheduledChip(colors: ZeronColors, message: ScheduledMessage, onCancel: () -> Unit) {
+internal fun ScheduledChip(colors: ZeronColors, message: ScheduledMessage, detail: String? = null, onCancel: () -> Unit) {
     Row(Modifier.padding(bottom = 8.dp)) {
         Row(
             Modifier.height(30.dp).glassSurface(colors, 15.dp).padding(start = 10.dp, end = 4.dp),
@@ -348,18 +349,65 @@ internal fun ScheduledChip(colors: ZeronColors, message: ScheduledMessage, onCan
             Glyph(Glyphs.Clock, 14.dp, colors.accent)
             Spacer(Modifier.width(7.dp))
             Text(
-                stringResource(R.string.schedule_chip, scheduleWhen(message.atMs)),
+                stringResource(R.string.schedule_chip, scheduleWhen(message.atMs)) + (detail?.takeIf { it.isNotBlank() }?.let { " · $it" } ?: ""),
                 color = colors.secondary,
                 fontFamily = ZeronType.Sans,
                 fontWeight = FontWeight.Medium,
                 fontSize = 13.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false),
             )
             Text(" · ", color = colors.tertiary, fontFamily = ZeronType.Sans, fontSize = 13.sp)
             Box(Modifier.clip(RoundedCornerShape(11.dp)).clickable(onClick = onCancel).padding(horizontal = 6.dp, vertical = 4.dp)) {
                 Text(stringResource(R.string.schedule_chip_cancel), color = colors.accent, fontFamily = ZeronType.Sans, fontWeight = FontWeight.Medium, fontSize = 13.sp)
             }
+        }
+    }
+}
+
+/** Scheduled new sessions on this workspace (they have no chat yet to show a chip in). */
+@Composable
+internal fun rememberScheduledNewSessions(workspace: String): List<ScheduledMessage> {
+    val context = LocalContext.current
+    val tick by sh.zeron.android.schedule.ScheduledStore.changes.collectAsState()
+    return remember(tick, workspace) {
+        sh.zeron.android.schedule.ScheduledStore(context).list().filter { it.newSession != null && it.workspace == workspace }
+    }
+}
+
+/**
+ * Home list entry per scheduled new session: "Scheduled new session ·
+ * 13:20", the message's first line and project, and Cancel.
+ */
+@Composable
+internal fun ScheduledNewSessionRows(colors: ZeronColors, messages: List<ScheduledMessage>, onCancel: (ScheduledMessage) -> Unit) {
+    messages.forEach { message ->
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp).clip(RoundedCornerShape(14.dp)).background(colors.elevated)
+                .padding(start = 14.dp, end = 8.dp, top = 10.dp, bottom = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Glyph(Glyphs.Clock, 16.dp, colors.accent)
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    stringResource(R.string.sched_new_home_title, scheduleWhen(message.atMs)),
+                    color = colors.text, fontFamily = ZeronType.Sans, fontWeight = FontWeight.Medium, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                )
+                val first = message.text.lineSequence().firstOrNull().orEmpty()
+                val label = message.newSession?.label.orEmpty()
+                Text(
+                    listOf(first, label).filter { it.isNotBlank() }.joinToString(" · "),
+                    color = colors.secondary, fontFamily = ZeronType.Sans, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Spacer(Modifier.width(8.dp))
+            Text(
+                stringResource(R.string.schedule_chip_cancel),
+                color = colors.accent, fontFamily = ZeronType.Sans, fontWeight = FontWeight.Medium, fontSize = 14.sp,
+                modifier = Modifier.clip(RoundedCornerShape(10.dp)).clickable { onCancel(message) }.padding(horizontal = 8.dp, vertical = 6.dp),
+            )
         }
     }
 }

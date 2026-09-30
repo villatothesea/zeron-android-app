@@ -503,4 +503,9 @@
     <string name="schedule_custom">Custom</string>
     <string name="schedule_when_tomorrow">tomorrow %1$s</string>
     <string name="schedule_when_date">%1$s %2$s</string>
+
+    <!-- Scheduled send from the New Session screen -->
+    <string name="sched_new_session_title">New session · %1$s</string>
+    <string name="sched_new_home_title">Scheduled new session · %1$s</string>
+    <string name="sched_new_toast">New session scheduled for %1$s</string>
 </resources>
