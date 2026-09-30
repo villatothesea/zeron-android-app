@@ -69,6 +69,12 @@ enum Mode {
     Drifted,
     /// Answers EngineInfo and every watch but WatchChats.
     SilentChats,
+    /// Running sessions heartbeat "now", stamped the way a Windows engine
+    /// writes them (100 ns precision: 7 fractional digits).
+    FreshSessions,
+    /// Like FreshSessions from a computer whose clock is 2 minutes behind
+    /// the phone, heartbeating every 100 ms.
+    LaggingClock,
 }
 
 struct Engine(Mode);
@@ -108,6 +114,34 @@ impl RpcService for Engine {
         let mut item = fixture(method);
         if self.0 == Mode::Drifted {
             item = drifted(method, item);
+        }
+        if self.0 == Mode::LaggingClock && method == "WatchSessions" {
+            let base = item.clone();
+            let beats = futures::stream::unfold(0u32, move |n| {
+                let mut frame = base.clone();
+                async move {
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                    let lagging = chrono::Utc::now() - chrono::TimeDelta::seconds(120);
+                    for row in frame.as_array_mut().unwrap() {
+                        if row["status"] == "working" {
+                            row["updatedAt"] = serde_json::json!(lagging.to_rfc3339());
+                        }
+                    }
+                    Some((frame, n + 1))
+                }
+            });
+            return Ok(RpcReply::Stream(beats.boxed()));
+        }
+        if self.0 == Mode::FreshSessions && method == "WatchSessions" {
+            let now = chrono::Utc::now()
+                .format("%Y-%m-%dT%H:%M:%S%.9fZ")
+                .to_string();
+            let windows = format!("{}00Z", &now[..now.len() - 3]);
+            for row in item.as_array_mut().unwrap() {
+                if row["status"] == "working" {
+                    row["updatedAt"] = serde_json::json!(windows);
+                }
+            }
         }
         // Snapshot, then a few quick re-emissions (running turns tick).
         let frames: Vec<serde_json::Value> = (0..4).map(|_| item.clone()).collect();
@@ -477,5 +511,57 @@ async fn lists_windows_drives_over_the_direct_link() {
         client.list_folders(&device, None).await,
         Err(crate::ClientError::Unsupported(_))
     ));
+    client.shutdown();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn running_sessions_read_as_working() {
+    start_engine("fresh.test", Mode::FreshSessions).await;
+    let dir = tempfile::tempdir().unwrap();
+    let client = direct_client("fresh.test", dir.path());
+    wait_for(&client, "rows", |c| {
+        !c.workspace().front.recent.is_empty() || !c.workspace().projects.is_empty()
+    })
+    .await;
+    let running: Vec<String> = fixture("WatchSessions")
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|r| r["status"] == "working")
+        .map(|r| r["chatId"].as_str().unwrap().to_owned())
+        .collect();
+    wait_for(&client, "working rows", |c| {
+        let ws = c.workspace();
+        running.iter().all(|id| {
+            ws.sessions
+                .get(id)
+                .is_some_and(|r| r.indicator == zeron_proto::ChatIndicator::Working)
+        })
+    })
+    .await;
+    client.shutdown();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_computer_clock_behind_the_phone_still_reads_working() {
+    start_engine("lagging.test", Mode::LaggingClock).await;
+    let dir = tempfile::tempdir().unwrap();
+    let client = direct_client("lagging.test", dir.path());
+    let running: Vec<String> = fixture("WatchSessions")
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|r| r["status"] == "working")
+        .map(|r| r["chatId"].as_str().unwrap().to_owned())
+        .collect();
+    wait_for(&client, "working rows despite a 2 min clock gap", |c| {
+        let ws = c.workspace();
+        running.iter().all(|id| {
+            ws.sessions
+                .get(id)
+                .is_some_and(|r| r.indicator == zeron_proto::ChatIndicator::Working)
+        })
+    })
+    .await;
     client.shutdown();
 }

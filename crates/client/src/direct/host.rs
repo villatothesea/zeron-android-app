@@ -82,6 +82,8 @@ pub(crate) struct DirectHost {
     mirrors: Mutex<HashMap<String, (Weak<SessionCore>, CancellationToken)>>,
     drains: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
     local_rows: Mutex<HashMap<String, i64>>,
+    /// Session freshness re-stamped on the phone's clock.
+    session_clock: Mutex<super::clock::SessionClock>,
     wake: tokio::sync::Notify,
     cancel: Mutex<Option<CancellationToken>>,
 }
@@ -103,6 +105,7 @@ impl DirectHost {
             mirrors: Mutex::new(HashMap::new()),
             drains: Mutex::new(HashMap::new()),
             local_rows: Mutex::new(HashMap::new()),
+            session_clock: Mutex::new(Default::default()),
             wake: tokio::sync::Notify::new(),
             cancel: Mutex::new(None),
         })
@@ -800,6 +803,7 @@ impl DirectHost {
     }
 
     fn mirror_sessions(&self, client: &ClientInner, rows: Vec<Session>) -> bool {
+        let rows = lock(&self.session_clock).rebase(rows, chrono::Utc::now());
         let (state, _) = client.workspace.state();
         let changed: Vec<&Session> = rows
             .iter()

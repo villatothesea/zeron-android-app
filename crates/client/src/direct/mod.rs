@@ -4,6 +4,7 @@
 //! mirrors its registry and transcript streams into the phone's local docs,
 //! so the rest of the client (views, composer, commands) is unchanged.
 
+mod clock;
 pub(crate) mod host;
 mod lenient;
 mod ssh;
