@@ -166,7 +166,7 @@ object CrashLog {
     private val homePath = Regex("""(/(?:home|Users)/|[A-Za-z]:\\+Users\\+)[^/\\\s:]+""")
     private val ipv4 = Regex("""(?<![\w.])(?:\d{1,3}\.){3}\d{1,3}(?!\w|\.\d)""")
     private val ipv6 = Regex("""(?<![\w:.])[0-9A-Fa-f:]*:[0-9A-Fa-f:.]*(?:%[\w.-]+)?(?![\w:])""")
-    private val localHost = Regex("""(?<![\w.-])[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.(?:local|lan|localdomain|internal|home\.arpa|ts\.net|tailnet)\b""")
+    private val localHost = Regex("""(?<![\w.-])[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.(?:local|lan|localdomain|internal|home\.arpa|ts\.net|tailnet)\b(?!\.?[\w$])""")
 
     /** [redact] from the Thread line on: the header's build and phone model stay. */
     internal fun redactBody(text: String, names: Collection<String>): String {

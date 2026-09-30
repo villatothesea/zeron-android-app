@@ -595,4 +595,18 @@
     <string name="route_use">使用</string>
     <string name="conn_switch_route">换一条线路</string>
     <string name="addresses_pick_hint">自动选择线路已关闭：点一个地址来使用它（只尝试这一个）。</string>
+    <string name="crash_last_title">上次意外退出</string>
+    <string name="crash_last_body">已在本机保存一份崩溃日志（不会上传）。可以复制或分享给开发者，帮助排查问题。</string>
+    <string name="crash_copy_log">复制日志</string>
+    <string name="crash_share">分享</string>
+    <string name="crash_share_subject">Zeron 崩溃日志</string>
+    <string name="crash_logs">崩溃日志</string>
+    <string name="crash_logs_none">无</string>
+    <plurals name="crash_logs_count">
+        <item quantity="other">%1$d 条</item>
+    </plurals>
+    <string name="crash_logs_note">只保存在本机（最近 5 次），不会上传。IP 地址、主机名和用户名已去除。</string>
+    <string name="crash_logs_empty">没有崩溃记录。</string>
+    <string name="crash_logs_clear">清除</string>
+    <string name="crash_logs_clear_confirm">清除全部崩溃日志？</string>
 </resources>

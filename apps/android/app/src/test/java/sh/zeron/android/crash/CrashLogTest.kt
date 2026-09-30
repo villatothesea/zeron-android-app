@@ -64,6 +64,7 @@ class CrashLogTest {
             	at sh.zeron.android.core.ZeronModel.start(ZeronModel.kt:971)
             	at java.lang.Object@1a2b3c4d.toString(Unknown Source:12)
             	at kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:108)
+            	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103)
             Time 19:20:31, version 1.2.3.4.5
         """.trimIndent()
         val s = CrashLog.redact(raw, listOf("NAS-Box", "okhlv", "main"))
@@ -79,6 +80,7 @@ class CrashLogTest {
         assertTrue(s, s.contains("java.lang.Object@1a2b3c4d"))
         assertTrue(s, s.contains("kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:108)"))
         assertTrue(s, s.contains("Time 19:20:31, version 1.2.3.4.5"))
+        assertTrue(s, s.contains("at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103)"))
     }
 
     @Test fun writeScrubsSavedComputersAndWorkspaceNames() {

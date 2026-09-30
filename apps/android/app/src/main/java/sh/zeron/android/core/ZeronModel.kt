@@ -159,6 +159,14 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
 
     private val episodes = ConnectionState.Episodes()
     var showLinkDetails by mutableStateOf(false)
+
+    /** The crash the previous run ended with, until its dialog is dismissed ([CrashLog]). */
+    var lastCrash by mutableStateOf<CrashLog.Entry?>(null)
+
+    /** Settings > About > Crash logs. */
+    var showCrashLogs by mutableStateOf(false)
+    var crashLogs by mutableStateOf<List<CrashLog.Entry>>(emptyList())
+        private set
     private var directJob: Job? = null
 
     // ── updates ───────────────────────────────────────────────────────────
@@ -227,6 +235,38 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
         startDefault()
         watchNetwork()
         quietUpdateCheck()
+        // Computer names crash logs must not contain (saved computers are read by CrashLog itself).
+        CrashLog.extraNames = { workspace?.devices.orEmpty().map { it.name } + machines.map { it.title() } }
+        crashLogs = CrashLog.list(app)
+        lastCrash = CrashLog.pending(app)
+    }
+
+    override fun onCleared() {
+        CrashLog.extraNames = { emptyList() }
+        super.onCleared()
+    }
+
+    fun dismissLastCrash() {
+        lastCrash = null
+        CrashLog.markSeen(getApplication())
+        crashLogs = CrashLog.list(getApplication())
+    }
+
+    fun openCrashLogs() {
+        crashLogs = CrashLog.list(getApplication())
+        showCrashLogs = true
+    }
+
+    fun clearCrashLogs() {
+        CrashLog.clear(getApplication())
+        crashLogs = emptyList()
+        lastCrash = null
+    }
+
+    fun copyCrashLog(text: String) {
+        val cm = getApplication<Application>().getSystemService(android.content.ClipboardManager::class.java)
+        cm?.setPrimaryClip(android.content.ClipData.newPlainText("Zeron crash log", text))
+        showToast(str(R.string.copied))
     }
 
     /** Folded front-page groups ("pinned", "recent", section ids); persisted. */

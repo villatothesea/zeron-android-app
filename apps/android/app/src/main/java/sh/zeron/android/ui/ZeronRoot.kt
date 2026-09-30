@@ -194,6 +194,11 @@ private fun AppContent(model: ZeronModel, colors: ZeronColors) {
         BackHandler { model.showUpdate = false }
         UpdateScreen(model)
     }
+    if (model.showCrashLogs) {
+        BackHandler { model.showCrashLogs = false }
+        CrashLogsScreen(model)
+    }
+    model.lastCrash?.let { LastCrashDialog(model, it) }
     UpdateDownloadSheets(model, colors)
     model.toast?.let { message ->
         Box(Modifier.fillMaxSize().padding(bottom = 120.dp), contentAlignment = Alignment.BottomCenter) {
@@ -1211,6 +1216,15 @@ private fun SettingsScreen(model: ZeronModel, colors: ZeronColors) {
                     Spacer(Modifier.width(10.dp))
                     SettingSwitch(colors, model.autoUpdate, "auto-update") { model.applyAutoUpdate(it) }
                 },
+            )
+        }
+        item {
+            val n = model.crashLogs.size
+            SettingRow(
+                colors,
+                stringResource(R.string.crash_logs),
+                if (n == 0) stringResource(R.string.crash_logs_none) else androidx.compose.ui.res.pluralStringResource(R.plurals.crash_logs_count, n, n),
+                onClick = { model.openCrashLogs() },
             )
         }
         item { Spacer(Modifier.height(18.dp)) }

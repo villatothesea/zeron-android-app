@@ -600,4 +600,19 @@
     <string name="route_use">Use</string>
     <string name="conn_switch_route">Try another route</string>
     <string name="addresses_pick_hint">Auto-select route is off: tap an address to use it (only that one is tried).</string>
+    <string name="crash_last_title">Zeron Quit Unexpectedly</string>
+    <string name="crash_last_body">A crash log was saved on this phone only (never uploaded). Copy or share it to report the problem.</string>
+    <string name="crash_copy_log">Copy Log</string>
+    <string name="crash_share">Share</string>
+    <string name="crash_share_subject">Zeron crash log</string>
+    <string name="crash_logs">Crash Logs</string>
+    <string name="crash_logs_none">None</string>
+    <plurals name="crash_logs_count">
+        <item quantity="one">%1$d saved</item>
+        <item quantity="other">%1$d saved</item>
+    </plurals>
+    <string name="crash_logs_note">Kept only on this phone (the last 5) and never uploaded. IP addresses, host names and user names are removed.</string>
+    <string name="crash_logs_empty">No crashes recorded.</string>
+    <string name="crash_logs_clear">Clear</string>
+    <string name="crash_logs_clear_confirm">Clear all crash logs?</string>
 </resources>
