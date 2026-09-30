@@ -88,7 +88,14 @@ fun UpdateScreen(model: ZeronModel) {
                 Box(Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)).background(colors.controlFill)) {
                     Box(Modifier.fillMaxWidth(p.coerceIn(0f, 1f)).height(6.dp).clip(RoundedCornerShape(3.dp)).background(colors.accent))
                 }
-                Text(if (p >= 1f) stringResource(R.string.update_downloaded) else stringResource(R.string.update_downloading, (p * 100).toInt()), color = colors.secondary, fontFamily = ZeronType.Sans, fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp))
+                val status = model.updateStatus
+                val line = when {
+                    p >= 1f -> stringResource(R.string.update_downloaded)
+                    status == null -> stringResource(R.string.update_downloading, (p * 100).toInt())
+                    status.total > 0 -> stringResource(R.string.update_downloading_from, status.source, (p * 100).toInt(), model.updater.speed(status.bytesPerSec))
+                    else -> stringResource(R.string.update_downloading_from_size, status.source, model.updater.speed(status.done), model.updater.speed(status.bytesPerSec))
+                }
+                Text(line, color = colors.secondary, fontFamily = ZeronType.Sans, fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp))
             }
             model.updateError?.let {
                 Text(it, color = colors.danger, fontFamily = ZeronType.Sans, fontSize = 14.sp, modifier = Modifier.padding(top = 10.dp))
@@ -100,11 +107,22 @@ fun UpdateScreen(model: ZeronModel) {
                     if (model.updateProgress == 1f) model.installUpdate() else model.downloadUpdate()
                 }
                 Spacer(Modifier.height(8.dp))
+                // Way out when every source fails in-app: the browser may have its own proxy.
+                Row {
+                    Button(colors, stringResource(R.string.update_open_browser), modifier = Modifier.weight(1f)) { model.openUpdateInBrowser() }
+                    Spacer(Modifier.width(8.dp))
+                    Button(colors, stringResource(R.string.update_copy_link), modifier = Modifier.weight(1f)) { model.copyUpdateLink() }
+                }
+                Spacer(Modifier.height(8.dp))
             }
             Button(colors, stringResource(R.string.update_check_again), enabled = !busy) { model.checkForUpdates() }
             Text(
                 stringResource(R.string.update_install_hint),
                 color = colors.secondary, fontFamily = ZeronType.Sans, fontSize = 12.sp, modifier = Modifier.padding(top = 10.dp, start = 4.dp),
+            )
+            Text(
+                stringResource(R.string.update_sources_hint),
+                color = colors.secondary, fontFamily = ZeronType.Sans, fontSize = 12.sp, modifier = Modifier.padding(top = 6.dp, start = 4.dp),
             )
             GroupLabel(colors, stringResource(R.string.update_advanced))
             if (!advanced) {
