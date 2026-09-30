@@ -1102,7 +1102,8 @@ private fun SettingsScreen(model: ZeronModel, colors: ZeronColors) {
         }
         item { GroupLabel(colors, stringResource(R.string.settings_language)) }
         item {
-            // Per-app locale: the activity is recreated in the new language.
+            // Per-app locale, applied in place (no activity recreation).
+            AppLanguage.changes.intValue
             val current = AppLanguage.current(context)
             listOf(
                 AppLanguage.SYSTEM to R.string.language_system,

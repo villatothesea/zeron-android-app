@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.res.Configuration
 import androidx.annotation.StringRes
 import androidx.appcompat.app.AppCompatDelegate
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.core.os.LocaleListCompat
 
 /**
@@ -25,6 +26,12 @@ object AppLanguage {
     private const val PREFS = "zeron"
     private const val KEY = "language"
 
+    /**
+     * Bumped on every [apply]; composables that show the choice read it so
+     * they update in place (the activity is not recreated, see MainActivity).
+     */
+    val changes = mutableIntStateOf(0)
+
     /** The stored choice: [SYSTEM], [ENGLISH] or [CHINESE]. */
     fun current(context: Context): String {
         val tags = AppCompatDelegate.getApplicationLocales().toLanguageTags()
@@ -39,6 +46,7 @@ object AppLanguage {
         AppCompatDelegate.setApplicationLocales(
             if (value == SYSTEM) LocaleListCompat.getEmptyLocaleList() else LocaleListCompat.forLanguageTags(value),
         )
+        changes.intValue++
     }
 
     /** [base] with the chosen language applied (itself when following the system). */

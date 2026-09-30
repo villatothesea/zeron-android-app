@@ -1,12 +1,17 @@
 package sh.zeron.android
 
 import android.content.Intent
+import android.content.res.Configuration
 import android.os.Bundle
 import android.widget.FrameLayout
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.ViewCompositionStrategy
 import sh.zeron.android.core.ZeronModel
@@ -14,9 +19,22 @@ import sh.zeron.android.design.GlassFrameLayout
 import sh.zeron.android.design.LocalGlassFrame
 import sh.zeron.android.ui.ZeronApp
 
-/** AppCompatActivity so the per-app language (AppLanguage) applies below Android 13 too. */
+/**
+ * AppCompatActivity so the per-app language (AppLanguage) applies below
+ * Android 13 too.
+ *
+ * Language and dark-mode changes don't recreate the activity (manifest
+ * configChanges="uiMode|locale|layoutDirection"): recreation flashed the
+ * window and dropped screen state such as the Settings scroll position.
+ * The resources are updated in place (by the system on Android 13+, by
+ * AppCompat below), and [onConfigurationChanged] hands the new
+ * configuration to Compose so every stringResource recomposes.
+ */
 class MainActivity : AppCompatActivity() {
     private val model: ZeronModel by viewModels()
+
+    /** Latest configuration for Compose; null until the first change. */
+    private var configuration by mutableStateOf<Configuration?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -26,13 +44,22 @@ class MainActivity : AppCompatActivity() {
         val compose = ComposeView(this).apply {
             setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
             setContent {
-                CompositionLocalProvider(LocalGlassFrame provides frame) {
+                // Below Android 13, AppCompat applies a language change by
+                // calling onConfigurationChanged directly, without the view
+                // dispatch that would update Compose's own LocalConfiguration.
+                val config = configuration ?: LocalConfiguration.current
+                CompositionLocalProvider(LocalGlassFrame provides frame, LocalConfiguration provides config) {
                     ZeronApp(model)
                 }
             }
         }
         frame.addView(compose, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
         setContentView(frame)
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        configuration = Configuration(newConfig)
     }
 
     override fun onNewIntent(intent: Intent) {
