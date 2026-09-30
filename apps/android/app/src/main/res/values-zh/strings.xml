@@ -412,7 +412,10 @@
     <!-- Navigation -->
     <string name="nav_back">返回</string>
 
-    <!-- New Session: the two-level model picker -->
+    <!-- New Session: two-level model picker, project sort -->
+    <string name="sort_projects">项目排序</string>
+    <string name="sort_recent">最近使用</string>
+    <string name="sort_name">名称（A–Z）</string>
     <plurals name="model_count">
         <item quantity="other">%1$d 个模型</item>
     </plurals>

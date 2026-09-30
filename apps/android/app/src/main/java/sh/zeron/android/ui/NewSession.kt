@@ -1,5 +1,7 @@
 package sh.zeron.android.ui
 
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.res.pluralStringResource
 import sh.zeron.android.design.BackButton
 import sh.zeron.android.R
@@ -115,8 +117,9 @@ fun NewSessionSheet(model: ZeronModel, onDismiss: () -> Unit) {
     var browsing by remember { mutableStateOf(false) }
     var addedNames by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var chipMenu by remember { mutableStateOf<Pair<String, Rect>?>(null) }
-    // Drill-down inside the open model menu: the chosen harness's models.
+    // Drill-downs inside the open chip menu: a harness's models, the project sort choice.
     var modelHarness by remember { mutableStateOf<String?>(null) }
+    var projectSortOpen by remember { mutableStateOf(false) }
     var refs by remember { mutableStateOf<List<RepoRef>?>(null) }
     LaunchedEffect(Unit) { model.newSessionProject = null }
 
@@ -198,6 +201,7 @@ fun NewSessionSheet(model: ZeronModel, onDismiss: () -> Unit) {
                         chips = chips,
                         onChip = { chip, rect ->
                             modelHarness = null
+                            projectSortOpen = false
                             chipMenu = chip.id to rect
                         },
                         images = emptyList(),
@@ -237,14 +241,39 @@ fun NewSessionSheet(model: ZeronModel, onDismiss: () -> Unit) {
         chipMenu?.let { (id, anchor) ->
             val close = { chipMenu = null }
             val (title, entries) = when (id) {
-                "project" -> stringResource(R.string.project) to buildList {
-                    // Projects grouped by computer, like the iOS inline sections.
+                "project" -> if (projectSortOpen) {
+                    // The sort toggle beside a computer's name: pick the order, back to the list.
+                    stringResource(R.string.sort_projects) to listOf(
+                        MenuEntry(stringResource(R.string.project), back = true) { projectSortOpen = false },
+                        MenuEntry(stringResource(R.string.sort_recent), checked = model.projectSort == ZeronModel.ProjectSort.Recent, keepOpen = true, icon = { c -> Glyph(Glyphs.Recent, 17.dp, c) }) {
+                            model.applyProjectSort(ZeronModel.ProjectSort.Recent)
+                            projectSortOpen = false
+                        },
+                        MenuEntry(stringResource(R.string.sort_name), checked = model.projectSort == ZeronModel.ProjectSort.Name, keepOpen = true, icon = { c -> SortAlphaMark(c) }) {
+                            model.applyProjectSort(ZeronModel.ProjectSort.Name)
+                            projectSortOpen = false
+                        },
+                    )
+                } else stringResource(R.string.project) to buildList {
+                    // Projects grouped by computer, like the iOS inline sections;
+                    // within a computer, in the remembered order (ProjectOrder).
+                    val sortLabel = stringResource(R.string.sort_projects)
                     projects.groupBy { it.deviceId }.entries
                         .sortedBy { (_, list) -> list.first().deviceName ?: "" }
-                        .forEach { (_, list) ->
+                        .forEach { (_, unsorted) ->
+                            val list = when (model.projectSort) {
+                                ZeronModel.ProjectSort.Name -> ProjectOrder.byName(unsorted) { it.name }
+                                ZeronModel.ProjectSort.Recent -> ProjectOrder.byRecent(unsorted) { p -> p.sessions.maxOfOrNull { it.lastActivityMs } ?: p.createdAtMs }
+                            }
                             val head = list.first()
                             val hostName = head.deviceName ?: stringResource(R.string.host_fallback)
-                            add(menuSection(if (head.deviceOnline) hostName else stringResource(R.string.host_offline_suffix, hostName)))
+                            add(
+                                MenuEntry(
+                                    if (head.deviceOnline) hostName else stringResource(R.string.host_offline_suffix, hostName),
+                                    header = true,
+                                    icon = { c -> Glyph(Glyphs.Sort, 16.dp, c, Modifier.semantics { contentDescription = sortLabel }) },
+                                ) { projectSortOpen = true },
+                            )
                             list.forEach { p ->
                                 add(MenuEntry(p.name, checked = p.id == projectId, icon = { c -> Glyph(Glyphs.Folder, 17.dp, c) }) {
                                     projectId = p.id
@@ -332,3 +361,8 @@ fun NewSessionSheet(model: ZeronModel, onDismiss: () -> Unit) {
     }
 }
 
+/** "A↓Z" for the name sort row. */
+@Composable
+private fun SortAlphaMark(color: androidx.compose.ui.graphics.Color) {
+    Text("A–Z", color = color, fontFamily = ZeronType.Sans, fontWeight = FontWeight.SemiBold, fontSize = 11.sp)
+}

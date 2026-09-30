@@ -202,6 +202,24 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
     var listMode by mutableStateOf(ListMode.from(prefs.getString("listMode", null)))
         private set
 
+    /** New Session project picker order (see ProjectOrder); remembered. */
+    enum class ProjectSort(val key: String) {
+        Recent("recent"),
+        Name("name");
+
+        companion object {
+            fun from(key: String?): ProjectSort = entries.firstOrNull { it.key == key } ?: Recent
+        }
+    }
+
+    var projectSort by mutableStateOf(ProjectSort.from(prefs.getString("projectSort", null)))
+        private set
+
+    fun applyProjectSort(sort: ProjectSort) {
+        projectSort = sort
+        prefs.edit().putString("projectSort", sort.key).apply()
+    }
+
     fun applyListMode(mode: ListMode) {
         listMode = mode
         prefs.edit().putString("listMode", mode.key).apply()

@@ -416,7 +416,10 @@
     <!-- Navigation -->
     <string name="nav_back">Back</string>
 
-    <!-- New Session: the two-level model picker -->
+    <!-- New Session: two-level model picker, project sort -->
+    <string name="sort_projects">Sort Projects</string>
+    <string name="sort_recent">Recently Used</string>
+    <string name="sort_name">Name (A–Z)</string>
     <plurals name="model_count">
         <item quantity="one">%1$d model</item>
         <item quantity="other">%1$d models</item>
