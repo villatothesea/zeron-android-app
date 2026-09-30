@@ -33,6 +33,7 @@ class SessionGroupingTest {
         cwd = null,
         indicator = indicator,
         hostIndicator = indicator,
+        lastOutcome = indicator,
         workingSinceMs = null,
         lastActivityMs = at,
         timeLabel = "now",

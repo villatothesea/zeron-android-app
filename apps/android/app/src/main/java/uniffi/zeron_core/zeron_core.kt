@@ -10348,6 +10348,12 @@ data class SessionRow (
     var `hostIndicator`: ChatIndicator
     , 
     /**
+     * Last run outcome, not cleared by the seen marker (see the client's
+     * `SessionRow::last_outcome`): Completed / Errored stay after viewing.
+     */
+    var `lastOutcome`: ChatIndicator
+    , 
+    /**
      * Run start of the live turn while Working/AwaitingInput.
      */
     var `workingSinceMs`: kotlin.Long?
@@ -10416,6 +10422,7 @@ public object FfiConverterTypeSessionRow: FfiConverterRustBuffer<SessionRow> {
             FfiConverterOptionalString.read(buf),
             FfiConverterTypeChatIndicator.read(buf),
             FfiConverterTypeChatIndicator.read(buf),
+            FfiConverterTypeChatIndicator.read(buf),
             FfiConverterOptionalLong.read(buf),
             FfiConverterLong.read(buf),
             FfiConverterString.read(buf),
@@ -10450,6 +10457,7 @@ public object FfiConverterTypeSessionRow: FfiConverterRustBuffer<SessionRow> {
             FfiConverterOptionalString.allocationSize(value.`cwd`) +
             FfiConverterTypeChatIndicator.allocationSize(value.`indicator`) +
             FfiConverterTypeChatIndicator.allocationSize(value.`hostIndicator`) +
+            FfiConverterTypeChatIndicator.allocationSize(value.`lastOutcome`) +
             FfiConverterOptionalLong.allocationSize(value.`workingSinceMs`) +
             FfiConverterLong.allocationSize(value.`lastActivityMs`) +
             FfiConverterString.allocationSize(value.`timeLabel`) +
@@ -10483,6 +10491,7 @@ public object FfiConverterTypeSessionRow: FfiConverterRustBuffer<SessionRow> {
             FfiConverterOptionalString.write(value.`cwd`, buf)
             FfiConverterTypeChatIndicator.write(value.`indicator`, buf)
             FfiConverterTypeChatIndicator.write(value.`hostIndicator`, buf)
+            FfiConverterTypeChatIndicator.write(value.`lastOutcome`, buf)
             FfiConverterOptionalLong.write(value.`workingSinceMs`, buf)
             FfiConverterLong.write(value.`lastActivityMs`, buf)
             FfiConverterString.write(value.`timeLabel`, buf)

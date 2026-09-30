@@ -494,6 +494,9 @@ pub struct SessionRow {
     pub indicator: ChatIndicator,
     /// Host-reported status only (no local-send override).
     pub host_indicator: ChatIndicator,
+    /// Last run outcome, not cleared by the seen marker (see the client's
+    /// `SessionRow::last_outcome`): Completed / Errored stay after viewing.
+    pub last_outcome: ChatIndicator,
     /// Run start of the live turn while Working/AwaitingInput.
     pub working_since_ms: Option<i64>,
     pub last_activity_ms: i64,
@@ -537,6 +540,7 @@ impl From<&zc::SessionRow> for SessionRow {
             cwd: r.cwd.clone(),
             indicator: r.indicator.into(),
             host_indicator: r.host_indicator.into(),
+            last_outcome: r.last_outcome.into(),
             working_since_ms: r.working_since_ms,
             last_activity_ms: r.last_activity_ms,
             time_label: r.time_label.clone(),
