@@ -2,6 +2,7 @@
 
 package sh.zeron.android.ui
 
+import sh.zeron.android.design.BackButton
 import sh.zeron.android.R
 import androidx.compose.ui.res.stringResource
 import android.graphics.Bitmap
@@ -101,7 +102,6 @@ import sh.zeron.android.design.AssetIcon
 import sh.zeron.android.design.GaugeGlyph
 import sh.zeron.android.design.MenuEntry
 import sh.zeron.android.design.PrGlyph
-import sh.zeron.android.design.BackChevron
 import sh.zeron.android.design.BrandMark
 import sh.zeron.android.design.EllipsisMark
 import sh.zeron.android.design.LocalZeronColors
@@ -320,10 +320,7 @@ fun SessionScreen(model: ZeronModel, chatId: String) {
                 .padding(horizontal = 12.dp, vertical = 4.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().height(52.dp)) {
-                Box(
-                    Modifier.size(44.dp).glassSurface(colors, 22.dp).clickable { model.back() },
-                    contentAlignment = Alignment.Center,
-                ) { BackChevron(colors.text, Modifier.size(18.dp)) }
+                BackButton(colors, onClick = { model.back() })
                 Row(Modifier.weight(1f), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
                     BrandMark(row?.harness, colors, 18.dp)
                     Spacer(Modifier.width(8.dp))

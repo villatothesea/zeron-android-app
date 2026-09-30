@@ -1,5 +1,7 @@
 package sh.zeron.android.ui
 
+import sh.zeron.android.design.MenuDivider
+import sh.zeron.android.design.BackButton
 import sh.zeron.android.R
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -23,7 +25,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -154,7 +155,7 @@ fun NewProjectScreen(model: ZeronModel, initialDeviceId: String? = null, onClose
     val current = listing?.path
     Column(Modifier.fillMaxSize().background(colors.background).statusBarsPadding().navigationBarsPadding()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(stringResource(R.string.cancel), color = colors.text, fontFamily = ZeronType.Sans, fontSize = 16.sp, modifier = Modifier.clip(RoundedCornerShape(10.dp)).clickable(onClick = onClose).padding(10.dp))
+            BackButton(colors, onClick = onClose)
             Text(
                 current?.let { HostPaths.name(it) } ?: stringResource(R.string.new_project),
                 color = colors.text,
@@ -166,7 +167,7 @@ fun NewProjectScreen(model: ZeronModel, initialDeviceId: String? = null, onClose
                 modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center,
             )
-            Spacer(Modifier.width(64.dp))
+            Spacer(Modifier.width(44.dp))
         }
         if (devices.size > 1) {
             Row(Modifier.padding(horizontal = 16.dp, vertical = 4.dp).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -202,7 +203,7 @@ fun NewProjectScreen(model: ZeronModel, initialDeviceId: String? = null, onClose
         error?.let {
             Text(if (device?.online == false) stringResource(R.string.device_offline, device.name) else it, color = colors.danger, fontFamily = ZeronType.Sans, fontSize = 14.sp, modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp))
         }
-        HorizontalDivider(color = colors.hairline, modifier = Modifier.padding(top = 6.dp))
+        MenuDivider(colors, Modifier.padding(top = 6.dp))
         val folders = listing?.entries.orEmpty().filter { it.isDir }
         LazyColumn(Modifier.weight(1f)) {
             val up = current?.let { HostPaths.parent(it) }

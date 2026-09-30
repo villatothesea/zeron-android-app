@@ -1,5 +1,8 @@
 package sh.zeron.android.design
 
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.foundation.clickable
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas as AndroidCanvas
@@ -369,6 +372,24 @@ fun StopMark(color: Color, modifier: Modifier = Modifier) {
         val inset = size.minDimension * 0.30f
         drawRoundRect(color, topLeft = Offset(inset, inset), size = Size(size.width - inset * 2, size.height - inset * 2), cornerRadius = CornerRadius(size.minDimension * 0.08f))
     }
+}
+
+/**
+ * The app's single back / close control: a 44dp glass circle with a chevron,
+ * used at the leading edge of every pushed screen, sheet and editor (no text
+ * "Close" / "Cancel" buttons). Announced as "Back" (localized).
+ */
+@Composable
+fun BackButton(colors: ZeronColors, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val label = androidx.compose.ui.res.stringResource(sh.zeron.android.R.string.nav_back)
+    Box(
+        modifier
+            .size(44.dp)
+            .glassSurface(colors, 22.dp)
+            .clickable(onClickLabel = label, role = androidx.compose.ui.semantics.Role.Button, onClick = onClick)
+            .semantics { contentDescription = label },
+        contentAlignment = Alignment.Center,
+    ) { BackChevron(colors.text, Modifier.size(18.dp)) }
 }
 
 @Composable

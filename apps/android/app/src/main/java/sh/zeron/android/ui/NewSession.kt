@@ -1,5 +1,6 @@
 package sh.zeron.android.ui
 
+import sh.zeron.android.design.BackButton
 import sh.zeron.android.R
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -171,9 +172,9 @@ fun NewSessionSheet(model: ZeronModel, onDismiss: () -> Unit) {
                 .padding(horizontal = 12.dp),
         ) {
             Row(Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(stringResource(R.string.close), color = colors.text, fontFamily = ZeronType.Sans, fontSize = 16.sp, modifier = Modifier.clip(RoundedCornerShape(10.dp)).clickable(onClick = onDismiss).padding(10.dp))
+                BackButton(colors, onClick = onDismiss)
                 Text(stringResource(R.string.new_session), color = colors.text, fontFamily = ZeronType.Sans, fontWeight = FontWeight.SemiBold, fontSize = 17.sp, modifier = Modifier.weight(1f), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-                Spacer(Modifier.width(60.dp))
+                Spacer(Modifier.width(44.dp))
             }
             Column(Modifier.weight(1f).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
                 BrandMark(harness, colors, 34.dp)

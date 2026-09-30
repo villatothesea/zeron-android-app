@@ -408,4 +408,7 @@
     <string name="sched_connect_timeout">未能及时连接</string>
     <string name="sched_unavailable">不可用</string>
     <string name="sched_send_failed">发送失败</string>
+
+    <!-- Navigation -->
+    <string name="nav_back">返回</string>
 </resources>

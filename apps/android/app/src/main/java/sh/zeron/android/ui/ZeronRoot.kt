@@ -5,6 +5,7 @@
 
 package sh.zeron.android.ui
 
+import sh.zeron.android.design.BackButton
 import sh.zeron.android.R
 import androidx.compose.ui.res.stringResource
 import sh.zeron.android.core.AppLanguage
@@ -98,7 +99,6 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
-import sh.zeron.android.design.BackChevron
 import sh.zeron.android.design.BrandMark
 import sh.zeron.android.design.ChevronMark
 import sh.zeron.android.design.EllipsisMark
@@ -880,10 +880,7 @@ private fun FolderScreen(model: ZeronModel, colors: ZeronColors, folder: ZeronMo
     NowProvider {
     Column(Modifier.fillMaxSize().statusBarsPadding()) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
-            Box(
-                Modifier.size(44.dp).glassSurface(colors, 22.dp).clickable { model.back() },
-                contentAlignment = Alignment.Center,
-            ) { BackChevron(colors.text, Modifier.size(18.dp)) }
+            BackButton(colors, onClick = { model.back() })
             Spacer(Modifier.width(10.dp))
             Text(
                 when (folder.id) {
@@ -1010,10 +1007,7 @@ private fun SearchScreen(model: ZeronModel, colors: ZeronColors) {
     NowProvider {
     Column(Modifier.fillMaxSize().statusBarsPadding().padding(horizontal = 16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 6.dp, bottom = 12.dp)) {
-            Box(
-                Modifier.size(44.dp).glassSurface(colors, 22.dp).clickable { model.tab = ZeronModel.Tab.Sessions },
-                contentAlignment = Alignment.Center,
-            ) { BackChevron(colors.text, Modifier.size(18.dp)) }
+            BackButton(colors, onClick = { model.tab = ZeronModel.Tab.Sessions })
             Spacer(Modifier.width(10.dp))
             Text(stringResource(R.string.search), color = colors.text, fontFamily = ZeronType.Sans, fontWeight = FontWeight.SemiBold, fontSize = 17.sp)
         }
@@ -1059,10 +1053,7 @@ private fun SettingsScreen(model: ZeronModel, colors: ZeronColors) {
     LazyColumn(Modifier.fillMaxSize().statusBarsPadding().padding(horizontal = 16.dp)) {
         item {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 8.dp, bottom = 12.dp)) {
-                Box(
-                    Modifier.size(44.dp).glassSurface(colors, 22.dp).clickable { model.tab = ZeronModel.Tab.Sessions },
-                    contentAlignment = Alignment.Center,
-                ) { BackChevron(colors.text, Modifier.size(18.dp)) }
+                BackButton(colors, onClick = { model.tab = ZeronModel.Tab.Sessions })
                 Spacer(Modifier.width(10.dp))
                 Text(stringResource(R.string.settings), color = colors.text, fontFamily = ZeronType.Sans, fontWeight = FontWeight.SemiBold, fontSize = 17.sp)
             }

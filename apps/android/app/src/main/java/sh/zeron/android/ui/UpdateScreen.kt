@@ -1,5 +1,6 @@
 package sh.zeron.android.ui
 
+import sh.zeron.android.design.BackButton
 import sh.zeron.android.R
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -39,7 +40,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import sh.zeron.android.BuildConfig
 import sh.zeron.android.core.ZeronModel
-import sh.zeron.android.design.BackChevron
 import sh.zeron.android.design.LocalZeronColors
 import sh.zeron.android.design.ZeronType
 import sh.zeron.android.design.glassSurface
@@ -56,9 +56,7 @@ fun UpdateScreen(model: ZeronModel) {
     val hasToken = remember(advanced) { !model.updater.token.isNullOrBlank() }
     Column(Modifier.fillMaxSize().background(colors.background).statusBarsPadding().navigationBarsPadding().imePadding()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(44.dp).glassSurface(colors, 22.dp).clickable { model.showUpdate = false }, contentAlignment = Alignment.Center) {
-                BackChevron(colors.text, Modifier.size(18.dp))
-            }
+            BackButton(colors, onClick = { model.showUpdate = false })
             Spacer(Modifier.width(10.dp))
             Text(stringResource(R.string.software_update), color = colors.text, fontFamily = ZeronType.Sans, fontWeight = FontWeight.SemiBold, fontSize = 17.sp)
         }

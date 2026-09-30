@@ -1,5 +1,7 @@
 package sh.zeron.android.ui
 
+import androidx.compose.foundation.layout.width
+import sh.zeron.android.design.BackButton
 import sh.zeron.android.R
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -109,8 +111,9 @@ internal fun UsageSheet(
                 .padding(horizontal = 20.dp, vertical = 18.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
+                BackButton(colors, onClick = onClose)
+                Spacer(Modifier.width(10.dp))
                 Text(stringResource(R.string.usage), color = colors.text, fontFamily = ZeronType.Sans, fontWeight = FontWeight.SemiBold, fontSize = 17.sp, modifier = Modifier.weight(1f))
-                Text(stringResource(R.string.done), color = colors.accent, fontFamily = ZeronType.Sans, fontWeight = FontWeight.Medium, fontSize = 15.sp, modifier = Modifier.clip(RoundedCornerShape(10.dp)).clickable(onClick = onClose).padding(6.dp))
             }
             Spacer(Modifier.height(14.dp))
             SectionTitle(colors, stringResource(R.string.usage_context_window))

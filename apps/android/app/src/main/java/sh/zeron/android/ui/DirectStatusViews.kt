@@ -1,5 +1,6 @@
 package sh.zeron.android.ui
 
+import sh.zeron.android.design.BackButton
 import sh.zeron.android.R
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
@@ -136,7 +137,7 @@ internal fun LinkDetailsScreen(model: ZeronModel) {
     val fmt = remember { java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()) }
     Column(Modifier.fillMaxSize().background(colors.background).statusBarsPadding().navigationBarsPadding()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(stringResource(R.string.close), color = colors.text, fontFamily = ZeronType.Sans, fontSize = 16.sp, modifier = Modifier.clip(RoundedCornerShape(12.dp)).clickable { model.showLinkDetails = false }.padding(8.dp))
+            BackButton(colors, onClick = { model.showLinkDetails = false })
             Text(stringResource(R.string.connection_details), color = colors.text, fontFamily = ZeronType.Sans, fontWeight = FontWeight.SemiBold, fontSize = 17.sp, modifier = Modifier.weight(1f), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
             Text(stringResource(R.string.copy), color = colors.accent, fontFamily = ZeronType.Sans, fontWeight = FontWeight.SemiBold, fontSize = 16.sp, modifier = Modifier.clip(RoundedCornerShape(12.dp)).clickable {
                 clipboard.setText(AnnotatedString(model.linkReport()))
