@@ -602,6 +602,11 @@ fn file_safe(id: &str) -> String {
         .collect()
 }
 
+/// Saves are read-modify-write of one file per computer, and every offered
+/// CLI's list is read (and saved) at once: without this, two saves racing
+/// could each write back the file without the other's list.
+static DISK_WRITES: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 impl DiskCatalog {
     pub(crate) fn new(data_dir: &std::path::Path) -> Self {
         Self {
@@ -638,6 +643,7 @@ impl DiskCatalog {
     }
 
     pub(crate) fn put_harnesses(&self, device_id: &str, list: &[HarnessInfo]) {
+        let _one_at_a_time = DISK_WRITES.lock().unwrap_or_else(|e| e.into_inner());
         let mut catalog = self.load(device_id);
         catalog.harnesses = Some(list.to_vec());
         self.store(device_id, &catalog);
@@ -667,6 +673,7 @@ impl DiskCatalog {
 
     pub(crate) fn put_models(&self, device_id: &str, harness: &str, list: &[ModelInfo]) {
         learn_labels(harness, list);
+        let _one_at_a_time = DISK_WRITES.lock().unwrap_or_else(|e| e.into_inner());
         let mut catalog = self.load(device_id);
         catalog.models.insert(harness.to_owned(), list.to_vec());
         self.store(device_id, &catalog);
@@ -719,6 +726,22 @@ mod tests {
         assert_eq!(out[0].id, "claude-opus-5");
         assert_eq!(out[0].label, "Opus 5");
         assert!(out[0].options.iter().any(|o| o.id == "contextWindow"));
+    }
+
+    #[test]
+    fn concurrent_saves_keep_every_list() {
+        let dir = tempfile::tempdir().unwrap();
+        let harnesses: Vec<String> = (0..16).map(|i| format!("cli-{i}")).collect();
+        std::thread::scope(|scope| {
+            for h in &harnesses {
+                let cache = DiskCatalog::new(dir.path());
+                scope.spawn(move || cache.put_models("pc", h, &fallback_models("codex")));
+            }
+        });
+        let cache = DiskCatalog::new(dir.path());
+        for h in &harnesses {
+            assert!(cache.models("pc", h).is_some(), "{h} lost");
+        }
     }
 
     #[test]

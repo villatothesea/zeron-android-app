@@ -1176,6 +1176,13 @@ async fn the_catalog_is_read_and_saved_right_after_connecting() {
         .and_then(|s| s.engine_device_id)
         .expect("engine device");
     let saved = crate::catalog::DiskCatalog::new(dir.path());
+    // The replies are saved just after the engine sees the requests.
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    while !OFFERED.iter().all(|h| saved.models(&device, h).is_some())
+        && std::time::Instant::now() < deadline
+    {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
     assert!(saved.harnesses(&device).is_some(), "harness list saved");
     for h in OFFERED {
         assert!(saved.models(&device, h).is_some(), "{h} models saved");
