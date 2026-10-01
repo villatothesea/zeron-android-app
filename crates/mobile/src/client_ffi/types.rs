@@ -989,6 +989,13 @@ pub struct ModelCatalog {
     pub error: Option<String>,
 }
 
+/// One CLI and its model list, as New Session opens on them.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct HarnessCatalog {
+    pub harness: HarnessInfo,
+    pub catalog: ModelCatalog,
+}
+
 impl From<zc::catalog::ModelCatalog> for ModelCatalog {
     fn from(c: zc::catalog::ModelCatalog) -> Self {
         Self {

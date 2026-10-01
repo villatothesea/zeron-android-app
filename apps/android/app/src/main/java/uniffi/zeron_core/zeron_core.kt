@@ -926,6 +926,8 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_zeron_mobile_checksum_method_coreclient_rename_session(
     ): Int
+    external fun uniffi_zeron_mobile_checksum_method_coreclient_saved_catalog(
+    ): Int
     external fun uniffi_zeron_mobile_checksum_method_coreclient_search(
     ): Int
     external fun uniffi_zeron_mobile_checksum_method_coreclient_search_files(
@@ -1188,6 +1190,8 @@ internal object UniffiLib {
     ): Unit
     external fun uniffi_zeron_mobile_fn_method_coreclient_rename_session(`ptr`: Long,`chatId`: RustBuffer.ByValue,`title`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
+    external fun uniffi_zeron_mobile_fn_method_coreclient_saved_catalog(`ptr`: Long,`deviceId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     external fun uniffi_zeron_mobile_fn_method_coreclient_search(`ptr`: Long,`query`: RustBuffer.ByValue,`limit`: Int,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_zeron_mobile_fn_method_coreclient_search_files(`ptr`: Long,`deviceId`: RustBuffer.ByValue,`chatId`: RustBuffer.ByValue,`spaceId`: RustBuffer.ByValue,`query`: RustBuffer.ByValue,
@@ -1754,6 +1758,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_zeron_mobile_checksum_method_coreclient_rename_session() and 0xFFFF) != 49666) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_zeron_mobile_checksum_method_coreclient_saved_catalog() and 0xFFFF) != 20977) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_zeron_mobile_checksum_method_coreclient_search() and 0xFFFF) != 33140) {
@@ -3043,6 +3050,14 @@ public interface CoreClientInterface {
     
     fun `renameSession`(`chatId`: kotlin.String, `title`: kotlin.String)
     
+    /**
+     * What New Session shows the moment it opens, read from disk only (no
+     * request, never waits): every offered CLI with the models saved from
+     * this computer's last good read (`Saved`), else the built-in list
+     * (`Static`). Refreshed in the background on connect and every 30 min.
+     */
+    fun `savedCatalog`(`deviceId`: kotlin.String): List<HarnessCatalog>
+    
     fun `search`(`query`: kotlin.String, `limit`: kotlin.UInt): List<SearchHit>
     
     /**
@@ -4037,6 +4052,26 @@ open class CoreClient: Disposable, AutoCloseable, CoreClientInterface
 }
     }
     
+    
+
+    
+    /**
+     * What New Session shows the moment it opens, read from disk only (no
+     * request, never waits): every offered CLI with the models saved from
+     * this computer's last good read (`Saved`), else the built-in list
+     * (`Static`). Refreshed in the background on connect and every 30 min.
+     */override fun `savedCatalog`(`deviceId`: kotlin.String): List<HarnessCatalog> {
+            return FfiConverterSequenceTypeHarnessCatalog.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_zeron_mobile_fn_method_coreclient_saved_catalog(
+        it,
+        
+        FfiConverterString.lower(`deviceId`),_status)
+}
+    }
+    )
+    }
     
 
     override fun `search`(`query`: kotlin.String, `limit`: kotlin.UInt): List<SearchHit> {
@@ -8734,6 +8769,47 @@ public object FfiConverterTypeFrontPage: FfiConverterRustBuffer<FrontPage> {
             FfiConverterSequenceTypeSessionRow.write(value.`pinned`, buf)
             FfiConverterSequenceTypeSectionView.write(value.`sections`, buf)
             FfiConverterSequenceTypeSessionRow.write(value.`recent`, buf)
+    }
+}
+
+
+
+/**
+ * One CLI and its model list, as New Session opens on them.
+ */
+data class HarnessCatalog (
+    var `harness`: HarnessInfo
+    , 
+    var `catalog`: ModelCatalog
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeHarnessCatalog: FfiConverterRustBuffer<HarnessCatalog> {
+    override fun read(buf: ByteBuffer): HarnessCatalog {
+        return HarnessCatalog(
+            FfiConverterTypeHarnessInfo.read(buf),
+            FfiConverterTypeModelCatalog.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: HarnessCatalog) = (
+            FfiConverterTypeHarnessInfo.allocationSize(value.`harness`) +
+            FfiConverterTypeModelCatalog.allocationSize(value.`catalog`)
+    )
+
+    override fun write(value: HarnessCatalog, buf: ByteBuffer) {
+            FfiConverterTypeHarnessInfo.write(value.`harness`, buf)
+            FfiConverterTypeModelCatalog.write(value.`catalog`, buf)
     }
 }
 
@@ -15533,6 +15609,34 @@ public object FfiConverterSequenceTypeFolderEntry: FfiConverterRustBuffer<List<F
         buf.putInt(value.size)
         value.iterator().forEach {
             FfiConverterTypeFolderEntry.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeHarnessCatalog: FfiConverterRustBuffer<List<HarnessCatalog>> {
+    override fun read(buf: ByteBuffer): List<HarnessCatalog> {
+        val len = buf.getInt()
+        return List<HarnessCatalog>(len) {
+            FfiConverterTypeHarnessCatalog.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<HarnessCatalog>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeHarnessCatalog.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<HarnessCatalog>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeHarnessCatalog.write(it, buf)
         }
     }
 }

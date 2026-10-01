@@ -399,6 +399,21 @@ impl CoreClient {
             .into()
     }
 
+    /// What New Session shows the moment it opens, read from disk only (no
+    /// request, never waits): every offered CLI with the models saved from
+    /// this computer's last good read (`Saved`), else the built-in list
+    /// (`Static`). Refreshed in the background on connect and every 30 min.
+    pub fn saved_catalog(&self, device_id: String) -> Vec<HarnessCatalog> {
+        self.client
+            .saved_catalog(&device_id)
+            .into_iter()
+            .map(|(harness, catalog)| HarnessCatalog {
+                harness: harness.into(),
+                catalog: catalog.into(),
+            })
+            .collect()
+    }
+
     /// Read the file a link in `chat_id`'s transcript points at, from the
     /// chat's workspace on its computer. `InvalidArgument` when the link
     /// is outside the project folder.
