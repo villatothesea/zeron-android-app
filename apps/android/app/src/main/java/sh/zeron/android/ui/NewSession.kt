@@ -148,8 +148,26 @@ fun NewSessionSheet(model: ZeronModel, onDismiss: () -> Unit) {
     val projects = model.workspace?.projects.orEmpty()
     val hosts = remember(model.workspace) { client.executionDevices() }
     var text by remember { mutableStateOf("") }
-    var projectId by remember { mutableStateOf(model.newSessionProject ?: projects.firstOrNull()?.id) }
-    var hostId by remember { mutableStateOf(if (projectId == null) (hosts.firstOrNull { it.online } ?: hosts.firstOrNull())?.id else null) }
+    // The project it was opened from, else the last pick on this computer,
+    // else the most recently used project (not just the first in the list).
+    val opening = remember {
+        NewSessionMemory.initial(
+            explicit = model.newSessionProject,
+            remembered = NewSessionMemory.load(context, model.activeMachine),
+            projects = projects,
+            hosts = hosts.map { it.id },
+            id = { it.id },
+            lastUsedMs = { p -> p.sessions.maxOfOrNull { it.lastActivityMs } ?: p.createdAtMs },
+        )
+    }
+    var projectId by remember { mutableStateOf(opening.projectId) }
+    var hostId by remember { mutableStateOf(if (projectId == null) opening.hostId ?: (hosts.firstOrNull { it.online } ?: hosts.firstOrNull())?.id else null) }
+    // Remember where this one goes when the sheet closes (sent or not), like iOS.
+    val picks by androidx.compose.runtime.rememberUpdatedState(NewSessionMemory.Picks(projectId, if (projectId == null) hostId else null))
+    androidx.compose.runtime.DisposableEffect(model.activeMachine) {
+        val machine = model.activeMachine
+        onDispose { NewSessionMemory.save(context, machine, picks) }
+    }
     var harness by remember { mutableStateOf("claude-code") }
     var modelId by remember { mutableStateOf<String?>(null) }
     var effort by remember { mutableStateOf<String?>(null) }
