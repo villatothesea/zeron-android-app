@@ -81,6 +81,8 @@ enum Mode {
     LaggingClock,
     /// `ListModels` fails the way a busy engine does.
     BrokenModels,
+    /// `ListHarnesses` lists nothing and `ListModels` fails.
+    BrokenCatalog,
     /// `WatchDocMessages` honours `openingTail`: the newest entry first
     /// (`historyPending`), the complete transcript 600 ms later. Later
     /// subscriptions to the same chat send only the tail.
@@ -191,11 +193,15 @@ impl RpcService for Engine {
             ));
         }
         if method == "ListHarnesses" {
+            lock(&self.1).push(serde_json::json!({ "listHarnesses": true }));
+            if self.0 == Mode::BrokenCatalog {
+                return Ok(RpcReply::Value(serde_json::json!([])));
+            }
             return Ok(RpcReply::Value(fixture("ListHarnesses")));
         }
         if method == "ListModels" {
             lock(&self.1).push(params);
-            if self.0 == Mode::BrokenModels {
+            if matches!(self.0, Mode::BrokenModels | Mode::BrokenCatalog) {
                 return Err(RpcError::Failed("model catalog unavailable; retry".into()));
             }
             let mut list = fixture("ListModels");
@@ -1243,5 +1249,160 @@ async fn the_newest_rows_show_first_then_the_whole_transcript() {
     }
     tokio::time::sleep(Duration::from_millis(500)).await;
     assert_eq!(ids(&handle), ["m1", "m2", "m3"]);
+    client.shutdown();
+}
+
+// ── saved catalogs (New Session opens on the saved list) ───────────────────
+
+fn refresh_every(host: &str, every: Duration) {
+    lock(&super::host::TEST_CATALOG_REFRESH)
+        .get_or_insert_with(Default::default)
+        .insert(host.to_owned(), every);
+}
+
+fn model_ids(models: &[crate::catalog::ModelInfo]) -> Vec<String> {
+    models.iter().map(|m| m.id.clone()).collect()
+}
+
+/// While connected the phone re-reads the CLI list and every offered CLI's
+/// models in the background (every 30 min; 300 ms here), as plain reads.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_catalog_refreshes_in_the_background_while_connected() {
+    let dir = tempfile::tempdir().unwrap();
+    refresh_every("catalog-refresh.test", Duration::from_millis(300));
+    let (client, seen, _) = live_client("catalog-refresh.test", Mode::Real, dir.path()).await;
+    // Two more rounds arrive without anyone asking.
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    loop {
+        let rounds = lock(&seen)
+            .iter()
+            .filter(|v| v.get("listHarnesses").is_some())
+            .count();
+        let models = lock(&seen)
+            .iter()
+            .filter(|v| v.get("harness").is_some())
+            .count();
+        if rounds >= 2 && models >= 2 * OFFERED.len() {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "background refresh: {:?}",
+            lock(&seen)
+        );
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert!(
+        lock(&seen).iter().all(|p| p.get("force").is_none()),
+        "{:?}",
+        lock(&seen)
+    );
+    client.shutdown();
+}
+
+/// New Session's first paint reads only the disk: the lists saved for this
+/// computer, `Saved`, with no request and no wait; a computer never read
+/// gets the built-in lists (`Static`, Codex's includes Daybreak Blue).
+#[tokio::test(flavor = "multi_thread")]
+async fn the_saved_catalog_shows_at_once_without_the_computer() {
+    test_double("catalog-offline.test", "refuse");
+    let dir = tempfile::tempdir().unwrap();
+    let client = direct_client("catalog-offline.test", dir.path());
+    let device = "pc";
+    let began = std::time::Instant::now();
+    let never = client.saved_catalog(device);
+    let codex = &never.iter().find(|(h, _)| h.id == "codex").unwrap().1;
+    assert_eq!(codex.source, crate::catalog::CatalogSource::Static);
+    assert!(
+        codex.models.iter().any(|m| m.label == "Daybreak Blue"),
+        "built-in list"
+    );
+
+    let saved = crate::catalog::DiskCatalog::new(dir.path());
+    let harnesses: Vec<crate::catalog::HarnessInfo> =
+        serde_json::from_value(fixture("ListHarnesses")).unwrap();
+    let models: Vec<crate::catalog::ModelInfo> =
+        serde_json::from_value(fixture("ListModels")).unwrap();
+    saved.put_harnesses(device, &harnesses);
+    saved.put_models(device, "codex", &models);
+    let shown = client.saved_catalog(device);
+    assert!(
+        began.elapsed() < Duration::from_millis(500),
+        "{:?}",
+        began.elapsed()
+    );
+    let offered: Vec<&str> = shown.iter().map(|(h, _)| h.id.as_str()).collect();
+    assert_eq!(offered, OFFERED);
+    let codex = &shown.iter().find(|(h, _)| h.id == "codex").unwrap().1;
+    assert_eq!(codex.source, crate::catalog::CatalogSource::Saved);
+    assert_eq!(codex.error, None);
+    assert_eq!(model_ids(&codex.models), model_ids(&models));
+    // A CLI this computer offers but whose models were never read.
+    let pi = &shown.iter().find(|(h, _)| h.id == "pi").unwrap().1;
+    assert_eq!(pi.source, crate::catalog::CatalogSource::Static);
+    client.shutdown();
+}
+
+/// A computer that lists no CLIs and fails every ListModels, on connect and
+/// on each background refresh, never wipes the saved lists or swaps them
+/// for the built-in ones: reads keep answering with the saved list.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_failing_refresh_keeps_the_saved_catalog() {
+    let dir = tempfile::tempdir().unwrap();
+    let host = "catalog-keep.test";
+    refresh_every(host, Duration::from_millis(300));
+    let seen = start_engine(host, Mode::BrokenCatalog).await;
+    // The engine's device id, as the earlier good session saved it under.
+    let device = fixture("EngineInfo")["deviceId"]
+        .as_str()
+        .expect("engine device id")
+        .to_owned();
+    let saved = crate::catalog::DiskCatalog::new(dir.path());
+    let harnesses: Vec<crate::catalog::HarnessInfo> =
+        serde_json::from_value(fixture("ListHarnesses")).unwrap();
+    let models: Vec<crate::catalog::ModelInfo> =
+        serde_json::from_value(fixture("ListModels")).unwrap();
+    saved.put_harnesses(&device, &harnesses);
+    saved.put_models(&device, "codex", &models);
+
+    let client = direct_client(host, dir.path());
+    wait_for(&client, "live", |c| {
+        c.direct_status()
+            .is_some_and(|s| s.phase == DirectPhase::Live)
+    })
+    .await;
+    assert_eq!(
+        client.direct_status().and_then(|s| s.engine_device_id),
+        Some(device.clone())
+    );
+    // Connect + at least two background rounds, all failing.
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while lock(&seen)
+        .iter()
+        .filter(|v| v.get("listHarnesses").is_some())
+        .count()
+        < 3
+    {
+        assert!(std::time::Instant::now() < deadline, "{:?}", lock(&seen));
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert_eq!(
+        saved.harnesses(&device).map(|l| l.len()),
+        Some(harnesses.len()),
+        "an empty CLI list doesn't replace the saved one"
+    );
+    assert_eq!(
+        saved.models(&device, "codex").map(|l| model_ids(&l)),
+        Some(model_ids(&models))
+    );
+    let shown = client.saved_catalog(&device);
+    let offered: Vec<&str> = shown.iter().map(|(h, _)| h.id.as_str()).collect();
+    assert_eq!(offered, OFFERED);
+    let codex = &shown.iter().find(|(h, _)| h.id == "codex").unwrap().1;
+    assert_eq!(codex.source, crate::catalog::CatalogSource::Saved);
+    assert!(!codex.models.iter().any(|m| m.label == "Daybreak Blue"));
+    let read = client.model_catalog(&device, "codex", true).await;
+    assert_eq!(read.source, crate::catalog::CatalogSource::Saved);
+    assert_eq!(model_ids(&read.models), model_ids(&models));
     client.shutdown();
 }

@@ -60,6 +60,10 @@ const SYNC_TIMEOUT: Duration = Duration::from_secs(2);
 /// Tests: `host` → plain `ws://` URL of an in-process engine (no SSH).
 #[cfg(test)]
 pub(crate) static TEST_ENGINES: Mutex<Option<HashMap<String, String>>> = Mutex::new(None);
+/// Tests: `host` → how often the CLI/model lists are re-read while the
+/// link is up (instead of [`crate::client::CATALOG_REFRESH`]).
+#[cfg(test)]
+pub(crate) static TEST_CATALOG_REFRESH: Mutex<Option<HashMap<String, Duration>>> = Mutex::new(None);
 /// Link log depth kept for the diagnostics readout.
 const LOG_LINES: usize = 40;
 /// Engine version this build was checked against. Newer patch releases are
@@ -622,6 +626,45 @@ impl DirectHost {
         Ok((Some(ssh), rpc))
     }
 
+    fn catalog_refresh_every(&self) -> Duration {
+        #[cfg(test)]
+        if let Some(every) = lock(&TEST_CATALOG_REFRESH)
+            .as_ref()
+            .and_then(|m| m.get(&self.target.host).copied())
+        {
+            return every;
+        }
+        crate::client::CATALOG_REFRESH
+    }
+
+    /// Re-read the CLI/model lists in the background every
+    /// [`crate::client::CATALOG_REFRESH`] while this link is up. Each read
+    /// replaces the saved lists only when it succeeds.
+    fn refresh_catalog_while_up(&self, link: &Arc<Link>, cancel: &CancellationToken) {
+        let every = self.catalog_refresh_every();
+        let client = self.client.clone();
+        let device = link.engine_device_id.clone();
+        let link_gone = link.cancel.clone();
+        let stopped = cancel.clone();
+        crate::runtime::shared().spawn(async move {
+            loop {
+                tokio::select! {
+                    _ = tokio::time::sleep(every) => {}
+                    _ = link_gone.cancelled() => return,
+                    _ = stopped.cancelled() => return,
+                }
+                let Some(inner) = client.upgrade() else {
+                    return;
+                };
+                tokio::select! {
+                    _ = crate::client::Client::prefetch_catalog(inner, device.clone()) => {}
+                    _ = link_gone.cancelled() => return,
+                    _ = stopped.cancelled() => return,
+                }
+            }
+        });
+    }
+
     /// Drive one link until it drops. Returns whether it ever fully synced.
     async fn run_link(self: &Arc<Self>, link: Link, cancel: &CancellationToken) -> bool {
         let link = Arc::new(link);
@@ -678,6 +721,7 @@ impl DirectHost {
                 _ = link.cancel.cancelled() => {}
             }
         }
+        self.refresh_catalog_while_up(&link, cancel);
         // Re-attach every open session and flush commands queued offline.
         if let Some(client) = self.client.upgrade() {
             for core in client.cores() {

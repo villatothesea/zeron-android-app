@@ -34,10 +34,15 @@ const TICK: Duration = Duration::from_secs(1);
 /// After ListHarnesses fails to reach a computer, plain model reads use the
 /// saved lists for this long (see `Client::model_catalog`).
 const CATALOG_OUTAGE: Duration = Duration::from_secs(60);
-/// A live catalog read (the prefetch right after a direct link comes up, or
-/// any later read) answers plain reads for this long without asking the
-/// computer again, so opening New Session never waits behind a busy link.
-const CATALOG_FRESH: Duration = Duration::from_secs(180);
+/// A live catalog read (the prefetch right after a direct link comes up, the
+/// background refresh every [`CATALOG_REFRESH`], or any later read) answers
+/// plain reads for this long without asking the computer again, so opening
+/// New Session never waits behind a busy link.
+const CATALOG_FRESH: Duration = Duration::from_secs(30 * 60 + 60);
+/// While a direct link is up, the CLI/model lists are re-read in the
+/// background this often (and once right after connecting). A failed read
+/// keeps the saved lists.
+pub(crate) const CATALOG_REFRESH: Duration = Duration::from_secs(30 * 60);
 /// Detached sessions kept warm (doc + room) before the least recently used
 /// is evicted. On-screen sessions, streaming ones and ones with unadopted
 /// sends are never evicted.
@@ -1287,6 +1292,46 @@ impl Client {
         futures::future::join_all(reads).await;
     }
 
+    /// What New Session shows the moment it opens, without asking the
+    /// computer: every offered CLI from the lists saved on disk for
+    /// `device_id` (the last good live read, kept until another succeeds),
+    /// each `Saved`; a CLI never read from this computer gets the built-in
+    /// list, `Static`. Background reads (on connect, every
+    /// [`CATALOG_REFRESH`]) update what this returns.
+    pub fn saved_catalog(&self, device_id: &str) -> Vec<(HarnessInfo, catalog::ModelCatalog)> {
+        let demo = matches!(self.inner.backend(), Backend::Demo(_));
+        let cache = catalog::DiskCatalog::new(&self.inner.config.data_dir);
+        let harnesses = lock(&self.inner.harness_catalogs)
+            .get(device_id)
+            .cloned()
+            .or_else(|| (!demo).then(|| cache.harnesses(device_id)).flatten())
+            .unwrap_or_else(catalog::fallback_harnesses);
+        harnesses
+            .into_iter()
+            .filter(HarnessInfo::offered)
+            .map(|h| {
+                let saved = (!demo).then(|| cache.models(device_id, &h.id)).flatten();
+                let catalog = match saved {
+                    Some(models) if !models.is_empty() => catalog::ModelCatalog {
+                        models,
+                        source: catalog::CatalogSource::Saved,
+                        error: None,
+                    },
+                    _ => catalog::ModelCatalog {
+                        models: catalog::fallback_models(&h.id),
+                        source: if demo {
+                            catalog::CatalogSource::Live
+                        } else {
+                            catalog::CatalogSource::Static
+                        },
+                        error: None,
+                    },
+                };
+                (h, catalog)
+            })
+            .collect()
+    }
+
     fn catalog_is_fresh(&self, device_id: &str, key: &str) -> bool {
         lock(&self.inner.catalog_fresh)
             .get(&(device_id.to_owned(), key.to_owned()))
@@ -1323,13 +1368,25 @@ impl Client {
                             .map_err(|e| ClientError::HostError(e.to_string()))
                     });
                 match reply {
-                    Ok(list) => {
+                    Ok(list)
+                        if list.iter().any(|h| h.id != "mock")
+                            || cache.harnesses(device_id).is_none() =>
+                    {
                         lock(&self.inner.catalog_outage).remove(device_id);
                         self.mark_catalog_fresh(device_id, "");
                         let list: Vec<HarnessInfo> =
                             list.into_iter().filter(|h| h.id != "mock").collect();
                         cache.put_harnesses(device_id, &list);
                         list
+                    }
+                    // An empty answer never replaces the list saved before.
+                    Ok(_) => {
+                        self.inner.catalog_warning(
+                            "ListHarnesses listed no CLIs; showing the saved list".to_owned(),
+                        );
+                        cache
+                            .harnesses(device_id)
+                            .unwrap_or_else(catalog::fallback_harnesses)
                     }
                     Err(err) => {
                         if let ClientError::HostUnavailable(why) = &err {
