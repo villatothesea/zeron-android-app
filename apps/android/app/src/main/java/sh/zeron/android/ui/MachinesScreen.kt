@@ -340,6 +340,7 @@ fun MachineEditScreen(model: ZeronModel, initial: Machine) {
             model.routePicks
             val pickable = existing && !model.autoRoute && initial.addresses().size > 1
             val pickedKey = if (pickable) model.pinnedAddress(initial).key else null
+            val connectedKey = if (existing) model.connectedAddress(initial.id) else null
             Column(
                 Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(colors.elevated).padding(vertical = 4.dp).testTag("addresses"),
             ) {
@@ -349,6 +350,7 @@ fun MachineEditScreen(model: ZeronModel, initial: Machine) {
                         colors,
                         a,
                         picked = if (pickable) a.key == pickedKey else null,
+                        connected = a.key == connectedKey,
                         onPick = { model.pickRoute(initial, a) },
                         result = addressResults[a.key],
                         canUp = i > 0,
@@ -520,6 +522,7 @@ private fun AddressRow(
     colors: ZeronColors,
     address: Endpoint,
     picked: Boolean?,
+    connected: Boolean,
     onPick: () -> Unit,
     result: String?,
     canUp: Boolean,
@@ -546,7 +549,7 @@ private fun AddressRow(
         }
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                RouteTag(colors, address.kind)
+                RouteTag(colors, address.kind, connected = connected)
                 Spacer(Modifier.width(8.dp))
                 Text(address.display(), color = colors.text, fontFamily = ZeronType.Mono, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }

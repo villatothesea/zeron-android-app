@@ -657,6 +657,13 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** The address kind the direct link runs over now (chip route label). */
+    /** Key of the address [machineId]'s link runs over right now, if it's up. */
+    fun connectedAddress(machineId: String): String? {
+        if (activeMachine != machineId || activeRoute() == null) return null
+        val active = directStatus?.endpoints?.firstOrNull { it.active } ?: return null
+        return Endpoint(active.host, active.port.toInt()).key
+    }
+
     fun activeRoute(): EndpointKind? {
         val status = directStatus ?: return null
         if (status.phase != uniffi.zeron_core.DirectPhase.LIVE && status.phase != uniffi.zeron_core.DirectPhase.SYNCING) return null

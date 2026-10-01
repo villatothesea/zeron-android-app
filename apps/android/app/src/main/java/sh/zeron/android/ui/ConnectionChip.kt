@@ -162,18 +162,22 @@ internal fun EndpointKind.label(): String = stringResource(
     },
 )
 
-/** Small "局域网" / "Tailscale" tag: which address the link runs over. */
+/**
+ * Small "局域网" / "Tailscale" tag: which address the link runs over.
+ * [connected]: filled with the accent (white text) — the address in use now.
+ */
 @Composable
-internal fun RouteTag(colors: ZeronColors, route: EndpointKind, modifier: Modifier = Modifier) {
+internal fun RouteTag(colors: ZeronColors, route: EndpointKind, modifier: Modifier = Modifier, connected: Boolean = false) {
     Text(
         route.label(),
-        color = colors.secondary,
+        color = if (connected) Color.White else colors.secondary,
         fontFamily = ZeronType.Sans,
         fontWeight = FontWeight.Medium,
         fontSize = 10.sp,
         maxLines = 1,
-        modifier = modifier.clip(RoundedCornerShape(6.dp)).background(colors.hairline.copy(alpha = 0.5f))
-            .padding(horizontal = 5.dp, vertical = 1.dp).testTag("route-tag"),
+        modifier = modifier.clip(RoundedCornerShape(6.dp))
+            .background(if (connected) colors.accent else colors.hairline.copy(alpha = 0.5f))
+            .padding(horizontal = 5.dp, vertical = 1.dp).testTag(if (connected) "route-tag-connected" else "route-tag"),
     )
 }
 
