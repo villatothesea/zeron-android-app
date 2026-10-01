@@ -96,7 +96,9 @@ class NetworkWatcher(context: Context, private val onChange: (NetworkSnapshot) -
                 else -> {
                     val addresses = vpns.flatMap { it.link?.linkAddresses.orEmpty() }.map { it.address.hostAddress.orEmpty() }
                     when {
-                        addresses.isEmpty() -> NetworkSnapshot.Vpn.UNKNOWN
+                        // The VPN's addresses aren't visible: a tailnet address on
+                        // an interface (Tailscale's tun) still tells.
+                        addresses.isEmpty() -> if (Tailscale.hasTailnetInterface()) NetworkSnapshot.Vpn.TAILSCALE else NetworkSnapshot.Vpn.UNKNOWN
                         addresses.any { EndpointKind.of(it.substringBefore('%')) == EndpointKind.TAILSCALE } -> NetworkSnapshot.Vpn.TAILSCALE
                         else -> NetworkSnapshot.Vpn.OTHER
                     }
