@@ -32,4 +32,20 @@ class HostCatalogTest {
         val next = base.with("devin", listOf(c("devin", "swe-1")), CatalogSource.LIVE)
         assertEquals("swe-1", next.models.last().id)
     }
+
+    @Test
+    fun aFailedReadKeepsItsReasonUntilALiveListArrives() {
+        val failed = base.with("codex", listOf(c("codex", "gpt-5.5")), CatalogSource.SAVED, "host unavailable: ListHarnesses failed (timed out)")
+        assertEquals(mapOf("codex" to "host unavailable: ListHarnesses failed (timed out)"), failed.errors)
+        assertEquals("ListHarnesses failed (timed out)", HostCatalog.reason(failed.errors.getValue("codex")))
+        val live = failed.with("codex", listOf(c("codex", "gpt-6.1-sol")), CatalogSource.LIVE)
+        assertEquals(emptyMap<String, String>(), live.errors)
+    }
+
+    @Test
+    fun aLongReasonIsShortened() {
+        val reason = HostCatalog.reason("x".repeat(300))
+        assertEquals(120, reason.length)
+        assertEquals('…', reason.last())
+    }
 }

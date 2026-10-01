@@ -90,13 +90,28 @@ internal data class ModelChoice(
 internal data class HostCatalog(
     val models: List<ModelChoice>,
     val stale: Map<String, CatalogSource> = emptyMap(),
+    /** Why each stale harness's live read failed (shown under its retry row). */
+    val errors: Map<String, String> = emptyMap(),
 ) {
     /** [harness]'s list swapped for [fresh] (other harnesses untouched). */
-    fun with(harness: String, fresh: List<ModelChoice>, source: CatalogSource): HostCatalog {
+    fun with(harness: String, fresh: List<ModelChoice>, source: CatalogSource, error: String? = null): HostCatalog {
         val at = models.indexOfFirst { it.harness == harness }.takeIf { it >= 0 } ?: models.size
         val rest = models.filter { it.harness != harness }
         val merged = rest.take(at.coerceAtMost(rest.size)) + fresh + rest.drop(at.coerceAtMost(rest.size))
-        return HostCatalog(merged, if (source == CatalogSource.LIVE) stale - harness else stale + (harness to source))
+        val live = source == CatalogSource.LIVE
+        return HostCatalog(
+            merged,
+            if (live) stale - harness else stale + (harness to source),
+            if (live || error == null) errors - harness else errors + (harness to error),
+        )
+    }
+
+    companion object {
+        /** The core's failure text, short enough for a menu subtitle. */
+        fun reason(error: String): String {
+            val plain = error.removePrefix("host unavailable: ").removePrefix("host error: ").trim()
+            return if (plain.length > 120) plain.take(119) + "…" else plain
+        }
     }
 }
 
@@ -113,11 +128,14 @@ private fun catalogModels(): List<ModelChoice> =
         uniffi.zeron_core.fallbackModels(h.id).map { ModelChoice(h.id, h.label, it.id, it.label, it.reasoningLevels, it.options) }
     }
 
-/** One harness's models and where they came from. `force` re-probes the CLI on the computer. */
-private suspend fun harnessModels(client: CoreClient, device: String, harness: String, label: String, force: Boolean): Pair<List<ModelChoice>, CatalogSource> {
+/** One harness's models, where they came from, and why a live read failed. */
+private data class HarnessList(val models: List<ModelChoice>, val source: CatalogSource, val error: String?)
+
+/** One harness's models. `force` re-probes the CLI on the computer. */
+private suspend fun harnessModels(client: CoreClient, device: String, harness: String, label: String, force: Boolean): HarnessList {
     val catalog = CatalogHooks.models?.invoke(harness, force) ?: client.modelCatalog(device, harness, force)
     val models = catalog.models.ifEmpty { uniffi.zeron_core.fallbackModels(harness) }
-    return models.map { ModelChoice(harness, label, it.id, it.label, it.reasoningLevels, it.options) } to catalog.source
+    return HarnessList(models.map { ModelChoice(harness, label, it.id, it.label, it.reasoningLevels, it.options) }, catalog.source, catalog.error)
 }
 
 /** Every offered harness on the host and its models (ListHarnesses + ListModels). */
@@ -126,14 +144,20 @@ private suspend fun hostModels(client: CoreClient, device: String): HostCatalog 
     // One harness failing (or throwing) mustn't take the others' live lists with it.
     val parts = harnesses.map { h ->
         async {
-            runCatching { harnessModels(client, device, h.id, h.label, force = false) }.getOrElse {
-                uniffi.zeron_core.fallbackModels(h.id).map { m -> ModelChoice(h.id, h.label, m.id, m.label, m.reasoningLevels, m.options) } to CatalogSource.STATIC
+            runCatching { harnessModels(client, device, h.id, h.label, force = false) }.getOrElse { t ->
+                HarnessList(
+                    uniffi.zeron_core.fallbackModels(h.id).map { m -> ModelChoice(h.id, h.label, m.id, m.label, m.reasoningLevels, m.options) },
+                    CatalogSource.STATIC,
+                    t.message,
+                )
             }
         }
     }.awaitAll()
+    val byId = harnesses.zip(parts).filter { (_, part) -> part.source != CatalogSource.LIVE }
     HostCatalog(
-        models = parts.flatMap { it.first },
-        stale = harnesses.zip(parts).filter { (_, part) -> part.second != CatalogSource.LIVE }.associate { (h, part) -> h.id to part.second },
+        models = parts.flatMap { it.models },
+        stale = byId.associate { (h, part) -> h.id to part.source },
+        errors = byId.mapNotNull { (h, part) -> part.error?.let { h.id to it } }.toMap(),
     )
 }
 
@@ -218,11 +242,16 @@ fun NewSessionSheet(model: ZeronModel, onDismiss: () -> Unit) {
         refreshing = refreshing + h
         forced = forced + h
         scope.launch {
-            val fresh = runCatching { harnessModels(client, device, h, label, force = true) }.getOrNull()
+            val result = runCatching { harnessModels(client, device, h, label, force = true) }
+            val fresh = result.getOrNull()
             refreshing = refreshing - h
-            if (fresh != null && fresh.first.isNotEmpty()) {
-                catalog = catalog.with(h, fresh.first, fresh.second)
+            if (fresh != null && fresh.models.isNotEmpty()) {
+                catalog = catalog.with(h, fresh.models, fresh.source, fresh.error)
                 modelCache[device] = catalog
+            } else if (h in catalog.stale) {
+                // Keep the list; say why the retry failed.
+                val why = fresh?.error ?: result.exceptionOrNull()?.message
+                if (why != null) catalog = catalog.copy(errors = catalog.errors + (h to why))
             }
         }
     }
@@ -457,7 +486,7 @@ fun NewSessionSheet(model: ZeronModel, onDismiss: () -> Unit) {
                         val list = open.value
                         add(MenuEntry(list.first().harnessLabel, back = true) { modelHarness = null })
                         catalog.stale[open.key]?.let { source ->
-                            add(staleRow(listOf(source), open.key in refreshing) { refresh(open.key) })
+                            add(staleRow(listOf(source), open.key in refreshing, catalog.errors[open.key]) { refresh(open.key) })
                         }
                         list.forEach { m ->
                             add(MenuEntry(m.label, checked = m.harness == harness && m.id == modelId) {
@@ -555,9 +584,11 @@ private fun SortAlphaMark(color: androidx.compose.ui.graphics.Color) {
 
 /** 「没能从电脑读取最新列表 · 重试」: the list shown isn't the computer's live one. */
 @Composable
-private fun staleRow(sources: Collection<CatalogSource>, reading: Boolean, onRetry: () -> Unit): MenuEntry {
+private fun staleRow(sources: Collection<CatalogSource>, reading: Boolean, error: String? = null, onRetry: () -> Unit): MenuEntry {
     val title = stringResource(if (reading) R.string.model_list_reading else R.string.model_list_stale)
-    val subtitle = stringResource(if (CatalogSource.SAVED in sources) R.string.model_list_showing_saved else R.string.model_list_showing_builtin)
+    val showing = stringResource(if (CatalogSource.SAVED in sources) R.string.model_list_showing_saved else R.string.model_list_showing_builtin)
+    // The real reason (timed out, ListHarnesses failed…), not just "couldn't read".
+    val subtitle = if (error != null && !reading) "$showing\n${HostCatalog.reason(error)}" else showing
     return MenuEntry(title, subtitle = subtitle, keepOpen = true, icon = { c -> Glyph(Glyphs.Refresh, 17.dp, c) }) { onRetry() }
 }
 
