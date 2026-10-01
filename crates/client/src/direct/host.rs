@@ -73,7 +73,15 @@ const REGISTRY_STREAMS: [&str; 4] = [
 struct Link {
     /// `None` only for the in-process test engine (plain WebSocket).
     ssh: Option<SshSession>,
+    /// The live feeds (registry watches, transcripts).
     rpc: zeron_rpc::RpcClient,
+    /// One-off requests (ListModels, Mutate, folder listings…) on their own
+    /// tunnel channel and WebSocket. On the feed connection a reply waits
+    /// behind every byte queued before it, and a working chat's transcript
+    /// can be megabytes (a 7.6 MB first snapshot was measured), so over a
+    /// slow relay ListHarnesses/ListModels timed out though the engine
+    /// answered in well under a second. `None`: share `rpc`.
+    calls: Option<zeron_rpc::RpcClient>,
     cancel: CancellationToken,
     engine_device_id: String,
     /// When the feed connection last delivered a registry frame or a probe
@@ -90,6 +98,10 @@ impl Link {
 
     fn heard_ms(&self) -> i64 {
         self.heard_ms.load(std::sync::atomic::Ordering::Acquire)
+    }
+
+    fn calls(&self) -> &zeron_rpc::RpcClient {
+        self.calls.as_ref().unwrap_or(&self.rpc)
     }
 }
 
@@ -423,9 +435,22 @@ impl DirectHost {
             }
             s.engine_device_id = Some(engine_device_id.clone());
         });
+        // A second channel for one-off requests (see `Link::calls`); if the
+        // machine won't open one, requests share the feed connection.
+        let calls = match &ssh {
+            Some(ssh) => match ssh.open_engine(self.target.engine_port).await {
+                Ok(calls) => Some(calls),
+                Err(err) => {
+                    self.note(format!("requests share the feed connection ({err})"));
+                    None
+                }
+            },
+            None => None,
+        };
         Ok(Link {
             ssh,
             rpc,
+            calls,
             cancel: CancellationToken::new(),
             engine_device_id,
             heard_ms: std::sync::atomic::AtomicI64::new(now_ms()),
@@ -807,7 +832,7 @@ impl DirectHost {
         // Same per-method budget as the relay (a cold `ListModels` probes the
         // harness CLI and can take well past the default), never below ours.
         let budget = crate::live::relay::deadline(method).max(CALL_TIMEOUT);
-        match tokio::time::timeout(budget, link.rpc.call(method, params)).await {
+        match tokio::time::timeout(budget, link.calls().call(method, params)).await {
             Err(_) => Err(ClientError::HostUnavailable(format!("{method} timed out"))),
             Ok(Err(zeron_rpc::RpcError::Closed)) | Ok(Err(zeron_rpc::RpcError::Transport(_))) => {
                 link.cancel.cancel();
