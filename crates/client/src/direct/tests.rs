@@ -1062,7 +1062,11 @@ async fn failed_model_read_is_visible_and_falls_back() {
 async fn file_links_read_from_the_chats_workspace() {
     let dir = tempfile::tempdir().unwrap();
     let (client, seen, _) = live_client("file-link.test", Mode::Real, dir.path()).await;
-    wait_for(&client, "chats", |c| !c.workspace().projects.is_empty()).await;
+    // Projects and chats arrive on separate feeds: wait for both.
+    wait_for(&client, "chats", |c| {
+        !c.workspace().projects.is_empty() && !c.workspace().sessions.is_empty()
+    })
+    .await;
     let chat = client
         .workspace()
         .sessions
