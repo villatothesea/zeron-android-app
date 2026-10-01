@@ -454,13 +454,27 @@ impl DirectHost {
 
     async fn open_link(&self) -> std::result::Result<Link, SshError> {
         let (ssh, rpc) = self.dial_any().await?;
-        let info = tokio::time::timeout(
-            Duration::from_secs(20),
-            rpc.call(zeron_rpc::methods::ENGINE_INFO, serde_json::json!({})),
-        )
-        .await
-        .map_err(|_| SshError::Engine("EngineInfo timed out".into()))?
-        .map_err(|e| SshError::Engine(e.to_string()))?;
+        // EngineInfo and the extra channels (requests, the first transcript)
+        // at once: one after the other they cost ~5 round trips (1-3 s each
+        // over a DERP relay) before anything else could start.
+        let port = self.target.engine_port;
+        let open_extra = || async {
+            match &ssh {
+                Some(ssh) => Some(ssh.open_engine(port).await),
+                None => None,
+            }
+        };
+        let (info, calls, transcripts) = tokio::join!(
+            tokio::time::timeout(
+                Duration::from_secs(20),
+                rpc.call(zeron_rpc::methods::ENGINE_INFO, serde_json::json!({})),
+            ),
+            open_extra(),
+            open_extra(),
+        );
+        let info = info
+            .map_err(|_| SshError::Engine("EngineInfo timed out".into()))?
+            .map_err(|e| SshError::Engine(e.to_string()))?;
         let engine_device_id = info
             .get("deviceId")
             .and_then(|v| v.as_str())
@@ -489,27 +503,23 @@ impl DirectHost {
             }
             s.engine_device_id = Some(engine_device_id.clone());
         });
-        // A second channel for one-off requests (see `Link::calls`); if the
+        // One-off requests on their own channel (see `Link::calls`); if the
         // machine won't open one, requests share the feed connection.
-        let calls = match &ssh {
-            Some(ssh) => match ssh.open_engine(self.target.engine_port).await {
-                Ok(calls) => Some(calls),
-                Err(err) => {
-                    self.note(format!("requests share the feed connection ({err})"));
-                    None
-                }
-            },
+        let calls = match calls {
+            Some(Ok(calls)) => Some(calls),
+            Some(Err(err)) => {
+                self.note(format!("requests share the feed connection ({err})"));
+                None
+            }
             None => None,
         };
-        // And one for the transcript on screen (see `Link::transcripts`).
-        let transcripts = match &ssh {
-            Some(ssh) if calls.is_some() => match ssh.open_engine(self.target.engine_port).await {
-                Ok(channel) => Some(channel),
-                Err(err) => {
-                    self.note(format!("transcripts share the feed connection ({err})"));
-                    None
-                }
-            },
+        // The first transcript's channel (see `Link::transcript_spare`).
+        let transcripts = match transcripts {
+            Some(Ok(channel)) if calls.is_some() => Some(channel),
+            Some(Err(err)) => {
+                self.note(format!("transcripts share the feed connection ({err})"));
+                None
+            }
             _ => None,
         };
         let transcript_channels = transcripts.is_some();
