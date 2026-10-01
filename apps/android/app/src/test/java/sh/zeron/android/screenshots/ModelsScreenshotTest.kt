@@ -6,6 +6,7 @@ import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.lifecycle.ViewModelProvider
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
@@ -79,6 +80,17 @@ open class ModelsScreenshotTest {
             compose.onNodeWithText("Codex").performClick()
             settle()
             shot("02-live-codex-$suffix.png")
+            // Codex's traits: the reasoning ladder plus its service tier.
+            compose.onNodeWithText("GPT-6.1-Sol").performClick()
+            settle()
+            compose.onNodeWithTag("chip-effort").performScrollTo().performClick()
+            settle()
+            shot("07-codex-traits-$suffix.png")
+            compose.onNodeWithText("Fast").performClick()
+            settle()
+            compose.onNodeWithTag("chip-effort").performScrollTo()
+            settle()
+            shot("08-codex-fast-chip-$suffix.png")
             closeSheet(model)
             // Fallback: the live read failed; the list saved last time shows.
             CatalogHooks.models = { h, _ ->
@@ -175,7 +187,12 @@ open class ModelsScreenshotTest {
     }
 
     companion object {
-        private fun m(id: String, label: String, levels: List<String>) = ModelInfo(id, label, null, levels, emptyList(), null)
+        private val TIER = uniffi.zeron_core.ModelOption(
+            "serviceTier", "Service Tier",
+            listOf(uniffi.zeron_core.ModelOptionChoice("default", "Standard"), uniffi.zeron_core.ModelOptionChoice("fast", "Fast")),
+            "default",
+        )
+        private fun m(id: String, label: String, levels: List<String>) = ModelInfo(id, label, null, levels, if (id == "gpt-5.2") emptyList() else listOf(TIER), null)
         private val SIX = listOf("low", "medium", "high", "xhigh", "max", "ultra")
 
         /** Codex as the user's computer reports it (ListModels capture, 0.2.100). */
