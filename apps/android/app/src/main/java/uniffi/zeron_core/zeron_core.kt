@@ -794,6 +794,8 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_zeron_mobile_checksum_func_harness_label(
     ): Int
+    external fun uniffi_zeron_mobile_checksum_func_is_file_link(
+    ): Int
     external fun uniffi_zeron_mobile_checksum_func_jwt_expiry(
     ): Int
     external fun uniffi_zeron_mobile_checksum_func_max_attachment_bytes(
@@ -913,6 +915,8 @@ internal object IntegrityCheckingUniffiLib {
     external fun uniffi_zeron_mobile_checksum_method_coreclient_pull_requests(
     ): Int
     external fun uniffi_zeron_mobile_checksum_method_coreclient_read_attachment(
+    ): Int
+    external fun uniffi_zeron_mobile_checksum_method_coreclient_read_file_link(
     ): Int
     external fun uniffi_zeron_mobile_checksum_method_coreclient_reconnect_direct(
     ): Int
@@ -1174,6 +1178,8 @@ internal object UniffiLib {
     ): RustBuffer.ByValue
     external fun uniffi_zeron_mobile_fn_method_coreclient_read_attachment(`ptr`: Long,`deviceId`: RustBuffer.ByValue,`path`: RustBuffer.ByValue,
     ): Long
+    external fun uniffi_zeron_mobile_fn_method_coreclient_read_file_link(`ptr`: Long,`chatId`: RustBuffer.ByValue,`url`: RustBuffer.ByValue,
+    ): Long
     external fun uniffi_zeron_mobile_fn_method_coreclient_reconnect_direct(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
     external fun uniffi_zeron_mobile_fn_method_coreclient_rename_project(`ptr`: Long,`spaceId`: RustBuffer.ByValue,`name`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -1366,6 +1372,8 @@ internal object UniffiLib {
     ): RustBuffer.ByValue
     external fun uniffi_zeron_mobile_fn_func_harness_label(`harness`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
+    external fun uniffi_zeron_mobile_fn_func_is_file_link(`url`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Byte
     external fun uniffi_zeron_mobile_fn_func_jwt_expiry(`jwt`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_zeron_mobile_fn_func_max_attachment_bytes(uniffi_out_err: UniffiRustCallStatus, 
@@ -1535,7 +1543,7 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if ((lib.uniffi_zeron_mobile_checksum_func_auth_list_orgs() and 0xFFFF) != 21299) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if ((lib.uniffi_zeron_mobile_checksum_func_auth_production_edge_url() and 0xFFFF) != 61532) {
+    if ((lib.uniffi_zeron_mobile_checksum_func_auth_production_edge_url() and 0xFFFF) != 39974) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_zeron_mobile_checksum_func_auth_refresh() and 0xFFFF) != 53630) {
@@ -1548,6 +1556,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_zeron_mobile_checksum_func_harness_label() and 0xFFFF) != 26297) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_zeron_mobile_checksum_func_is_file_link() and 0xFFFF) != 1981) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_zeron_mobile_checksum_func_jwt_expiry() and 0xFFFF) != 29460) {
@@ -1728,6 +1739,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_zeron_mobile_checksum_method_coreclient_read_attachment() and 0xFFFF) != 50982) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_zeron_mobile_checksum_method_coreclient_read_file_link() and 0xFFFF) != 15569) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_zeron_mobile_checksum_method_coreclient_reconnect_direct() and 0xFFFF) != 46514) {
@@ -3012,6 +3026,13 @@ public interface CoreClientInterface {
     suspend fun `readAttachment`(`deviceId`: kotlin.String, `path`: kotlin.String): kotlin.ByteArray
     
     /**
+     * Read the file a link in `chat_id`'s transcript points at, from the
+     * chat's workspace on its computer. `InvalidArgument` when the link
+     * is outside the project folder.
+     */
+    suspend fun `readFileLink`(`chatId`: kotlin.String, `url`: kotlin.String): WorkspaceFile
+    
+    /**
      * Direct mode: drop the current link, even a stalled one, and redial.
      */
     fun `reconnectDirect`()
@@ -3925,6 +3946,34 @@ open class CoreClient: Disposable, AutoCloseable, CoreClientInterface
         { future -> UniffiLib.ffi_zeron_mobile_rust_future_free_rust_buffer(future) },
         // lift function
         { FfiConverterByteArray.lift(it) },
+        // Error FFI converter
+        CoreException.ErrorHandler,
+    )
+    }
+
+    
+    /**
+     * Read the file a link in `chat_id`'s transcript points at, from the
+     * chat's workspace on its computer. `InvalidArgument` when the link
+     * is outside the project folder.
+     */
+    @Throws(CoreException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+    override suspend fun `readFileLink`(`chatId`: kotlin.String, `url`: kotlin.String) : WorkspaceFile {
+        return uniffiRustCallAsync(
+        callWithHandle { uniffiHandle ->
+            UniffiLib.uniffi_zeron_mobile_fn_method_coreclient_read_file_link(
+                uniffiHandle,
+                
+        FfiConverterString.lower(`chatId`),
+        FfiConverterString.lower(`url`),
+            )
+        },
+        { future, callback, continuation -> UniffiLib.ffi_zeron_mobile_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.ffi_zeron_mobile_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.ffi_zeron_mobile_rust_future_free_rust_buffer(future) },
+        // lift function
+        { FfiConverterTypeWorkspaceFile.lift(it) },
         // Error FFI converter
         CoreException.ErrorHandler,
     )
@@ -11258,6 +11307,58 @@ public object FfiConverterTypeWidget: FfiConverterRustBuffer<Widget> {
 
 
 /**
+ * A workspace file read for the file preview. `text` is `None` for
+ * binary files; `truncated` when the engine cut a large file short.
+ */
+data class WorkspaceFile (
+    var `path`: kotlin.String
+    , 
+    var `text`: kotlin.String?
+    , 
+    var `size`: kotlin.ULong
+    , 
+    var `truncated`: kotlin.Boolean
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeWorkspaceFile: FfiConverterRustBuffer<WorkspaceFile> {
+    override fun read(buf: ByteBuffer): WorkspaceFile {
+        return WorkspaceFile(
+            FfiConverterString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterULong.read(buf),
+            FfiConverterBoolean.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: WorkspaceFile) = (
+            FfiConverterString.allocationSize(value.`path`) +
+            FfiConverterOptionalString.allocationSize(value.`text`) +
+            FfiConverterULong.allocationSize(value.`size`) +
+            FfiConverterBoolean.allocationSize(value.`truncated`)
+    )
+
+    override fun write(value: WorkspaceFile, buf: ByteBuffer) {
+            FfiConverterString.write(value.`path`, buf)
+            FfiConverterOptionalString.write(value.`text`, buf)
+            FfiConverterULong.write(value.`size`, buf)
+            FfiConverterBoolean.write(value.`truncated`, buf)
+    }
+}
+
+
+
+/**
  * Everything the workspace screens render.
  */
 data class WorkspaceSnapshot (
@@ -16191,10 +16292,7 @@ public object FfiConverterMapStringString: FfiConverterRustBuffer<Map<kotlin.Str
         CoreException.ErrorHandler,
     )
     }
-
-        /**
-         * Production edge base URL.
-         */ fun `authProductionEdgeUrl`(): kotlin.String {
+ fun `authProductionEdgeUrl`(): kotlin.String {
             return FfiConverterString.lift(
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_zeron_mobile_fn_func_auth_production_edge_url(
@@ -16259,6 +16357,22 @@ public object FfiConverterMapStringString: FfiConverterRustBuffer<Map<kotlin.Str
     
         
         FfiConverterString.lower(`harness`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Production edge base URL.
+         * Is `url` a link to a file (opened in the file preview) rather than a
+         * web page?
+         */ fun `isFileLink`(`url`: kotlin.String): kotlin.Boolean {
+            return FfiConverterBoolean.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_zeron_mobile_fn_func_is_file_link(
+    
+        
+        FfiConverterString.lower(`url`),_status)
 }
     )
     }

@@ -959,6 +959,27 @@ impl From<zc::catalog::CatalogSource> for CatalogSource {
     }
 }
 
+/// A workspace file read for the file preview. `text` is `None` for
+/// binary files; `truncated` when the engine cut a large file short.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct WorkspaceFile {
+    pub path: String,
+    pub text: Option<String>,
+    pub size: u64,
+    pub truncated: bool,
+}
+
+impl From<zc::file_links::WorkspaceFile> for WorkspaceFile {
+    fn from(f: zc::file_links::WorkspaceFile) -> Self {
+        Self {
+            path: f.path,
+            text: f.text,
+            size: f.size,
+            truncated: f.truncated,
+        }
+    }
+}
+
 /// A harness's models plus where they came from (and why the live read
 /// failed, when it did).
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]

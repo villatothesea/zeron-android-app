@@ -399,6 +399,15 @@ impl CoreClient {
             .into()
     }
 
+    /// Read the file a link in `chat_id`'s transcript points at, from the
+    /// chat's workspace on its computer. `InvalidArgument` when the link
+    /// is outside the project folder.
+    pub async fn read_file_link(&self, chat_id: String, url: String) -> CoreResult<WorkspaceFile> {
+        let client = self.client.clone();
+        let file = on_runtime(async move { client.read_file_link(&chat_id, &url).await }).await?;
+        Ok(file.into())
+    }
+
     pub async fn list_refs(
         &self,
         device_id: String,
@@ -550,6 +559,13 @@ impl CoreClient {
 // ── static helpers ─────────────────────────────────────────────────────────
 
 /// Production edge base URL.
+/// Is `url` a link to a file (opened in the file preview) rather than a
+/// web page?
+#[uniffi::export]
+pub fn is_file_link(url: String) -> bool {
+    zc::file_links::is_file_link(&url)
+}
+
 #[uniffi::export]
 pub fn auth_production_edge_url() -> String {
     zc::auth::PRODUCTION_EDGE_URL.to_owned()
