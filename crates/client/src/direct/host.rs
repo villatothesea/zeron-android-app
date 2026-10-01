@@ -35,6 +35,10 @@ const BACKOFF_MIN: Duration = Duration::from_secs(1);
 const BACKOFF_MAX: Duration = Duration::from_secs(30);
 /// Presence beat while the link is up (well inside PRESENCE_FRESH_MS).
 const BEAT: Duration = Duration::from_secs(5);
+/// Probe a feed that has been quiet this long (see `probe_feed`); well
+/// inside `workspace::view::STATUS_HOLD_MS`.
+const PROBE_AFTER: Duration = Duration::from_secs(10);
+const PROBE_TIMEOUT: Duration = Duration::from_secs(60);
 /// Host RPC budget (generous: mobile networks, big replies).
 const CALL_TIMEOUT: Duration = Duration::from_secs(45);
 /// How long a call waits for a (re)connecting link.
@@ -72,6 +76,21 @@ struct Link {
     rpc: zeron_rpc::RpcClient,
     cancel: CancellationToken,
     engine_device_id: String,
+    /// When the feed connection last delivered a registry frame or a probe
+    /// reply (phone ms), and whether a probe is out.
+    heard_ms: std::sync::atomic::AtomicI64,
+    probing: std::sync::atomic::AtomicBool,
+}
+
+impl Link {
+    fn heard(&self) {
+        self.heard_ms
+            .store(now_ms(), std::sync::atomic::Ordering::Release);
+    }
+
+    fn heard_ms(&self) -> i64 {
+        self.heard_ms.load(std::sync::atomic::Ordering::Acquire)
+    }
 }
 
 pub(crate) struct DirectHost {
@@ -409,6 +428,8 @@ impl DirectHost {
             rpc,
             cancel: CancellationToken::new(),
             engine_device_id,
+            heard_ms: std::sync::atomic::AtomicI64::new(now_ms()),
+            probing: std::sync::atomic::AtomicBool::new(false),
         })
     }
 
@@ -625,6 +646,7 @@ impl DirectHost {
                         lost_reason = "the SSH session closed".into();
                         break;
                     }
+                    self.probe_feed(&link);
                     if let Some(client) = self.client.upgrade() {
                         client.workspace.set_presence(&link.engine_device_id, now_ms());
                     }
@@ -646,6 +668,7 @@ impl DirectHost {
         if let Some(client) = self.client.upgrade() {
             // Presence decays on its own; drop it now so the dot flips.
             client.workspace.set_presence(&link.engine_device_id, 0);
+            client.workspace.set_heard(&link.engine_device_id, None);
             client.recompute_workspace();
         }
         let synced = lock(&self.status).synced_at_ms.is_some();
@@ -665,6 +688,49 @@ impl DirectHost {
             });
         }
         synced
+    }
+
+    /// A quiet feed (nothing for [`PROBE_AFTER`]) gets a tiny request on the
+    /// feed connection itself: its reply comes back behind everything queued
+    /// before it, so it proves the phone is caught up and the engine alive.
+    /// Session rows age only up to the last such proof (see
+    /// `workspace::view::status_now`), so a run whose own heartbeat stopped
+    /// still goes stale while a stalled or backlogged link does not turn
+    /// running sessions into "done". Never drops the link.
+    fn probe_feed(self: &Arc<Self>, link: &Arc<Link>) {
+        use std::sync::atomic::Ordering;
+        if now_ms() - link.heard_ms() < PROBE_AFTER.as_millis() as i64
+            || link.probing.swap(true, Ordering::AcqRel)
+        {
+            return;
+        }
+        let host = self.clone();
+        let link = link.clone();
+        crate::runtime::shared().spawn(async move {
+            let reply = tokio::time::timeout(
+                PROBE_TIMEOUT,
+                link.rpc
+                    .call(zeron_rpc::methods::LOCAL_DEVICE, serde_json::json!({})),
+            )
+            .await;
+            link.probing.store(false, Ordering::Release);
+            // Any answer (even an error) came through the feed in order.
+            let answered = matches!(
+                reply,
+                Ok(Ok(_))
+                    | Ok(Err(zeron_rpc::RpcError::UnknownMethod(_)
+                        | zeron_rpc::RpcError::BadParams(_)
+                        | zeron_rpc::RpcError::Failed(_)))
+            );
+            if answered && !link.cancel.is_cancelled() {
+                link.heard();
+                if let Some(client) = host.client.upgrade() {
+                    client
+                        .workspace
+                        .set_heard(&link.engine_device_id, Some(link.heard_ms()));
+                }
+            }
+        });
     }
 
     fn unsynced_streams(&self) -> Vec<String> {
@@ -811,6 +877,12 @@ impl DirectHost {
             let Some(client) = self.client.upgrade() else {
                 return;
             };
+            // Registry frames arrive in order behind everything the engine
+            // queued before them: this is how far the phone has caught up.
+            link.heard();
+            client
+                .workspace
+                .set_heard(&link.engine_device_id, Some(link.heard_ms()));
             let applied = match method {
                 zeron_rpc::methods::WATCH_DEVICES => {
                     self.apply_frame(method, value, &[], |rows: Vec<Device>, _| {
