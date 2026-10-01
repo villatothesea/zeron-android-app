@@ -638,7 +638,9 @@ impl DirectHost {
         // Re-attach every open session and flush commands queued offline.
         if let Some(client) = self.client.upgrade() {
             for core in client.cores() {
-                self.restart_mirror(&core, &link);
+                if Self::wants_mirror(&core) {
+                    self.restart_mirror(&core, &link);
+                }
                 self.on_command(&core.chat_id);
             }
         }
@@ -672,6 +674,7 @@ impl DirectHost {
                         break;
                     }
                     self.probe_feed(&link);
+                    self.reconcile_mirrors();
                     if let Some(client) = self.client.upgrade() {
                         client.workspace.set_presence(&link.engine_device_id, now_ms());
                     }
@@ -1127,7 +1130,39 @@ impl DirectHost {
         SessionDoc::init(chat_id).map_err(doc_err)
     }
 
+    /// Over a direct link only the transcript on screen (or one with a send
+    /// still in flight) streams. Each subscribed transcript costs the whole
+    /// live message per update (hundreds of KB) and a multi-MB first
+    /// snapshot, all on the one feed the session heartbeats ride; warm
+    /// sessions streaming in the background backlogged that feed on slow
+    /// links. A session that leaves the screen stops streaming within a
+    /// beat; it keeps what it already showed.
+    fn wants_mirror(core: &SessionCore) -> bool {
+        core.view_attached() || core.has_pending_sends()
+    }
+
+    /// A session's view came on screen (or it gained a pending send).
+    pub(crate) fn session_attached(self: &Arc<Self>, core: &Arc<SessionCore>) {
+        self.session_opened(core);
+    }
+
+    /// Stop mirrors nobody needs any more (see [`Self::wants_mirror`]).
+    fn reconcile_mirrors(&self) {
+        let mut mirrors = lock(&self.mirrors);
+        mirrors.retain(|_, (core, token)| {
+            let keep = !token.is_cancelled()
+                && core.upgrade().is_some_and(|core| Self::wants_mirror(&core));
+            if !keep {
+                token.cancel();
+            }
+            keep
+        });
+    }
+
     pub(crate) fn session_opened(self: &Arc<Self>, core: &Arc<SessionCore>) {
+        if !Self::wants_mirror(core) {
+            return;
+        }
         if let Some(link) = self.current_link() {
             let mirrors = lock(&self.mirrors);
             if let Some((existing, token)) = mirrors.get(&core.chat_id)

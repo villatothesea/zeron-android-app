@@ -949,6 +949,12 @@ impl SessionHandle {
         }
         if attached && !was {
             self.mark_seen();
+            // Direct links stream only the transcripts on screen.
+            if let Ok(client) = self.core.client()
+                && let Some(direct) = client.direct()
+            {
+                direct.session_attached(&self.core);
+            }
         }
     }
 

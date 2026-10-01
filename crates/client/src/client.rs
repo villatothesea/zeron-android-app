@@ -518,7 +518,11 @@ impl ClientInner {
     pub(crate) fn after_command(self: &Arc<Self>, core: &Arc<SessionCore>, has_attachments: bool) {
         match self.backend() {
             Backend::Demo(demo) => demo.on_command(&core.chat_id),
-            Backend::Direct(direct) => direct.on_command(&core.chat_id),
+            Backend::Direct(direct) => {
+                // A send streams its transcript until adopted, on screen or not.
+                direct.session_opened(core);
+                direct.on_command(&core.chat_id);
+            }
             Backend::Live(live) => {
                 if has_attachments {
                     live.escorts.respawn_chat(self, &core.chat_id);
@@ -1725,6 +1729,11 @@ impl Client {
     /// recent), up to [`PRELOAD_CAP`]. Opening is instant (local snapshot);
     /// live rooms dial behind the client's dial cap.
     pub fn preload_sessions(&self) {
+        // Over a direct link a warm session streams nothing until it is on
+        // screen (see `DirectHost::wants_mirror`), so preloading only costs.
+        if self.inner.direct().is_some() {
+            return;
+        }
         let workspace = self.workspace();
         let front = &workspace.front;
         let candidates = front

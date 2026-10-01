@@ -116,6 +116,29 @@ impl RpcService for Engine {
                 "encoding": "utf8", "truncated": false
             })));
         }
+        if method == "WatchDocMessages" {
+            // Record who streams which transcript, and when it stops.
+            struct Unwatch(
+                Arc<std::sync::Mutex<Vec<serde_json::Value>>>,
+                serde_json::Value,
+            );
+            impl Drop for Unwatch {
+                fn drop(&mut self) {
+                    lock(&self.0).push(serde_json::json!({ "unwatch": self.1 }));
+                }
+            }
+            let chat = params["chatId"].clone();
+            lock(&self.1).push(serde_json::json!({ "watch": chat }));
+            let guard = Unwatch(self.1.clone(), chat);
+            return Ok(RpcReply::Stream(
+                futures::stream::pending::<serde_json::Value>()
+                    .map(move |v| {
+                        let _ = &guard;
+                        v
+                    })
+                    .boxed(),
+            ));
+        }
         if method == "ListHarnesses" {
             return Ok(RpcReply::Value(fixture("ListHarnesses")));
         }
@@ -979,5 +1002,42 @@ async fn file_links_read_from_the_chats_workspace() {
         matches!(outside, Err(crate::ClientError::InvalidArgument(_))),
         "{outside:?}"
     );
+    client.shutdown();
+}
+
+/// Over a direct link only the transcript on screen streams: opening (or
+/// preloading) a session subscribes nothing, attaching its view does, and
+/// leaving stops it within a beat.
+#[tokio::test(flavor = "multi_thread")]
+async fn only_the_transcript_on_screen_streams() {
+    let dir = tempfile::tempdir().unwrap();
+    let (client, seen, _) = live_client("mirror-onscreen.test", Mode::Real, dir.path()).await;
+    wait_for(&client, "chats", |c| !c.workspace().sessions.is_empty()).await;
+    let chat = client.workspace().sessions.keys().next().unwrap().clone();
+    let watches = |key: &str| {
+        lock(&seen)
+            .iter()
+            .filter(|v| v.get(key).is_some_and(|c| c == &serde_json::json!(chat)))
+            .count()
+    };
+    client.preload_sessions();
+    let handle = client.open_session(&chat).unwrap();
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    assert_eq!(
+        watches("watch"),
+        0,
+        "opened but not on screen: nothing streams"
+    );
+    handle.set_view_attached(true);
+    wait_for(&client, "the transcript stream", |_| watches("watch") == 1).await;
+    handle.set_view_attached(false);
+    let deadline = std::time::Instant::now() + Duration::from_secs(12);
+    while watches("unwatch") == 0 {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the stream should stop after leaving"
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
     client.shutdown();
 }
