@@ -61,6 +61,7 @@ import uniffi.zeron_core.CatalogSource
 import uniffi.zeron_core.CoreClient
 import uniffi.zeron_core.DirectPhase
 import uniffi.zeron_core.ModelCatalog
+import uniffi.zeron_core.ModelOption
 import uniffi.zeron_core.NewSession
 import uniffi.zeron_core.RepoRef
 import uniffi.zeron_core.SendRequest
@@ -78,6 +79,8 @@ internal data class ModelChoice(
     val id: String,
     val label: String,
     val efforts: List<String>,
+    /** What else the model offers (Codex service tier, Claude's 1M context…). */
+    val options: List<ModelOption> = emptyList(),
 )
 
 /**
@@ -107,14 +110,14 @@ private val modelCache = HashMap<String, HostCatalog>()
 
 private fun catalogModels(): List<ModelChoice> =
     uniffi.zeron_core.fallbackHarnesses().filter { it.offered }.flatMap { h ->
-        uniffi.zeron_core.fallbackModels(h.id).map { ModelChoice(h.id, h.label, it.id, it.label, it.reasoningLevels) }
+        uniffi.zeron_core.fallbackModels(h.id).map { ModelChoice(h.id, h.label, it.id, it.label, it.reasoningLevels, it.options) }
     }
 
 /** One harness's models and where they came from. `force` re-probes the CLI on the computer. */
 private suspend fun harnessModels(client: CoreClient, device: String, harness: String, label: String, force: Boolean): Pair<List<ModelChoice>, CatalogSource> {
     val catalog = CatalogHooks.models?.invoke(harness, force) ?: client.modelCatalog(device, harness, force)
     val models = catalog.models.ifEmpty { uniffi.zeron_core.fallbackModels(harness) }
-    return models.map { ModelChoice(harness, label, it.id, it.label, it.reasoningLevels) } to catalog.source
+    return models.map { ModelChoice(harness, label, it.id, it.label, it.reasoningLevels, it.options) } to catalog.source
 }
 
 /** Every offered harness on the host and its models (ListHarnesses + ListModels). */
@@ -124,7 +127,7 @@ private suspend fun hostModels(client: CoreClient, device: String): HostCatalog 
     val parts = harnesses.map { h ->
         async {
             runCatching { harnessModels(client, device, h.id, h.label, force = false) }.getOrElse {
-                uniffi.zeron_core.fallbackModels(h.id).map { m -> ModelChoice(h.id, h.label, m.id, m.label, m.reasoningLevels) } to CatalogSource.STATIC
+                uniffi.zeron_core.fallbackModels(h.id).map { m -> ModelChoice(h.id, h.label, m.id, m.label, m.reasoningLevels, m.options) } to CatalogSource.STATIC
             }
         }
     }.awaitAll()
@@ -171,6 +174,8 @@ fun NewSessionSheet(model: ZeronModel, onDismiss: () -> Unit) {
     var harness by remember { mutableStateOf("claude-code") }
     var modelId by remember { mutableStateOf<String?>(null) }
     var effort by remember { mutableStateOf<String?>(null) }
+    // Model options picked here (option id → choice id); unpicked = the model's default.
+    var optionPicks by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var branch by remember { mutableStateOf<String?>(null) }
     var worktree by remember { mutableStateOf(false) }
     var browsing by remember { mutableStateOf(false) }
@@ -250,8 +255,19 @@ fun NewSessionSheet(model: ZeronModel, onDismiss: () -> Unit) {
         // Never the harness name in place of a model.
         val modelTitle = current?.label ?: modelId?.let { modelLabel(harness, it) } ?: harnessLabel(harness)
         add(Chip("model", modelTitle, harness = harness))
+        // One traits chip like desktop's: the effort plus any non-default option ("X-High · Fast").
         val efforts = current?.efforts.orEmpty()
-        if (efforts.isNotEmpty()) add(Chip("effort", reasoningLabel(effort ?: efforts[efforts.size / 2])))
+        val options = current?.options.orEmpty().filter { it.choices.size > 1 }
+        if (efforts.isNotEmpty() || options.isNotEmpty()) {
+            val parts = buildList {
+                if (efforts.isNotEmpty()) add(reasoningLabel(effort ?: efforts[efforts.size / 2]))
+                options.forEach { o ->
+                    val pick = optionPicks[o.id]?.takeIf { it != o.defaultChoice }
+                    pick?.let { id -> o.choices.firstOrNull { it.id == id } }?.let { add(it.label) }
+                }
+            }
+            add(Chip("effort", parts.joinToString(" · ").ifEmpty { options.first().label }))
+        }
     }
 
     Box(Modifier.fillMaxSize()) {
@@ -311,7 +327,7 @@ fun NewSessionSheet(model: ZeronModel, onDismiss: () -> Unit) {
                                 }
                             }
                             try {
-                                val id = client.createSession(NewSession(target, model.defaultConfig(harness, modelId, effort), if (worktree) null else branch, null, null))
+                                val id = client.createSession(NewSession(target, model.defaultConfig(harness, modelId, effort, optionsFor(current, optionPicks)), if (worktree) null else branch, null, null))
                                 val handle = client.openSession(id)
                                 val spec = if (worktree && project != null) WorktreeSpec(project.path, branch ?: "HEAD", project.id) else null
                                 handle.send(SendRequest(body, emptyList(), spec, BusyPolicy.QUEUE))
@@ -448,15 +464,26 @@ fun NewSessionSheet(model: ZeronModel, onDismiss: () -> Unit) {
                                 harness = m.harness
                                 modelId = m.id
                                 effort = null
+                                optionPicks = emptyMap()
                             })
                         }
                     }
                 }
-                "effort" -> stringResource(R.string.reasoning_effort) to current?.efforts.orEmpty().let { levels ->
+                "effort" -> stringResource(if (current?.efforts.isNullOrEmpty()) R.string.model_options else R.string.reasoning_effort) to buildList {
                     // The chip shows the middle level while nothing is picked
                     // (the engine default); check that same row so they agree.
+                    val levels = current?.efforts.orEmpty()
                     val shown = effort ?: levels.getOrNull(levels.size / 2)
-                    levels.map { e -> MenuEntry(reasoningLabel(e), checked = e == shown) { effort = e } }
+                    levels.forEach { e -> add(MenuEntry(reasoningLabel(e), checked = e == shown) { effort = e }) }
+                    // Then what else the model offers (desktop TraitsPicker): Codex's
+                    // service tier, Claude's 1M context window…
+                    current?.options.orEmpty().filter { it.choices.size > 1 }.forEach { o ->
+                        if (isNotEmpty()) add(menuSection(o.label)) else add(MenuEntry(o.label, header = true) {})
+                        val picked = optionPicks[o.id] ?: o.defaultChoice
+                        o.choices.forEach { c ->
+                            add(MenuEntry(c.label, checked = c.id == picked) { optionPicks = optionPicks + (o.id to c.id) })
+                        }
+                    }
                 }
                 else -> null to emptyList()
             }
@@ -532,4 +559,10 @@ private fun staleRow(sources: Collection<CatalogSource>, reading: Boolean, onRet
     val title = stringResource(if (reading) R.string.model_list_reading else R.string.model_list_stale)
     val subtitle = stringResource(if (CatalogSource.SAVED in sources) R.string.model_list_showing_saved else R.string.model_list_showing_builtin)
     return MenuEntry(title, subtitle = subtitle, keepOpen = true, icon = { c -> Glyph(Glyphs.Refresh, 17.dp, c) }) { onRetry() }
+}
+
+/** The options to start the session with: only ones the model offers, picked away from its default. */
+internal fun optionsFor(model: ModelChoice?, picks: Map<String, String>): Map<String, String> {
+    val offered = model?.options.orEmpty()
+    return picks.filter { (id, choice) -> offered.any { o -> o.id == id && o.defaultChoice != choice && o.choices.any { it.id == choice } } }
 }

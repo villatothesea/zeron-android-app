@@ -152,6 +152,7 @@
     <string name="attachment">Attachment</string>
     <string name="change_session_failed">Couldn\'t change the session</string>
     <string name="model">Model</string>
+    <string name="model_options">Model options</string>
     <string name="model_list_stale">Couldn\'t get the latest list · Retry</string>
     <string name="model_list_reading">Reading the list…</string>
     <string name="model_list_showing_saved">Showing the list saved last time</string>

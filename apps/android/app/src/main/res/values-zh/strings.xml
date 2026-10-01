@@ -152,6 +152,7 @@
     <string name="attachment">附件</string>
     <string name="change_session_failed">无法更改会话设置</string>
     <string name="model">模型</string>
+    <string name="model_options">模型选项</string>
     <string name="model_list_stale">没能从电脑读取最新列表 · 重试</string>
     <string name="model_list_reading">正在从电脑读取列表…</string>
     <string name="model_list_showing_saved">显示的是上次保存的列表</string>

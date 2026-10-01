@@ -1526,7 +1526,7 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
 
     fun wallpaperName(): String? = prefs.getString("wallpaperName", null)
 
-    fun defaultConfig(harness: String, model: String?, effort: String?) = NewSessionConfig.chatConfig(harness, model, effort)
+    fun defaultConfig(harness: String, model: String?, effort: String?, modelOptions: Map<String, String> = emptyMap()) = NewSessionConfig.chatConfig(harness, model, effort, modelOptions)
 
     private fun watchNetwork() {
         val cm = getApplication<Application>().getSystemService(ConnectivityManager::class.java) ?: return
