@@ -10526,6 +10526,11 @@ data class SshEndpoint (
      * Tried alone this long before the next address joins (0 = until it fails).
      */
     var `headStartMs`: kotlin.UInt
+    , 
+    /**
+     * Give up reaching it (TCP + SSH handshake) after this long; 0 = 20 s.
+     */
+    var `connectTimeoutMs`: kotlin.UInt
     
 ){
     
@@ -10546,6 +10551,7 @@ public object FfiConverterTypeSshEndpoint: FfiConverterRustBuffer<SshEndpoint> {
             FfiConverterUShort.read(buf),
             FfiConverterString.read(buf),
             FfiConverterUInt.read(buf),
+            FfiConverterUInt.read(buf),
         )
     }
 
@@ -10553,7 +10559,8 @@ public object FfiConverterTypeSshEndpoint: FfiConverterRustBuffer<SshEndpoint> {
             FfiConverterString.allocationSize(value.`host`) +
             FfiConverterUShort.allocationSize(value.`port`) +
             FfiConverterString.allocationSize(value.`kind`) +
-            FfiConverterUInt.allocationSize(value.`headStartMs`)
+            FfiConverterUInt.allocationSize(value.`headStartMs`) +
+            FfiConverterUInt.allocationSize(value.`connectTimeoutMs`)
     )
 
     override fun write(value: SshEndpoint, buf: ByteBuffer) {
@@ -10561,6 +10568,7 @@ public object FfiConverterTypeSshEndpoint: FfiConverterRustBuffer<SshEndpoint> {
             FfiConverterUShort.write(value.`port`, buf)
             FfiConverterString.write(value.`kind`, buf)
             FfiConverterUInt.write(value.`headStartMs`, buf)
+            FfiConverterUInt.write(value.`connectTimeoutMs`, buf)
     }
 }
 

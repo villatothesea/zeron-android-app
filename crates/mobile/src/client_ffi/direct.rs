@@ -39,6 +39,8 @@ pub struct SshEndpoint {
     pub kind: String,
     /// Tried alone this long before the next address joins (0 = until it fails).
     pub head_start_ms: u32,
+    /// Give up reaching it (TCP + SSH handshake) after this long; 0 = 20 s.
+    pub connect_timeout_ms: u32,
 }
 
 impl From<SshEndpoint> for zd::SshEndpoint {
@@ -48,6 +50,7 @@ impl From<SshEndpoint> for zd::SshEndpoint {
             port: e.port,
             kind: e.kind,
             head_start_ms: e.head_start_ms,
+            connect_timeout_ms: e.connect_timeout_ms,
         }
     }
 }

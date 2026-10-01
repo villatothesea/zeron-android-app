@@ -75,6 +75,8 @@ class MachineStoreGroupingTest {
         assertEquals("192.168.1.102", target.host)
         assertEquals(listOf("lan", "tailscale"), target.endpoints.map { it.kind })
         assertEquals(listOf(1_500u, 0u), target.endpoints.map { it.headStartMs })
+        // A silent LAN IP gives up in seconds; Tailscale gets longer for a DERP relay.
+        assertEquals(listOf(4_000u, 12_000u), target.endpoints.map { it.connectTimeoutMs })
         assertTrue(target.endpoints.all { it.port.toInt() == 22 })
         // Default: saved order, one after another.
         assertEquals(listOf("100.124.7.39", "192.168.1.102"), store.target(villa).endpoints.map { it.host })

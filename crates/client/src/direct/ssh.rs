@@ -153,6 +153,15 @@ impl SshSession {
 
 /// Connect + verify the host key + authenticate.
 pub(crate) async fn connect(target: &SshTarget) -> Result<SshSession, SshError> {
+    connect_within(target, HANDSHAKE_TIMEOUT).await
+}
+
+/// [`connect`], giving up reaching the address (TCP + SSH handshake) after
+/// `reach` instead of the default.
+pub(crate) async fn connect_within(
+    target: &SshTarget,
+    reach: Duration,
+) -> Result<SshSession, SshError> {
     let config = Arc::new(client::Config {
         keepalive_interval: Some(KEEPALIVE),
         keepalive_max: KEEPALIVE_MAX,
@@ -172,8 +181,7 @@ pub(crate) async fn connect(target: &SshTarget) -> Result<SshSession, SshError> 
         seen: seen.clone(),
     };
     let addr = (target.host.trim().to_owned(), target.port);
-    let connected =
-        tokio::time::timeout(HANDSHAKE_TIMEOUT, client::connect(config, addr, handler)).await;
+    let connected = tokio::time::timeout(reach, client::connect(config, addr, handler)).await;
     let seen_key = crate::lock(&seen).clone();
     let mut handle = match connected {
         Err(_) => {

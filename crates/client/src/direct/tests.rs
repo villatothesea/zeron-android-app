@@ -179,6 +179,7 @@ fn endpoint(host: &str, kind: &str, head_start_ms: u32) -> SshEndpoint {
         port: 22,
         kind: kind.into(),
         head_start_ms,
+        connect_timeout_ms: 0,
     }
 }
 
@@ -622,6 +623,37 @@ async fn a_silent_lan_address_hands_over_to_tailscale_after_its_head_start() {
     let lan = &status.endpoints[0];
     assert!(lan.last_attempt_ms.is_some() && lan.last_ok_ms.is_none() && !lan.active);
     assert!(status.endpoints[1].latency_ms.is_some());
+    client.shutdown();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_silent_address_with_a_short_timeout_fails_fast() {
+    test_double("lan-silent.test", "hang");
+    test_double("ts-off.test", "hang");
+    let dir = tempfile::tempdir().unwrap();
+    let mut lan = endpoint("lan-silent.test", "lan", 100);
+    lan.connect_timeout_ms = 300;
+    let mut ts = endpoint("ts-off.test", "tailscale", 0);
+    ts.connect_timeout_ms = 600;
+    let client = direct_client_at("lan-silent.test", vec![lan, ts], dir.path());
+    let started = std::time::Instant::now();
+    wait_for(&client, "failed", |c| {
+        c.direct_status()
+            .is_some_and(|s| s.phase == DirectPhase::Failed)
+    })
+    .await;
+    // Both gave up on their own clock instead of the 20 s default.
+    assert!(started.elapsed() < Duration::from_secs(5));
+    let status = client.direct_status().unwrap();
+    for e in &status.endpoints {
+        assert!(
+            e.last_error
+                .as_deref()
+                .unwrap()
+                .contains("timed out reaching"),
+            "{e:?}"
+        );
+    }
     client.shutdown();
 }
 

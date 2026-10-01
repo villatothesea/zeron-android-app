@@ -159,6 +159,20 @@ object RoutePlanner {
     /** Tailscale may relay through DERP on a first connect; give it longer. */
     const val HEAD_START_MS = 4_000
 
+    /**
+     * How long reaching an address (TCP + SSH handshake) may take before it
+     * counts as failed. A LAN host answers in milliseconds when it's there;
+     * Tailscale may set up a DERP relay first. 0 = the core's 20 s.
+     */
+    const val LAN_TIMEOUT_MS = 4_000
+    const val TAILSCALE_TIMEOUT_MS = 12_000
+
+    fun connectTimeoutMs(kind: EndpointKind): Int = when (kind) {
+        EndpointKind.LAN -> LAN_TIMEOUT_MS
+        EndpointKind.TAILSCALE -> TAILSCALE_TIMEOUT_MS
+        EndpointKind.OTHER -> 0
+    }
+
     /** Tier this high or more: can't work on this network (LAN off Wi-Fi, Tailscale with its VPN off). */
     const val UNREACHABLE = 4
 

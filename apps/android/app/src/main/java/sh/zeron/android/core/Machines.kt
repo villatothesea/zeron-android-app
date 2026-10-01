@@ -214,5 +214,11 @@ class MachineStore(context: Context) {
 
 /** Planned addresses as the core's dial list. */
 fun sshEndpoints(route: List<RoutePlanner.Planned>): List<uniffi.zeron_core.SshEndpoint> = route.map {
-    uniffi.zeron_core.SshEndpoint(it.endpoint.host.trim(), it.endpoint.port.toUShort(), it.kind.wire, it.headStartMs.toUInt())
+    uniffi.zeron_core.SshEndpoint(
+        it.endpoint.host.trim(),
+        it.endpoint.port.toUShort(),
+        it.kind.wire,
+        it.headStartMs.toUInt(),
+        RoutePlanner.connectTimeoutMs(it.kind).toUInt(),
+    )
 }

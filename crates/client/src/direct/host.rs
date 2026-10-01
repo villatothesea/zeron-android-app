@@ -418,7 +418,9 @@ impl DirectHost {
                 self.note(format!("connecting to {user}@{}", endpoint.describe()));
                 self.endpoint_stat(&endpoint, |s| s.last_attempt_ms = Some(now_ms()));
                 let began = std::time::Instant::now();
-                let result = self.dial(&target).await;
+                let reach = (endpoint.connect_timeout_ms > 0)
+                    .then(|| Duration::from_millis(u64::from(endpoint.connect_timeout_ms)));
+                let result = self.dial(&target, reach).await;
                 (i, result, began.elapsed())
             }
         };
@@ -479,9 +481,12 @@ impl DirectHost {
         }
     }
 
+    /// One address: SSH (reaching it within `reach`, default 20 s), then
+    /// the tunnel to the engine.
     async fn dial(
         &self,
         target: &SshTarget,
+        reach: Option<Duration>,
     ) -> std::result::Result<(Option<SshSession>, zeron_rpc::RpcClient), SshError> {
         #[cfg(test)]
         {
@@ -491,7 +496,16 @@ impl DirectHost {
             match url.as_deref() {
                 // Test doubles: an address that never answers, one that
                 // refuses, one owned by some other SSH server.
-                Some("hang") => std::future::pending::<()>().await,
+                Some("hang") => match reach {
+                    Some(reach) => {
+                        tokio::time::sleep(reach).await;
+                        return Err(SshError::Connect(format!(
+                            "timed out reaching {}:{}",
+                            target.host, target.port
+                        )));
+                    }
+                    None => std::future::pending::<()>().await,
+                },
                 Some("refuse") => {
                     return Err(SshError::Connect(format!(
                         "{}:{} refused the connection",
@@ -514,7 +528,10 @@ impl DirectHost {
                 return Ok((None, rpc));
             }
         }
-        let ssh = ssh::connect(target).await?;
+        let ssh = match reach {
+            Some(reach) => ssh::connect_within(target, reach).await?,
+            None => ssh::connect(target).await?,
+        };
         self.note(format!(
             "SSH ready ({}); opening tunnel to 127.0.0.1:{}",
             ssh.host_algorithm, target.engine_port

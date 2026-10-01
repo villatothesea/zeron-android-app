@@ -132,6 +132,9 @@ pub struct SshEndpoint {
     /// How long this address is tried alone before the next one is dialled
     /// alongside it (Happy Eyeballs); 0 = only once this one has failed.
     pub head_start_ms: u32,
+    /// Give up reaching this address (TCP + SSH handshake) after this long,
+    /// so a silent LAN IP fails in seconds; 0 = the default (20 s).
+    pub connect_timeout_ms: u32,
 }
 
 impl SshEndpoint {
@@ -158,6 +161,7 @@ impl SshTarget {
                 port: self.port,
                 kind: String::new(),
                 head_start_ms: 0,
+                connect_timeout_ms: 0,
             }]
         } else {
             self.endpoints.clone()
