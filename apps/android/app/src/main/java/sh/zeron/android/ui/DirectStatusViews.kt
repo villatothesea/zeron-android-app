@@ -3,6 +3,7 @@ package sh.zeron.android.ui
 import sh.zeron.android.design.BackButton
 import sh.zeron.android.R
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.background
@@ -145,6 +146,17 @@ internal fun LinkDetailsScreen(model: ZeronModel) {
                 return@Column
             }
             GroupLabel(colors, model.activeTitle())
+            // Down: why, in terms of this phone's network, and the fix.
+            val view = model.connectionView()
+            if (view.dot == sh.zeron.android.core.ConnectionState.Dot.FAILED && view.diagnosis != null) {
+                Column(Modifier.fillMaxWidth().padding(bottom = 8.dp).clip(RoundedCornerShape(14.dp)).background(colors.elevated).padding(14.dp).testTag("details-diagnosis")) {
+                    FailureReason(colors, view)
+                    if (view.diagnosis.opensTailscale || view.diagnosis.installsTailscale) {
+                        Spacer(Modifier.height(12.dp))
+                        TailscaleAction(model, colors, view.diagnosis)
+                    }
+                }
+            }
             val state = when (status.phase) {
                 DirectPhase.LIVE -> stringResource(R.string.link_live)
                 DirectPhase.SYNCING -> stringResource(R.string.link_syncing)

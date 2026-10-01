@@ -482,6 +482,32 @@
     <string name="conn_hint_offline">No connection to Zeron Cloud. Check the network.</string>
     <string name="conn_kind_unknown">Not connected</string>
     <string name="conn_hint_unknown">See the details below, or open Connection Details.</string>
+    <!-- Connection diagnosis: the phone's own network explains the failure. -->
+    <string name="conn_diag_no_network">This phone is offline</string>
+    <string name="conn_diag_hint_no_network">Turn on Wi-Fi or mobile data; Zeron reconnects by itself.</string>
+    <string name="conn_diag_tailscale_off">Tailscale isn’t running</string>
+    <string name="conn_diag_hint_tailscale_off">This computer is reached through Tailscale, but Tailscale is off on this phone. Turn it on and Zeron reconnects by itself.</string>
+    <string name="conn_diag_hint_tailscale_off_lan">The computer’s LAN address didn’t answer, and Tailscale is off on this phone. Turn Tailscale on and Zeron reconnects by itself.</string>
+    <string name="conn_diag_hint_other_vpn">Another VPN is on. Android runs one VPN at a time: turn it off, then turn Tailscale on.</string>
+    <string name="conn_diag_away_tailscale_off">Not on the computer’s Wi-Fi, and Tailscale is off</string>
+    <string name="conn_diag_hint_away_tailscale_off">Join the same Wi-Fi as the computer, or turn Tailscale on here. Zeron reconnects by itself.</string>
+    <string name="conn_diag_tailscale_missing">Tailscale isn’t installed on this phone</string>
+    <string name="conn_diag_hint_tailscale_missing">Away from the computer’s Wi-Fi, Zeron connects through Tailscale. Install it and sign in with the same account as the computer.</string>
+    <string name="conn_diag_not_same_wifi">Not on the computer’s Wi-Fi</string>
+    <string name="conn_diag_hint_not_same_wifi">This computer has only LAN addresses. Join its Wi-Fi, or set up Tailscale on both and add the computer’s Tailscale address.</string>
+    <string name="conn_diag_hint_picked_lan">A LAN route is picked by hand. Pick the Tailscale route, or turn on Auto-Select Route.</string>
+    <string name="conn_diag_pc_unreachable">Tailscale is on, but the computer doesn’t answer</string>
+    <string name="conn_diag_hint_pc_unreachable">The computer may be asleep or off, or Tailscale may be off on the computer. Wake it, check its Tailscale is connected, then retry.</string>
+    <string name="conn_diag_lan_unreachable">On the same Wi-Fi, but the computer doesn’t answer</string>
+    <string name="conn_diag_hint_lan_unreachable">The computer may be asleep or off, or its IP address changed. Wake it and retry, or add its Tailscale address as a fallback.</string>
+    <string name="conn_reconnects_by_itself">Reconnects by itself once the network allows.</string>
+    <string name="conn_open_tailscale">Open Tailscale</string>
+    <string name="conn_install_tailscale">Install Tailscale</string>
+    <string name="conn_tailscale_missing_toast">Tailscale isn’t installed on this phone</string>
+    <string name="conn_status_group">Connection status</string>
+    <string name="conn_status_route">%1$s · via %2$s</string>
+    <string name="conn_status_inactive">Not the current computer</string>
+    <string name="conn_use_this_computer">Connect</string>
 
     <!-- Auto-update: settings toggle and title-bar badge -->
     <string name="auto_update">Auto-check &amp; download updates</string>

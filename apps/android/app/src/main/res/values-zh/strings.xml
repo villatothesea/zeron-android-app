@@ -477,6 +477,32 @@
     <string name="conn_hint_offline">无法连接 Zeron Cloud，请检查网络。</string>
     <string name="conn_kind_unknown">未连接</string>
     <string name="conn_hint_unknown">请查看下方详细信息，或打开“连接详情”。</string>
+    <!-- 连接诊断：用手机自身的网络情况解释失败原因。 -->
+    <string name="conn_diag_no_network">手机没有网络</string>
+    <string name="conn_diag_hint_no_network">打开 Wi-Fi 或移动数据后会自动重连。</string>
+    <string name="conn_diag_tailscale_off">Tailscale 未启动</string>
+    <string name="conn_diag_hint_tailscale_off">这台电脑需要通过 Tailscale 连接，但手机上的 Tailscale 没有开启。打开后会自动重连。</string>
+    <string name="conn_diag_hint_tailscale_off_lan">电脑的局域网地址没有响应，手机上的 Tailscale 也没有开启。打开 Tailscale 后会自动重连。</string>
+    <string name="conn_diag_hint_other_vpn">手机上开着其他 VPN。安卓同一时间只能开一个 VPN，请先关掉它，再打开 Tailscale。</string>
+    <string name="conn_diag_away_tailscale_off">不在电脑所在的 Wi-Fi，Tailscale 也未启动</string>
+    <string name="conn_diag_hint_away_tailscale_off">连上和电脑相同的 Wi-Fi，或打开手机上的 Tailscale，之后会自动重连。</string>
+    <string name="conn_diag_tailscale_missing">手机上没有安装 Tailscale</string>
+    <string name="conn_diag_hint_tailscale_missing">不在电脑所在的 Wi-Fi 时，需要通过 Tailscale 连接。请安装 Tailscale，并登录和电脑相同的账号。</string>
+    <string name="conn_diag_not_same_wifi">不在电脑所在的 Wi-Fi</string>
+    <string name="conn_diag_hint_not_same_wifi">这台电脑只有局域网地址。请连上同一 Wi-Fi，或在电脑和手机上都装好 Tailscale，再添加电脑的 Tailscale 地址。</string>
+    <string name="conn_diag_hint_picked_lan">当前手动选了局域网线路。请换到 Tailscale 线路，或打开“自动选择线路”。</string>
+    <string name="conn_diag_pc_unreachable">Tailscale 已开启，但连不上电脑</string>
+    <string name="conn_diag_hint_pc_unreachable">电脑可能睡眠或关机了，也可能电脑上的 Tailscale 没有开启。唤醒电脑、确认它的 Tailscale 已连接后重试。</string>
+    <string name="conn_diag_lan_unreachable">同一 Wi-Fi 下，电脑没有响应</string>
+    <string name="conn_diag_hint_lan_unreachable">电脑可能睡眠或关机了，或者它的 IP 地址变了。唤醒电脑后重试，或添加它的 Tailscale 地址作为备用。</string>
+    <string name="conn_reconnects_by_itself">网络条件满足后会自动重连。</string>
+    <string name="conn_open_tailscale">打开 Tailscale</string>
+    <string name="conn_install_tailscale">安装 Tailscale</string>
+    <string name="conn_tailscale_missing_toast">手机上没有安装 Tailscale</string>
+    <string name="conn_status_group">连接状态</string>
+    <string name="conn_status_route">%1$s · 经%2$s</string>
+    <string name="conn_status_inactive">不是当前使用的电脑</string>
+    <string name="conn_use_this_computer">连接</string>
 
     <!-- Auto-update: settings toggle and title-bar badge -->
     <string name="auto_update">自动检查并下载更新</string>

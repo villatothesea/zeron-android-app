@@ -317,7 +317,7 @@ private fun SheetLink(colors: ZeronColors, label: String, onClick: () -> Unit) {
     )
 }
 
-private fun ConnectionIssue.Kind.titleRes(): Int = when (this) {
+internal fun ConnectionIssue.Kind.titleRes(): Int = when (this) {
     ConnectionIssue.Kind.TIMEOUT -> R.string.conn_kind_timeout
     ConnectionIssue.Kind.REFUSED -> R.string.conn_kind_refused
     ConnectionIssue.Kind.UNREACHABLE -> R.string.conn_kind_unreachable
@@ -335,7 +335,7 @@ private fun ConnectionIssue.Kind.titleRes(): Int = when (this) {
     ConnectionIssue.Kind.UNKNOWN -> R.string.conn_kind_unknown
 }
 
-private fun ConnectionIssue.Kind.hintRes(): Int = when (this) {
+internal fun ConnectionIssue.Kind.hintRes(): Int = when (this) {
     ConnectionIssue.Kind.TIMEOUT -> R.string.conn_hint_timeout
     ConnectionIssue.Kind.REFUSED -> R.string.conn_hint_refused
     ConnectionIssue.Kind.UNREACHABLE -> R.string.conn_hint_unreachable
@@ -362,7 +362,8 @@ private fun ConnectionIssue.Kind.hintRes(): Int = when (this) {
 internal fun ConnectionFailureSheet(model: ZeronModel, colors: ZeronColors) {
     val close = { model.connectionSheet = null }
     val view = model.connectionView()
-    val kind = if (view.workspace == ConnectionState.Workspace.CLOUD) ConnectionIssue.Kind.OFFLINE else ConnectionIssue.classify(view.error)
+    val diagnosis = view.diagnosis
+    val kind = diagnosis?.issue ?: if (view.workspace == ConnectionState.Workspace.CLOUD) ConnectionIssue.Kind.OFFLINE else ConnectionIssue.classify(view.error)
     var details by rememberSaveable { mutableStateOf(false) }
     BottomSheetFrame(colors, onDismiss = close, tag = "connection-failure") {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -371,11 +372,15 @@ internal fun ConnectionFailureSheet(model: ZeronModel, colors: ZeronColors) {
             Box(Modifier.weight(1f)) { SheetTitle(colors, stringResource(R.string.conn_fail_title, view.title)) }
         }
         Spacer(Modifier.height(14.dp))
-        Text(stringResource(kind.titleRes()), color = colors.text, fontFamily = ZeronType.Sans, fontWeight = FontWeight.Medium, fontSize = 15.sp)
-        Spacer(Modifier.height(4.dp))
-        Text(stringResource(kind.hintRes()), color = colors.secondary, fontFamily = ZeronType.Sans, fontSize = 14.sp, lineHeight = 20.sp)
+        FailureReason(colors, view)
         val retryAt = view.retryAtMs
-        if (retryAt != null || kind.needsUser) {
+        if (diagnosis?.early == true) {
+            // Found before the dial gave up: no countdown, it redials when the network changes.
+            if (diagnosis.showsReconnectLine) {
+                Spacer(Modifier.height(8.dp))
+                Text(stringResource(R.string.conn_reconnects_by_itself), color = colors.tertiary, fontFamily = ZeronType.Sans, fontSize = 13.sp)
+            }
+        } else if (retryAt != null || kind.needsUser) {
             Spacer(Modifier.height(8.dp))
             var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
             if (retryAt != null) LaunchedEffect(retryAt) { while (true) { now = System.currentTimeMillis(); delay(1000) } }
@@ -439,8 +444,13 @@ internal fun ConnectionFailureSheet(model: ZeronModel, colors: ZeronColors) {
             }
         }
         Spacer(Modifier.height(18.dp))
+        val fix = diagnosis?.opensTailscale == true || diagnosis?.installsTailscale == true
+        if (fix) {
+            TailscaleAction(model, colors, diagnosis)
+            Spacer(Modifier.height(10.dp))
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Pill(colors, stringResource(R.string.conn_retry), primary = true) { model.retryConnection() }
+            Pill(colors, stringResource(R.string.conn_retry), primary = !fix) { model.retryConnection() }
             Pill(colors, stringResource(R.string.switch_computer)) { model.connectionSheet = ZeronModel.ConnectionSheet.SWITCHER }
             Spacer(Modifier.weight(1f))
             Pill(colors, stringResource(R.string.close)) { close() }

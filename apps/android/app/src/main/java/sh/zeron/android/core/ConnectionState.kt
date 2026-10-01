@@ -25,6 +25,8 @@ object ConnectionState {
         val id: String = "",
         /** Which of the computer's addresses the link runs over (LAN, Tailscale…), when connected. */
         val route: EndpointKind? = null,
+        /** Why it's down in terms of the phone's network (Tailscale off…), when known. */
+        val diagnosis: ConnectionDiagnosis.Result? = null,
     )
 
     fun dot(workspace: Workspace, loading: Boolean, direct: DirectPhase?, cloud: ConnectivityState?): Dot = when {

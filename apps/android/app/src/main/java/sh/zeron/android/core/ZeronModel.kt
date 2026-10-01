@@ -143,6 +143,9 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
     var network by mutableStateOf(NetworkSnapshot.UNKNOWN)
         internal set
     private var networkWatcher: NetworkWatcher? = null
+    /** The Tailscale app is installed on this phone (re-read on connect and foreground). */
+    var tailscaleInstalled by mutableStateOf(Tailscale.installed(app))
+        internal set
     private var rerouteJob: Job? = null
     /** When the link last changed address (uptime ms), to damp upgrades. */
     private var lastRouteMoveAt = 0L
@@ -472,6 +475,7 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
         showMachines = false
         showSignIn = false
         network = networkWatcher?.snapshot ?: NetworkWatcher.current(getApplication())
+        refreshTailscale()
         lastActiveEndpoint = null
         val target = runCatching { machineStore.target(machine, route = machineStore.plan(machine, network)) }.getOrElse {
             phase = Phase.Failed(it.message ?: str(R.string.machine_key_failed))
@@ -499,16 +503,65 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
             else -> ConnectionState.Workspace.DIRECT
         }
         val status = directStatus
-        val dot = ConnectionState.dot(workspaceKind, phase is Phase.Loading, status?.phase, connectivity?.state)
+        var dot = ConnectionState.dot(workspaceKind, phase is Phase.Loading, status?.phase, connectivity?.state)
+        val diagnosis = if (workspaceKind == ConnectionState.Workspace.DIRECT) connectionDiagnosis() else null
+        // Fail fast: nothing in the dial order can work on this network
+        // (Tailscale off away from home…): red at once, with the reason,
+        // while the core keeps dialling in case the guess is wrong.
+        if (diagnosis?.early == true && dot == ConnectionState.Dot.CONNECTING) dot = ConnectionState.Dot.FAILED
         return ConnectionState.View(
             title = activeTitle(),
             workspace = workspaceKind,
             dot = dot,
             error = status?.lastError?.takeIf { dot == ConnectionState.Dot.FAILED },
-            retryAtMs = status?.retryAtMs?.takeIf { dot == ConnectionState.Dot.FAILED },
+            retryAtMs = status?.retryAtMs?.takeIf { dot == ConnectionState.Dot.FAILED && status?.phase == uniffi.zeron_core.DirectPhase.FAILED },
             id = activeMachine,
             route = activeRoute()?.takeIf { dot == ConnectionState.Dot.CONNECTED },
+            diagnosis = diagnosis.takeIf { dot == ConnectionState.Dot.FAILED },
         )
+    }
+
+    /**
+     * The active computer's link in terms of the phone's network: why
+     * nothing can work here (before the dial gives up), or why it failed.
+     * Null while connected, or with nothing to add. Reads Compose state.
+     */
+    fun connectionDiagnosis(): ConnectionDiagnosis.Result? {
+        val machine = machines.firstOrNull { it.id == activeMachine } ?: return null
+        val status = directStatus
+        if (status?.phase == uniffi.zeron_core.DirectPhase.LIVE || status?.phase == uniffi.zeron_core.DirectPhase.SYNCING) return null
+        routePicks
+        val addresses = machine.addresses()
+        val input = ConnectionDiagnosis.Input(
+            addresses = addresses,
+            dialled = if (autoRoute) addresses else listOf(pinnedAddress(machine)),
+            net = network,
+            tailscaleInstalled = tailscaleInstalled,
+            autoRoute = autoRoute,
+        )
+        ConnectionDiagnosis.preflight(input)?.let { return it }
+        if (status?.phase != uniffi.zeron_core.DirectPhase.FAILED) return null
+        val errors = status.endpoints.associate { Endpoint(it.host, it.port.toInt()).key to it.lastError }
+        return ConnectionDiagnosis.diagnose(input, status.lastError, errors)
+    }
+
+    fun refreshTailscale() {
+        tailscaleInstalled = Tailscale.installed(getApplication())
+    }
+
+    /** "打开 Tailscale": its app, or its store page (with a note) when it isn't installed. */
+    fun openTailscale() {
+        val app = getApplication<Application>()
+        if (!Tailscale.open(app)) {
+            refreshTailscale()
+            showToast(str(R.string.conn_tailscale_missing_toast))
+            Tailscale.openStore(app)
+        }
+    }
+
+    /** "安装 Tailscale": its store page. */
+    fun installTailscale() {
+        Tailscale.openStore(getApplication())
     }
 
     /** Pops the failure sheet once per failure episode; closes it once connected. */
@@ -1475,10 +1528,14 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
                 rerouteJob?.cancel()
                 rerouteJob = viewModelScope.launch {
                     delay(NETWORK_SETTLE_MS)
+                    refreshTailscale()
                     if (snap != network) {
                         network = snap
-                        // Auto-select off: the picked address stays, whatever the network.
-                        if (autoRoute) reroute(force = false)
+                        // Auto-select off: the picked address stays, whatever the
+                        // network (the manual plan holds only it); a down link
+                        // still redials it, e.g. once Tailscale is switched on.
+                        reroute(force = false)
+                        noteConnection()
                     }
                 }
             }
@@ -1490,6 +1547,9 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
 
     fun onForeground() {
         client?.onForeground()
+        val hadTailscale = tailscaleInstalled
+        refreshTailscale()
+        if (hadTailscale != tailscaleInstalled) noteConnection()
         if (awaitingInstallGrant && updater.canInstall()) installUpdate()
         startForegroundChecks()
     }
