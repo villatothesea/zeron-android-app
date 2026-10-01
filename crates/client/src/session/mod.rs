@@ -947,6 +947,13 @@ impl SessionHandle {
             // chat someone is looking at).
             room.kick();
         }
+        if !attached
+            && was
+            && let Ok(client) = self.core.client()
+            && let Some(direct) = client.direct()
+        {
+            direct.session_detached();
+        }
         if attached && !was {
             self.mark_seen();
             // Direct links stream only the transcripts on screen.

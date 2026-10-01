@@ -170,6 +170,22 @@ pub(crate) async fn connect_within(
         // russh parks its whole session loop when a channel's queue is full;
         // leave room for a burst of snapshot frames.
         channel_buffer_size: 1024,
+        // Ask for zlib (OpenSSH's delayed zlib@openssh.com first). russh
+        // lists "none" first by default, so the session ran uncompressed
+        // although Windows OpenSSH offers zlib (Compression delayed is its
+        // default). Transcript JSON deflates ~3x (measured on a 0.2.101
+        // engine: tail 56→17 KB, reset 1.7→0.55 MB / 8.4→2.95 MB, a running
+        // turn's 80 KB update → 24 KB), which on a ~20 KB/s DERP relay is the
+        // difference between a running chat keeping up and falling minutes
+        // behind. A server without zlib negotiates "none" as before.
+        preferred: russh::Preferred {
+            compression: std::borrow::Cow::Borrowed(&[
+                russh::compression::ZLIB_LEGACY,
+                russh::compression::ZLIB,
+                russh::compression::NONE,
+            ]),
+            ..russh::Preferred::DEFAULT
+        },
         ..Default::default()
     });
     let seen = Arc::new(Mutex::new(None));

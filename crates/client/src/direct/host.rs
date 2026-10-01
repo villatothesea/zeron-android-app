@@ -89,11 +89,21 @@ struct Link {
     /// slow relay ListHarnesses/ListModels timed out though the engine
     /// answered in well under a second. `None`: share `rpc`.
     calls: Option<zeron_rpc::RpcClient>,
-    /// The on-screen transcript (`WatchDocMessages`) on a third channel: its
-    /// multi-MB opening snapshot no longer holds back the session heartbeats
-    /// on `rpc` (rows flipping to "done") or replies on `calls`. `None`:
-    /// share `rpc`.
-    transcripts: Option<zeron_rpc::RpcClient>,
+    /// A spare tunnel channel/WebSocket for the next transcript opened.
+    /// Every on-screen transcript streams on its own channel, closed when
+    /// it leaves the screen: the engine writes each connection's frames in
+    /// order (and queues up to 256 of them), so on a shared channel a chat
+    /// opened next waited behind the rest of the previous chat's multi-MB
+    /// reset and queued deltas — a cancel can't recall frames already
+    /// queued, but closing the channel makes sshd drop them. The spare is
+    /// opened ahead so an open costs no extra round trips. `None` with no
+    /// SSH (test engine) or when the machine won't open more channels:
+    /// transcripts share `rpc`.
+    transcript_spare: Mutex<Option<zeron_rpc::RpcClient>>,
+    /// Per-chat transcript channels are possible (SSH, and the machine
+    /// opened the extra channels at connect).
+    transcript_channels: bool,
+    engine_port: u16,
     cancel: CancellationToken,
     engine_device_id: String,
     /// When the feed connection last delivered a registry frame or a probe
@@ -116,8 +126,36 @@ impl Link {
         self.calls.as_ref().unwrap_or(&self.rpc)
     }
 
-    fn transcripts(&self) -> &zeron_rpc::RpcClient {
-        self.transcripts.as_ref().unwrap_or(&self.rpc)
+    /// A channel of its own for one transcript (the spare, refilled in the
+    /// background), or `None`: stream on the feed connection.
+    async fn transcript_channel(self: &Arc<Self>) -> Option<zeron_rpc::RpcClient> {
+        if !self.transcript_channels {
+            return None;
+        }
+        let spare = lock(&self.transcript_spare).take();
+        let channel = match spare {
+            Some(channel) => Some(channel),
+            None => self.open_transcript_channel().await,
+        };
+        // Refill the spare for the next chat.
+        let link = self.clone();
+        crate::runtime::shared().spawn(async move {
+            if lock(&link.transcript_spare).is_some() || link.cancel.is_cancelled() {
+                return;
+            }
+            if let Some(channel) = link.open_transcript_channel().await {
+                let mut slot = lock(&link.transcript_spare);
+                if slot.is_none() && !link.cancel.is_cancelled() {
+                    *slot = Some(channel);
+                }
+            }
+        });
+        channel
+    }
+
+    async fn open_transcript_channel(&self) -> Option<zeron_rpc::RpcClient> {
+        let ssh = self.ssh.as_ref()?;
+        ssh.open_engine(self.engine_port).await.ok()
     }
 }
 
@@ -474,11 +512,14 @@ impl DirectHost {
             },
             _ => None,
         };
+        let transcript_channels = transcripts.is_some();
         Ok(Link {
             ssh,
             rpc,
             calls,
-            transcripts,
+            transcript_spare: Mutex::new(transcripts),
+            transcript_channels,
+            engine_port: self.target.engine_port,
             cancel: CancellationToken::new(),
             engine_device_id,
             heard_ms: std::sync::atomic::AtomicI64::new(now_ms()),
@@ -702,9 +743,21 @@ impl DirectHost {
                 link.cancel.cancel();
             });
         }
-        // The computer's CLI/model lists first (on the request channel),
-        // before any transcript starts streaming: New Session then has
-        // live lists saved even if the link gets busy later.
+        // Re-attach every open session and flush commands queued offline.
+        // The transcript on screen first: it streams on its own channel, and
+        // holding it back for the CLI/model lists (below) only delayed the
+        // newest rows by up to CATALOG_HEAD_START after every reconnect.
+        if let Some(client) = self.client.upgrade() {
+            for core in client.cores() {
+                if Self::wants_mirror(&core) {
+                    self.restart_mirror(&core, &link);
+                }
+                self.on_command(&core.chat_id);
+            }
+        }
+        // The computer's CLI/model lists (on the request channel), before
+        // anything else is asked for: New Session then has live lists saved
+        // even if the link gets busy later.
         if let Some(client) = self.client.upgrade() {
             let (done, read) = tokio::sync::oneshot::channel::<()>();
             let device = link.engine_device_id.clone();
@@ -722,15 +775,6 @@ impl DirectHost {
             }
         }
         self.refresh_catalog_while_up(&link, cancel);
-        // Re-attach every open session and flush commands queued offline.
-        if let Some(client) = self.client.upgrade() {
-            for core in client.cores() {
-                if Self::wants_mirror(&core) {
-                    self.restart_mirror(&core, &link);
-                }
-                self.on_command(&core.chat_id);
-            }
-        }
 
         let mut beat = tokio::time::interval(BEAT);
         let sync_deadline = tokio::time::sleep(SYNC_TIMEOUT);
@@ -1233,6 +1277,13 @@ impl DirectHost {
         self.session_opened(core);
     }
 
+    /// A session's view left the screen: stop its stream now rather than at
+    /// the next beat (its channel closes, dropping whatever the engine had
+    /// queued on it).
+    pub(crate) fn session_detached(&self) {
+        self.reconcile_mirrors();
+    }
+
     /// Stop mirrors nobody needs any more (see [`Self::wants_mirror`]).
     fn reconcile_mirrors(&self) {
         let mut mirrors = lock(&self.mirrors);
@@ -1378,13 +1429,19 @@ async fn mirror_transcript(
         Some(core) => core.doc().read_entries().unwrap_or_default(),
         None => return,
     };
+    // This transcript's own channel (see `Link::transcript_spare`); dropped
+    // (closing the channel) when the mirror ends.
+    let own = tokio::select! {
+        _ = token.cancelled() => return,
+        own = link.transcript_channel() => own,
+    };
+    let rpc = own.as_ref().unwrap_or(&link.rpc);
     loop {
         // `openingTail`: the engine first sends the newest ~128 parts
         // (`historyPending: true`), then the complete reset, then deltas.
         // Engines without it ignore the flag and open with the reset.
         let params = serde_json::json!({ "chatId": chat_id, "openingTail": true });
-        let mut sub = match link
-            .transcripts()
+        let mut sub = match rpc
             .subscribe_scoped(zeron_rpc::methods::WATCH_DOC_MESSAGES, params)
             .await
         {

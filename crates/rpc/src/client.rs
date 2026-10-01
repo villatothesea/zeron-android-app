@@ -42,6 +42,10 @@ pub struct RpcClient {
     shared: Arc<Shared>,
     next_id: AtomicU64,
     reader: tokio::task::JoinHandle<()>,
+    /// The WebSocket's socket reader (`spawn_ws`), aborted on drop so the
+    /// transport (an SSH channel) closes now instead of after the message
+    /// in progress — possibly megabytes on a slow link — finishes.
+    transport: Option<tokio::task::AbortHandle>,
 }
 
 /// Owned stream receiver whose drop immediately cancels the server task.
@@ -141,6 +145,7 @@ impl RpcClient {
             shared,
             next_id: AtomicU64::new(1),
             reader,
+            transport: None,
         }
     }
 
@@ -276,6 +281,9 @@ impl RpcClient {
 impl Drop for RpcClient {
     fn drop(&mut self) {
         self.reader.abort();
+        if let Some(transport) = &self.transport {
+            transport.abort();
+        }
     }
 }
 
@@ -423,7 +431,7 @@ where
             }
         }
     });
-    tokio::spawn(async move {
+    let transport = tokio::spawn(async move {
         // Dropped on exit: stops the writer.
         let _closed = closed_tx;
         while let Some(message) = stream.next().await {
@@ -438,7 +446,9 @@ where
             }
         }
     });
-    RpcClient::new(out_tx, in_rx)
+    let mut client = RpcClient::new(out_tx, in_rx);
+    client.transport = Some(transport.abort_handle());
+    client
 }
 
 #[cfg(test)]

@@ -13074,6 +13074,7 @@ version = "0.2.94"
 dependencies = [
  "async-trait",
  "chrono",
+ "flate2",
  "futures",
  "loro",
  "reqwest",
