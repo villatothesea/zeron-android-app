@@ -3,10 +3,12 @@ package sh.zeron.android.screenshots
 import android.app.Application
 import android.os.Looper
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
+import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.performScrollTo
 import androidx.lifecycle.ViewModelProvider
 import androidx.test.core.app.ActivityScenario
@@ -150,7 +152,8 @@ class DeviceGroupsScreenshotTest {
             settle()
             capture("02-chip-tailscale-$suffix.png")
 
-            compose.onNodeWithTag("connection-chip").performClick()
+            // Long-press: the quick switcher (a tap opens the computer page).
+            compose.onNodeWithTag("connection-chip").performTouchInput { longClick() }
             settle()
             check(model.connectionSheet == ZeronModel.ConnectionSheet.SWITCHER)
             capture("03-switcher-$suffix.png")
@@ -170,7 +173,8 @@ class DeviceGroupsScreenshotTest {
             model.directStatus = status(DirectPhase.FAILED, down, error = "no route to host (os error 113) reaching 100.124.7.39:22", retryAtMs = System.currentTimeMillis() + 12_500)
             pin(Dot.FAILED, null, error = "no route to host (os error 113) reaching 100.124.7.39:22", retryAtMs = System.currentTimeMillis() + 12_500)
             settle()
-            compose.onNodeWithTag("connection-chip").performClick()
+            // The failure sheet pops by itself once per episode (a chip tap opens the computer page).
+            model.connectionSheet = ZeronModel.ConnectionSheet.FAILURE
             settle()
             check(model.connectionSheet == ZeronModel.ConnectionSheet.FAILURE)
             compose.onNodeWithTag("failure-endpoints", useUnmergedTree = true).assertExists()
@@ -246,7 +250,8 @@ class DeviceGroupsScreenshotTest {
             settle()
 
             // Switcher: Villa opens up into its addresses, the one in use ticked.
-            compose.onNodeWithTag("connection-chip").performClick()
+            // Long-press: the quick switcher (a tap opens the computer page).
+            compose.onNodeWithTag("connection-chip").performTouchInput { longClick() }
             settle()
             compose.onNodeWithTag("switcher-routes-${villa.id}", useUnmergedTree = true).assertExists()
             capture("11-switcher-manual-route-$suffix.png")

@@ -327,6 +327,7 @@ fun MachineEditScreen(model: ZeronModel, initial: Machine) {
             )
         }
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
+            if (existing) ConnectionStatusCard(model, colors, initial)
             GroupLabel(colors, stringResource(R.string.computer))
             Field(colors, stringResource(R.string.field_name), name, stringResource(R.string.name_hint)) { name = it }
             Row {

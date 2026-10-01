@@ -571,9 +571,26 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
         if (dot == ConnectionState.Dot.CONNECTED && connectionSheet == ConnectionSheet.FAILURE) connectionSheet = null
     }
 
-    /** Chip tap: the failure reason while red, else the quick switcher. */
+    /**
+     * Chip tap: Settings > 账户与电脑 > the active computer's page (its link
+     * state, the failure reason and fixes on top); Demo / Cloud open the
+     * computers list. Back walks up that path.
+     */
     fun openConnectionChip() {
-        connectionSheet = if (connectionView().dot == ConnectionState.Dot.FAILED) ConnectionSheet.FAILURE else ConnectionSheet.SWITCHER
+        connectionSheet = null
+        val id = connectionView().id
+        tab = Tab.Settings
+        showMachines = true
+        editMachine = machines.firstOrNull { it.id == id }
+    }
+
+    /** Chip long-press (and "切换电脑" on the computer page): the quick switcher over home. */
+    fun openSwitcher() {
+        editMachine = null
+        showMachines = false
+        if (tab != Tab.Sessions) tab = Tab.Sessions
+        sessionStack.clear()
+        connectionSheet = ConnectionSheet.SWITCHER
     }
 
     /** Switcher pick: "demo", "cloud" or a machine id. The current one retries if it's down. */

@@ -12,6 +12,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -103,17 +104,29 @@ internal fun ConnectionState.Dot.label(): String = stringResource(
 /**
  * Home title bar chip (iOS title-menu style): dot + computer name + small
  * chevron. Long names ellipsize; the caller gives it a bounded width.
+ * Tap: the computer's page (link state, why it's down, fixes); long-press:
+ * the quick switcher.
  */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 internal fun ConnectionChip(model: ZeronModel, colors: ZeronColors, modifier: Modifier = Modifier) {
     val view = model.connectionView()
     val desc = stringResource(R.string.conn_chip_desc, view.title, view.dot.label())
+    val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
     Row(
         modifier
             .height(30.dp)
             .clip(RoundedCornerShape(15.dp))
             .background(colors.controlFill)
-            .clickable(role = Role.Button, onClick = { model.openConnectionChip() })
+            .combinedClickable(
+                role = Role.Button,
+                onLongClickLabel = stringResource(R.string.switch_computer),
+                onLongClick = {
+                    haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                    model.openSwitcher()
+                },
+                onClick = { model.openConnectionChip() },
+            )
             .semantics(mergeDescendants = true) { contentDescription = desc }
             .testTag("connection-chip")
             .padding(start = 8.dp, end = 6.dp),

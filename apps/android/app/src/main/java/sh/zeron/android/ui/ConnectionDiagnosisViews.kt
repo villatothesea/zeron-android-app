@@ -107,3 +107,57 @@ internal fun FailureReason(colors: ZeronColors, view: ConnectionState.View) {
     Spacer(Modifier.height(4.dp))
     Text(stringResource(hint), color = colors.secondary, fontFamily = ZeronType.Sans, fontSize = 14.sp, lineHeight = 20.sp)
 }
+
+/**
+ * Top of a computer's page (Settings > 账户与电脑 > computer, also what the
+ * home chip opens): the link's state and route; when it's down, why and
+ * the fix (打开 Tailscale…), then Retry / Connection Details / Switch.
+ * Another computer than the active one gets Connect / Switch.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+internal fun ConnectionStatusCard(model: ZeronModel, colors: ZeronColors, machine: Machine) {
+    val view = model.connectionView()
+    val active = view.id == machine.id
+    GroupLabel(colors, stringResource(R.string.conn_status_group))
+    Column(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(colors.elevated).padding(14.dp).testTag("computer-status"),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (active) ConnectionDot(view.dot, colors)
+            else androidx.compose.foundation.layout.Box(Modifier.size(8.dp).clip(CircleShape).background(colors.hairline))
+            Spacer(Modifier.width(10.dp))
+            val line = when {
+                !active -> stringResource(R.string.conn_status_inactive)
+                view.route != null -> stringResource(R.string.conn_status_route, view.dot.label(), view.route.label())
+                else -> view.dot.label()
+            }
+            Text(line, color = colors.text, fontFamily = ZeronType.Sans, fontWeight = FontWeight.Medium, fontSize = 15.sp)
+        }
+        if (active && view.dot == ConnectionState.Dot.FAILED) {
+            Spacer(Modifier.height(10.dp))
+            FailureReason(colors, view)
+            if (view.diagnosis?.showsReconnectLine == true) {
+                Spacer(Modifier.height(6.dp))
+                Text(stringResource(R.string.conn_reconnects_by_itself), color = colors.tertiary, fontFamily = ZeronType.Sans, fontSize = 13.sp)
+            }
+            if (view.diagnosis?.opensTailscale == true || view.diagnosis?.installsTailscale == true) {
+                Spacer(Modifier.height(12.dp))
+                TailscaleAction(model, colors, view.diagnosis)
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (active) {
+                if (view.dot == ConnectionState.Dot.FAILED) Pill(colors, stringResource(R.string.conn_retry), primary = view.diagnosis?.opensTailscale != true) { model.retryConnection() }
+                Pill(colors, stringResource(R.string.connection_details)) { model.showLinkDetails = true }
+            } else if (machine.hostKey != null) {
+                Pill(colors, stringResource(R.string.conn_use_this_computer), primary = true) {
+                    model.editMachine = null
+                    model.switchConnection(machine.id)
+                }
+            }
+            Pill(colors, stringResource(R.string.switch_computer)) { model.openSwitcher() }
+        }
+    }
+}

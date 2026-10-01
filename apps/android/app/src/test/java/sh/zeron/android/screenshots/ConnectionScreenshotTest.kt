@@ -3,10 +3,12 @@ package sh.zeron.android.screenshots
 import android.app.Application
 import android.os.Looper
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
+import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.performScrollToNode
 import androidx.lifecycle.ViewModelProvider
 import androidx.test.core.app.ActivityScenario
@@ -90,19 +92,21 @@ open class ConnectionScreenshotTest {
             settle()
             capture("connection/04-chip-long-name-$suffix.png")
 
-            // Chip tap -> quick switcher.
+            // Chip long-press -> quick switcher.
             pin(Dot.CONNECTED)
             settle()
-            compose.onNodeWithTag("connection-chip").performClick()
+            // Long-press: the quick switcher (a tap opens the computer page).
+            compose.onNodeWithTag("connection-chip").performTouchInput { longClick() }
             settle()
             check(model.connectionSheet == ZeronModel.ConnectionSheet.SWITCHER)
             capture("connection/05-switcher-$suffix.png")
             model.connectionSheet = null
 
-            // Red chip tap -> failure sheet (timeout, automatic retry pending).
+            // Failure sheet (timeout, automatic retry pending).
             pin(Dot.FAILED, error = "timed out reaching 192.168.1.20:22", retryAtMs = System.currentTimeMillis() + 12_500)
             settle()
-            compose.onNodeWithTag("connection-chip").performClick()
+            // The failure sheet pops by itself once per episode (a chip tap opens the computer page).
+            model.connectionSheet = ZeronModel.ConnectionSheet.FAILURE
             settle()
             check(model.connectionSheet == ZeronModel.ConnectionSheet.FAILURE)
             capture("connection/06-failure-timeout-$suffix.png")
