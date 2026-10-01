@@ -47,6 +47,10 @@ pub(crate) const CATALOG_REFRESH: Duration = Duration::from_secs(30 * 60);
 /// is evicted. On-screen sessions, streaming ones and ones with unadopted
 /// sends are never evicted.
 pub const WARM_SESSION_CAP: usize = 6;
+/// Over a direct link: transcripts kept in memory after leaving them (the
+/// most recently viewed, not streaming). Coming back shows the kept one at
+/// once while it resubscribes; older ones are dropped and load again.
+pub const DIRECT_KEPT_TRANSCRIPTS: usize = 3;
 /// Sessions `preload_sessions` warms (front page order).
 pub const PRELOAD_CAP: usize = 4;
 
@@ -592,20 +596,31 @@ impl ClientInner {
     }
 
     /// Drop the least recently used detached, quiet sessions past the cap.
+    /// Over a direct link a detached transcript no longer streams (its
+    /// "streaming" flag is just where it stood when it left), so only the
+    /// [`DIRECT_KEPT_TRANSCRIPTS`] most recently viewed stay.
     pub(crate) fn evict_sessions(&self) {
+        let direct = self.direct().is_some();
+        let cap = if direct {
+            DIRECT_KEPT_TRANSCRIPTS
+        } else {
+            WARM_SESSION_CAP
+        };
         let mut sessions = lock(&self.sessions);
         let mut idle: Vec<(i64, String)> = sessions
             .values()
             .filter(|core| {
-                !core.view_attached() && !core.has_pending_sends() && !core.snapshot().streaming
+                !core.view_attached()
+                    && !core.has_pending_sends()
+                    && (direct || !core.snapshot().streaming)
             })
             .map(|core| (core.touched_ms(), core.chat_id.clone()))
             .collect();
-        if idle.len() <= WARM_SESSION_CAP {
+        if idle.len() <= cap {
             return;
         }
         idle.sort();
-        let excess = idle.len() - WARM_SESSION_CAP;
+        let excess = idle.len() - cap;
         for (_, chat_id) in idle.into_iter().take(excess) {
             tracing::debug!(chat = %chat_id, "evicting warm session");
             sessions.remove(&chat_id);

@@ -87,6 +87,9 @@ enum Mode {
     /// (`historyPending`), the complete transcript 600 ms later. Later
     /// subscriptions to the same chat send only the tail.
     OpeningTail,
+    /// Like OpeningTail, but a later subscription's tail also carries a
+    /// row written while nobody watched (m4), and no complete reset.
+    GrowingTail,
 }
 
 fn transcript_entry(id: &str) -> serde_json::Value {
@@ -159,7 +162,12 @@ impl RpcService for Engine {
                 "watch": chat, "openingTail": params["openingTail"].clone()
             }));
             let guard = Unwatch(self.1.clone(), chat);
-            let opening: Vec<serde_json::Value> = if self.0 == Mode::OpeningTail {
+            let opening: Vec<serde_json::Value> = if self.0 == Mode::GrowingTail && earlier > 0 {
+                vec![serde_json::json!({
+                    "reset": [transcript_entry("m3"), transcript_entry("m4")],
+                    "historyPending": true
+                })]
+            } else if matches!(self.0, Mode::OpeningTail | Mode::GrowingTail) {
                 let tail = serde_json::json!({
                     "reset": [transcript_entry("m3")], "historyPending": true
                 });
@@ -1416,4 +1424,171 @@ async fn a_failing_refresh_keeps_the_saved_catalog() {
     assert_eq!(read.source, crate::catalog::CatalogSource::Saved);
     assert_eq!(model_ids(&read.models), model_ids(&models));
     client.shutdown();
+}
+
+// ── kept transcripts (switching between chats) ─────────────────────────────
+
+fn transcript_ids(h: &crate::session::SessionHandle) -> Vec<String> {
+    h.snapshot()
+        .transcript_messages()
+        .iter()
+        .map(|m| m.id.clone())
+        .collect()
+}
+
+async fn wait_ids(h: &crate::session::SessionHandle, want: &[&str]) {
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while transcript_ids(h) != want {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "{:?} != {want:?}",
+            transcript_ids(h)
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
+/// Leaving a chat keeps its transcript in memory, unsubscribed. Coming back
+/// shows it at once, resubscribes with `openingTail`, and the newest rows
+/// written meanwhile go on top of the kept history (not in place of it).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_chat_left_shows_its_kept_transcript_at_once_on_return() {
+    let dir = tempfile::tempdir().unwrap();
+    let (client, seen, _) = live_client("kept-return.test", Mode::GrowingTail, dir.path()).await;
+    wait_for(&client, "chats", |c| !c.workspace().sessions.is_empty()).await;
+    let chat = client.workspace().sessions.keys().next().unwrap().clone();
+    let watches = |key: &str| {
+        lock(&seen)
+            .iter()
+            .filter(|v| v.get(key).is_some_and(|c| c == &serde_json::json!(chat)))
+            .count()
+    };
+    let handle = client.open_session(&chat).unwrap();
+    handle.set_view_attached(true);
+    wait_ids(&handle, &["m1", "m2", "m3"]).await;
+    drop(handle);
+    client.close_session(&chat);
+    let deadline = std::time::Instant::now() + Duration::from_secs(12);
+    while watches("unwatch") == 0 {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "unsubscribed on leaving"
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+
+    // Back: the kept transcript is there before anything is asked for.
+    let back = client.session(&chat).expect("kept in memory");
+    assert_eq!(transcript_ids(&back), ["m1", "m2", "m3"]);
+    assert!(back.snapshot().hydrated, "no loading state");
+    let reopened = client.open_session(&chat).unwrap();
+    assert_eq!(transcript_ids(&reopened), ["m1", "m2", "m3"]);
+    reopened.set_view_attached(true);
+    wait_for(&client, "resubscribed", |_| watches("watch") == 2).await;
+    let last = lock(&seen)
+        .iter()
+        .rev()
+        .find(|v| v.get("watch").is_some())
+        .cloned()
+        .unwrap();
+    assert_eq!(last["openingTail"], true, "{last}");
+    wait_ids(&reopened, &["m1", "m2", "m3", "m4"]).await;
+    client.shutdown();
+}
+
+/// Over a direct link only the last few chats viewed stay in memory after
+/// leaving them; older ones are dropped (they load again when opened).
+#[tokio::test(flavor = "multi_thread")]
+async fn only_the_last_few_viewed_transcripts_are_kept() {
+    let dir = tempfile::tempdir().unwrap();
+    let (client, _, _) = live_client("kept-cap.test", Mode::Real, dir.path()).await;
+    wait_for(&client, "chats", |c| c.workspace().sessions.len() >= 6).await;
+    let mut chats: Vec<String> = client.workspace().sessions.keys().cloned().collect();
+    chats.sort();
+    let viewed = &chats[..crate::DIRECT_KEPT_TRANSCRIPTS + 2];
+    for chat in viewed {
+        let handle = client.open_session(chat).unwrap();
+        handle.set_view_attached(true);
+        tokio::time::sleep(Duration::from_millis(5)).await;
+        drop(handle);
+        client.close_session(chat);
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    let kept: Vec<&String> = viewed
+        .iter()
+        .filter(|c| client.session(c).is_some())
+        .collect();
+    let newest: Vec<&String> = viewed[viewed.len() - crate::DIRECT_KEPT_TRANSCRIPTS..]
+        .iter()
+        .collect();
+    assert_eq!(kept, newest);
+    // The chat on screen is never dropped, however many are kept.
+    let on_screen = client.open_session(&chats[0]).unwrap();
+    on_screen.set_view_attached(true);
+    for chat in &chats[1..] {
+        if let Ok(h) = client.open_session(chat) {
+            drop(h);
+            client.close_session(chat);
+        }
+    }
+    assert!(client.session(&chats[0]).is_some());
+    client.shutdown();
+}
+
+fn entry_with_parts(id: &str, parts: &[&str]) -> zeron_doc::SessionMessageEntry {
+    let mut entry: zeron_doc::SessionMessageEntry =
+        serde_json::from_value(transcript_entry(id)).unwrap();
+    entry.parts = parts
+        .iter()
+        .map(|p| zeron_doc::MessagePart::Text {
+            id: (*p).into(),
+            text: format!("text of {p}"),
+        })
+        .collect();
+    entry
+}
+
+/// The opening tail's first row can be cut to its last parts: laid over a
+/// kept transcript it keeps the earlier parts it already had, adds what's
+/// new, and doesn't apply at all when it doesn't line up with what's kept.
+#[test]
+fn a_tail_is_laid_over_the_kept_transcript_only_where_it_lines_up() {
+    use super::host::splice_tail;
+    let kept = vec![
+        entry_with_parts("m1", &["a"]),
+        entry_with_parts("m2", &["b1", "b2", "b3"]),
+    ];
+    // m2 grew while away (b4) and m3 is new; the tail starts at b2.
+    let tail = vec![
+        entry_with_parts("m2", &["b2", "b3", "b4"]),
+        entry_with_parts("m3", &["c"]),
+    ];
+    let joined = splice_tail(&kept, &tail).expect("lines up");
+    let shape: Vec<(String, Vec<String>)> = joined
+        .iter()
+        .map(|e| {
+            (
+                e.id.clone(),
+                e.parts.iter().map(|p| p.id().to_owned()).collect(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        shape,
+        [
+            ("m1".to_owned(), vec!["a".to_owned()]),
+            (
+                "m2".to_owned(),
+                vec!["b1", "b2", "b3", "b4"]
+                    .into_iter()
+                    .map(String::from)
+                    .collect()
+            ),
+            ("m3".to_owned(), vec!["c".to_owned()]),
+        ]
+    );
+    // More changed than the tail covers: wait for the complete reset.
+    assert!(splice_tail(&kept, &[entry_with_parts("m9", &["z"])]).is_none());
+    assert!(splice_tail(&kept, &[entry_with_parts("m2", &["b9"])]).is_none());
+    assert!(splice_tail(&kept, &[]).is_none());
 }

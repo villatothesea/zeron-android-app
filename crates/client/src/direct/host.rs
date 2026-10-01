@@ -1416,8 +1416,26 @@ async fn mirror_transcript(
                 .and_then(serde_json::Value::as_bool)
                 .unwrap_or(false);
             if history_pending && !written.is_empty() {
-                // The session already shows its complete history (warm, or
-                // a resubscribe): never swap it for the tail.
+                // The session already shows its history (kept from the last
+                // visit, or a resubscribe): never swap it for the tail. The
+                // newest rows go on top of it at once when they line up with
+                // it; the complete reset follows either way.
+                let mut value = value;
+                sanitize_transcript_update(&mut value);
+                if let Ok(TranscriptUpdate {
+                    frame: TranscriptFrame::Reset { reset: tail },
+                    ..
+                }) = serde_json::from_value::<TranscriptUpdate>(value)
+                    && let Some(target) = splice_tail(&written, &tail)
+                    && target != written
+                {
+                    if let Err(err) = core.write(|doc| reconcile(doc, &mut written, &target)) {
+                        tracing::warn!(error = %err, "direct transcript tail write failed");
+                        written.clear();
+                        let _ = core.write(|doc| doc.truncate_messages(0));
+                    }
+                    core.schedule_refresh();
+                }
                 continue;
             }
             let repaired = sanitize_transcript_update(&mut value);
@@ -1468,6 +1486,38 @@ async fn mirror_transcript(
         }
         tokio::time::sleep(Duration::from_millis(500)).await;
     }
+}
+
+/// A kept transcript with the engine's opening tail (the newest rows, the
+/// first one possibly cut to its last parts) laid over its end. `None` when
+/// the tail doesn't line up with what is kept (more changed while away than
+/// the tail covers): then only the complete reset can say what's in between.
+pub(crate) fn splice_tail(
+    kept: &[SessionMessageEntry],
+    tail: &[SessionMessageEntry],
+) -> Option<Vec<SessionMessageEntry>> {
+    let first = tail.first()?;
+    let at = kept.iter().position(|e| e.id == first.id)?;
+    let mut joined = first.clone();
+    if let Some(head) = first.parts.first() {
+        // The kept row's parts before the tail's window, then the window.
+        let from = kept[at].parts.iter().position(|p| p.id() == head.id())?;
+        joined.parts = kept[at].parts[..from]
+            .iter()
+            .cloned()
+            .chain(first.parts.iter().cloned())
+            .collect();
+    } else {
+        joined.parts = kept[at].parts.clone();
+    }
+    Some(
+        kept[..at]
+            .iter()
+            .cloned()
+            .chain(std::iter::once(joined))
+            .chain(tail[1..].iter().cloned())
+            .collect(),
+    )
 }
 
 /// Bring the shadow doc from `written` to `target` with minimal writes:
