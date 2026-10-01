@@ -60,6 +60,7 @@ import uniffi.zeron_core.BusyPolicy
 import uniffi.zeron_core.CatalogSource
 import uniffi.zeron_core.CoreClient
 import uniffi.zeron_core.DirectPhase
+import uniffi.zeron_core.HarnessCatalog
 import uniffi.zeron_core.ModelCatalog
 import uniffi.zeron_core.ModelOption
 import uniffi.zeron_core.NewSession
@@ -85,7 +86,9 @@ internal data class ModelChoice(
 
 /**
  * A host's model menu: every offered harness's models, plus the harnesses
- * whose list isn't live (the computer didn't answer: saved or built-in).
+ * still on the built-in list (never read from this computer: 「没能从电脑读取
+ * 最新列表 · 重试」). A list the computer gave (live now, or saved from an
+ * earlier read) is the real one and gets no retry row.
  */
 internal data class HostCatalog(
     val models: List<ModelChoice>,
@@ -93,20 +96,48 @@ internal data class HostCatalog(
     /** Why each stale harness's live read failed (shown under its retry row). */
     val errors: Map<String, String> = emptyMap(),
 ) {
-    /** [harness]'s list swapped for [fresh] (other harnesses untouched). */
+    /**
+     * [harness]'s list swapped for [fresh] (other harnesses untouched). A
+     * built-in list never replaces one the computer gave: a failed read
+     * keeps what shows.
+     */
     fun with(harness: String, fresh: List<ModelChoice>, source: CatalogSource, error: String? = null): HostCatalog {
+        val builtIn = source == CatalogSource.STATIC
+        if (builtIn && harness !in stale && models.any { it.harness == harness }) return this
         val at = models.indexOfFirst { it.harness == harness }.takeIf { it >= 0 } ?: models.size
         val rest = models.filter { it.harness != harness }
         val merged = rest.take(at.coerceAtMost(rest.size)) + fresh + rest.drop(at.coerceAtMost(rest.size))
-        val live = source == CatalogSource.LIVE
         return HostCatalog(
             merged,
-            if (live) stale - harness else stale + (harness to source),
-            if (live || error == null) errors - harness else errors + (harness to error),
+            if (builtIn) stale + (harness to source) else stale - harness,
+            if (!builtIn || error == null) errors - harness else errors + (harness to error),
         )
     }
 
+    /**
+     * A background read's answer laid over what shows: its CLIs, in its
+     * order; each CLI's new list unless that is the built-in one and a list
+     * from the computer already shows.
+     */
+    fun merge(fresh: HostCatalog): HostCatalog =
+        fresh.models.map { it.harness }.distinct().fold(HostCatalog(emptyList())) { out, h ->
+            val shown = models.filter { it.harness == h }
+            if (h in fresh.stale && h !in stale && shown.isNotEmpty()) {
+                out.with(h, shown, CatalogSource.SAVED)
+            } else {
+                out.with(h, fresh.models.filter { it.harness == h }, fresh.stale[h] ?: CatalogSource.LIVE, fresh.errors[h])
+            }
+        }
+
     companion object {
+        /** The core's saved lists for a computer (disk only), as the menu shows them. */
+        fun fromSaved(saved: List<HarnessCatalog>): HostCatalog =
+            saved.filter { it.harness.offered }.fold(HostCatalog(emptyList())) { out, part ->
+                val h = part.harness
+                val list = part.catalog.models.ifEmpty { uniffi.zeron_core.fallbackModels(h.id) }
+                out.with(h.id, list.map { ModelChoice(h.id, h.label, it.id, it.label, it.reasoningLevels, it.options) }, part.catalog.source, part.catalog.error)
+            }
+
         /** The core's failure text, short enough for a menu subtitle. */
         fun reason(error: String): String {
             val plain = error.removePrefix("host unavailable: ").removePrefix("host error: ").trim()
@@ -119,9 +150,6 @@ internal data class HostCatalog(
 internal object CatalogHooks {
     var models: ((harness: String, force: Boolean) -> ModelCatalog)? = null
 }
-
-/** The last catalog each host reported: the chip opens on a real model name at once. */
-private val modelCache = HashMap<String, HostCatalog>()
 
 private fun catalogModels(): List<ModelChoice> =
     uniffi.zeron_core.fallbackHarnesses().filter { it.offered }.flatMap { h ->
@@ -136,6 +164,19 @@ private suspend fun harnessModels(client: CoreClient, device: String, harness: S
     val catalog = CatalogHooks.models?.invoke(harness, force) ?: client.modelCatalog(device, harness, force)
     val models = catalog.models.ifEmpty { uniffi.zeron_core.fallbackModels(harness) }
     return HarnessList(models.map { ModelChoice(harness, label, it.id, it.label, it.reasoningLevels, it.options) }, catalog.source, catalog.error)
+}
+
+/**
+ * What the sheet opens on, at once: the lists saved for this computer
+ * (the core reads them from disk, never from the computer), built-in only
+ * for what was never read.
+ */
+private fun savedModels(client: CoreClient, device: String): HostCatalog {
+    if (device.isEmpty()) return HostCatalog(catalogModels())
+    val saved = CatalogHooks.models?.let { hook ->
+        uniffi.zeron_core.fallbackHarnesses().map { h -> HarnessCatalog(h, hook(h.id, false)) }
+    } ?: runCatching { client.savedCatalog(device) }.getOrNull()
+    return saved?.let { HostCatalog.fromSaved(it) }?.takeIf { it.models.isNotEmpty() } ?: HostCatalog(catalogModels())
 }
 
 /** Every offered harness on the host and its models (ListHarnesses + ListModels). */
@@ -153,7 +194,8 @@ private suspend fun hostModels(client: CoreClient, device: String): HostCatalog 
             }
         }
     }.awaitAll()
-    val byId = harnesses.zip(parts).filter { (_, part) -> part.source != CatalogSource.LIVE }
+    // Only a built-in list is stale; a saved one is the computer's own.
+    val byId = harnesses.zip(parts).filter { (_, part) -> part.source == CatalogSource.STATIC }
     HostCatalog(
         models = parts.flatMap { it.models },
         stale = byId.associate { (h, part) -> h.id to part.source },
@@ -218,36 +260,35 @@ fun NewSessionSheet(model: ZeronModel, onDismiss: () -> Unit) {
 
     val project = projects.firstOrNull { it.id == projectId }
     val device = project?.deviceId ?: hostId ?: hosts.firstOrNull()?.id ?: ""
-    var catalog by remember { mutableStateOf(modelCache[device] ?: HostCatalog(catalogModels())) }
+    // The lists saved for this computer, at once (never waits on it).
+    var catalog by remember { mutableStateOf(savedModels(client, device)) }
     val models = catalog.models
-    // Read again when the link to the computer comes up: a sheet opened while
-    // it was still connecting must not keep the fallback list for good.
+    // The core keeps the saved lists current (on connect, then every 30
+    // min); this background read only picks up what changed since. A sheet
+    // opened while connecting reads again once the link is up.
     val linkUp = model.directStatus?.phase.let { it == null || it == DirectPhase.LIVE || it == DirectPhase.SYNCING }
+    var loading by remember(device) { mutableStateOf(false) }
     LaunchedEffect(device, linkUp) {
-        catalog = modelCache[device] ?: HostCatalog(catalogModels())
+        catalog = savedModels(client, device)
         if (device.isEmpty()) return@LaunchedEffect
+        loading = true
         val fresh = runCatching { hostModels(client, device) }.getOrNull()
-        if (fresh != null && fresh.models.isNotEmpty()) {
-            modelCache[device] = fresh
-            catalog = fresh
-        }
+        loading = false
+        if (fresh != null && fresh.models.isNotEmpty()) catalog = catalog.merge(fresh)
     }
     val scope = rememberCoroutineScope()
     var refreshing by remember(device) { mutableStateOf<Set<String>>(emptySet()) }
-    var forced by remember(device) { mutableStateOf<Set<String>>(emptySet()) }
-    // Ask the computer to re-probe one CLI (its model list opened, or retry).
+    // Retry: ask the computer to re-probe one CLI still on the built-in list.
     val refresh: (String) -> Unit = refresh@{ h ->
         if (h in refreshing || device.isEmpty()) return@refresh
         val label = models.firstOrNull { it.harness == h }?.harnessLabel ?: harnessLabel(h)
         refreshing = refreshing + h
-        forced = forced + h
         scope.launch {
             val result = runCatching { harnessModels(client, device, h, label, force = true) }
             val fresh = result.getOrNull()
             refreshing = refreshing - h
             if (fresh != null && fresh.models.isNotEmpty()) {
                 catalog = catalog.with(h, fresh.models, fresh.source, fresh.error)
-                modelCache[device] = catalog
             } else if (h in catalog.stale) {
                 // Keep the list; say why the retry failed.
                 val why = fresh?.error ?: result.exceptionOrNull()?.message
@@ -456,7 +497,7 @@ fun NewSessionSheet(model: ZeronModel, onDismiss: () -> Unit) {
                         if (catalog.stale.isNotEmpty()) {
                             // Short here (the CLI rows set the width); the CLI's own list says which list it shows.
                             val names = catalog.stale.keys.sorted().joinToString("、") { h -> models.firstOrNull { it.harness == h }?.harnessLabel ?: harnessLabel(h) }
-                            val reading = catalog.stale.keys.any { it in refreshing }
+                            val reading = loading || catalog.stale.keys.any { it in refreshing }
                             add(
                                 MenuEntry(
                                     stringResource(if (reading) R.string.model_list_reading else R.string.model_list_stale_short),
@@ -475,18 +516,14 @@ fun NewSessionSheet(model: ZeronModel, onDismiss: () -> Unit) {
                                     checked = selected,
                                     submenu = true,
                                     icon = { _ -> BrandMark(h, colors, 16.dp) },
-                                ) {
-                                    modelHarness = h
-                                    // Opening a CLI's list asks for a fresh one, once per sheet.
-                                    if (h !in forced) refresh(h)
-                                },
+                                ) { modelHarness = h },
                             )
                         }
                     } else {
                         val list = open.value
                         add(MenuEntry(list.first().harnessLabel, back = true) { modelHarness = null })
                         catalog.stale[open.key]?.let { source ->
-                            add(staleRow(listOf(source), open.key in refreshing, catalog.errors[open.key]) { refresh(open.key) })
+                            add(staleRow(listOf(source), loading || open.key in refreshing, catalog.errors[open.key]) { refresh(open.key) })
                         }
                         list.forEach { m ->
                             add(MenuEntry(m.label, checked = m.harness == harness && m.id == modelId) {

@@ -92,9 +92,9 @@ open class ModelsScreenshotTest {
             settle()
             shot("08-codex-fast-chip-$suffix.png")
             closeSheet(model)
-            // Fallback: the live read failed; the list saved last time shows.
+            // Fallback: Codex's list was never read from this computer; the built-in one shows.
             CatalogHooks.models = { h, _ ->
-                if (h == "codex") ModelCatalog(LIVE_CODEX.drop(1), CatalogSource.SAVED, "Codex: not connected")
+                if (h == "codex") ModelCatalog(uniffi.zeron_core.fallbackModels(h), CatalogSource.STATIC, "Codex: not connected")
                 else ModelCatalog(uniffi.zeron_core.fallbackModels(h), CatalogSource.LIVE, null)
             }
             openModelMenu(model)
