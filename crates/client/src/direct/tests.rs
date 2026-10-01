@@ -81,6 +81,27 @@ enum Mode {
     LaggingClock,
     /// `ListModels` fails the way a busy engine does.
     BrokenModels,
+    /// `WatchDocMessages` honours `openingTail`: the newest entry first
+    /// (`historyPending`), the complete transcript 600 ms later. Later
+    /// subscriptions to the same chat send only the tail.
+    OpeningTail,
+}
+
+fn transcript_entry(id: &str) -> serde_json::Value {
+    serde_json::to_value(zeron_doc::SessionMessageEntry {
+        id: id.into(),
+        role: zeron_doc::MessageRole::Assistant,
+        parts: vec![zeron_doc::MessagePart::Text {
+            id: format!("{id}-t"),
+            text: format!("text of {id}"),
+        }],
+        created_at: 1,
+        device_id: "pc".into(),
+        status: None,
+        continuation_of: None,
+        duration_ms: None,
+    })
+    .unwrap()
 }
 
 /// The engine, and every `ListModels` params it was sent (in order).
@@ -128,10 +149,40 @@ impl RpcService for Engine {
                 }
             }
             let chat = params["chatId"].clone();
-            lock(&self.1).push(serde_json::json!({ "watch": chat }));
+            let earlier = lock(&self.1)
+                .iter()
+                .filter(|v| v.get("watch") == Some(&chat))
+                .count();
+            lock(&self.1).push(serde_json::json!({
+                "watch": chat, "openingTail": params["openingTail"].clone()
+            }));
             let guard = Unwatch(self.1.clone(), chat);
+            let opening: Vec<serde_json::Value> = if self.0 == Mode::OpeningTail {
+                let tail = serde_json::json!({
+                    "reset": [transcript_entry("m3")], "historyPending": true
+                });
+                let full = serde_json::json!({
+                    "reset": [transcript_entry("m1"), transcript_entry("m2"), transcript_entry("m3")]
+                });
+                if earlier == 0 {
+                    vec![tail, full]
+                } else {
+                    vec![tail]
+                }
+            } else {
+                Vec::new()
+            };
+            let frames = futures::stream::iter(opening.into_iter().enumerate()).then(
+                |(i, frame)| async move {
+                    if i > 0 {
+                        tokio::time::sleep(Duration::from_millis(600)).await;
+                    }
+                    frame
+                },
+            );
             return Ok(RpcReply::Stream(
-                futures::stream::pending::<serde_json::Value>()
+                frames
+                    .chain(futures::stream::pending::<serde_json::Value>())
                     .map(move |v| {
                         let _ = &guard;
                         v
@@ -1123,5 +1174,74 @@ async fn the_catalog_is_read_and_saved_right_after_connecting() {
     for h in OFFERED {
         assert!(saved.models(&device, h).is_some(), "{h} models saved");
     }
+    client.shutdown();
+}
+
+/// Opening a chat asks for the newest rows first (`openingTail`): they show
+/// before the complete transcript arrives, which then replaces them. A
+/// session that already shows its full history never drops back to the
+/// tail when it resubscribes.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_newest_rows_show_first_then_the_whole_transcript() {
+    let dir = tempfile::tempdir().unwrap();
+    let (client, seen, _) = live_client("opening-tail.test", Mode::OpeningTail, dir.path()).await;
+    wait_for(&client, "chats", |c| !c.workspace().sessions.is_empty()).await;
+    let chat = client.workspace().sessions.keys().next().unwrap().clone();
+    let handle = client.open_session(&chat).unwrap();
+    handle.set_view_attached(true);
+    let ids = |h: &crate::session::SessionHandle| -> Vec<String> {
+        h.snapshot()
+            .transcript_messages()
+            .iter()
+            .map(|m| m.id.clone())
+            .collect()
+    };
+    let began = std::time::Instant::now();
+    while ids(&handle).is_empty() {
+        assert!(began.elapsed() < Duration::from_secs(10), "nothing shown");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert_eq!(ids(&handle), ["m3"], "the tail shows first");
+    assert!(handle.snapshot().hydrated);
+    while ids(&handle).len() < 3 {
+        assert!(
+            began.elapsed() < Duration::from_secs(10),
+            "{:?}",
+            ids(&handle)
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert_eq!(ids(&handle), ["m1", "m2", "m3"]);
+    let watch = lock(&seen)
+        .iter()
+        .find(|v| v.get("watch").is_some())
+        .cloned()
+        .unwrap();
+    assert_eq!(watch["openingTail"], true, "{watch}");
+
+    // Leave and come back: the warm session keeps its full history; the
+    // resubscription's tail frame doesn't replace it.
+    handle.set_view_attached(false);
+    let deadline = std::time::Instant::now() + Duration::from_secs(12);
+    while !lock(&seen).iter().any(|v| v.get("unwatch").is_some()) {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the stream should stop"
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    handle.set_view_attached(true);
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while lock(&seen)
+        .iter()
+        .filter(|v| v.get("watch").is_some())
+        .count()
+        < 2
+    {
+        assert!(std::time::Instant::now() < deadline, "resubscribed");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert_eq!(ids(&handle), ["m1", "m2", "m3"]);
     client.shutdown();
 }

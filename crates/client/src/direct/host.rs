@@ -12,7 +12,7 @@ use tokio_util::sync::CancellationToken;
 use zeron_doc::transcript_delta::apply_transcript_frame;
 use zeron_doc::{
     RegistryDoc, SegmentWriter, SessionCommandStatus, SessionDoc, SessionMessageEntry,
-    TranscriptUpdate,
+    TranscriptFrame, TranscriptUpdate,
 };
 use zeron_proto::{Chat, Device, Session, Space};
 
@@ -75,7 +75,8 @@ const REGISTRY_STREAMS: [&str; 4] = [
 struct Link {
     /// `None` only for the in-process test engine (plain WebSocket).
     ssh: Option<SshSession>,
-    /// The live feeds (registry watches, transcripts).
+    /// The registry feeds (devices, chats, sessions — the running status
+    /// heartbeats ride here).
     rpc: zeron_rpc::RpcClient,
     /// One-off requests (ListModels, Mutate, folder listings…) on their own
     /// tunnel channel and WebSocket. On the feed connection a reply waits
@@ -84,6 +85,11 @@ struct Link {
     /// slow relay ListHarnesses/ListModels timed out though the engine
     /// answered in well under a second. `None`: share `rpc`.
     calls: Option<zeron_rpc::RpcClient>,
+    /// The on-screen transcript (`WatchDocMessages`) on a third channel: its
+    /// multi-MB opening snapshot no longer holds back the session heartbeats
+    /// on `rpc` (rows flipping to "done") or replies on `calls`. `None`:
+    /// share `rpc`.
+    transcripts: Option<zeron_rpc::RpcClient>,
     cancel: CancellationToken,
     engine_device_id: String,
     /// When the feed connection last delivered a registry frame or a probe
@@ -104,6 +110,10 @@ impl Link {
 
     fn calls(&self) -> &zeron_rpc::RpcClient {
         self.calls.as_ref().unwrap_or(&self.rpc)
+    }
+
+    fn transcripts(&self) -> &zeron_rpc::RpcClient {
+        self.transcripts.as_ref().unwrap_or(&self.rpc)
     }
 }
 
@@ -449,10 +459,22 @@ impl DirectHost {
             },
             None => None,
         };
+        // And one for the transcript on screen (see `Link::transcripts`).
+        let transcripts = match &ssh {
+            Some(ssh) if calls.is_some() => match ssh.open_engine(self.target.engine_port).await {
+                Ok(channel) => Some(channel),
+                Err(err) => {
+                    self.note(format!("transcripts share the feed connection ({err})"));
+                    None
+                }
+            },
+            _ => None,
+        };
         Ok(Link {
             ssh,
             rpc,
             calls,
+            transcripts,
             cancel: CancellationToken::new(),
             engine_device_id,
             heard_ms: std::sync::atomic::AtomicI64::new(now_ms()),
@@ -1313,13 +1335,21 @@ async fn mirror_transcript(
         None => return,
     };
     loop {
-        let params = serde_json::json!({ "chatId": chat_id });
+        // `openingTail`: the engine first sends the newest ~128 parts
+        // (`historyPending: true`), then the complete reset, then deltas.
+        // Engines without it ignore the flag and open with the reset.
+        let params = serde_json::json!({ "chatId": chat_id, "openingTail": true });
         let mut sub = match link
-            .rpc
+            .transcripts()
             .subscribe_scoped(zeron_rpc::methods::WATCH_DOC_MESSAGES, params)
             .await
         {
             Ok(sub) => sub,
+            Err(zeron_rpc::RpcError::Closed) | Err(zeron_rpc::RpcError::Transport(_)) => {
+                // The transcript channel died: redial rather than go blank.
+                link.cancel.cancel();
+                return;
+            }
             Err(_) => return,
         };
         let mut entries: Vec<SessionMessageEntry> = Vec::new();
@@ -1337,6 +1367,15 @@ async fn mirror_transcript(
             };
             let Some(core) = core.upgrade() else { return };
             let mut value = value;
+            let history_pending = value
+                .get("historyPending")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false);
+            if history_pending && !written.is_empty() {
+                // The session already shows its complete history (warm, or
+                // a resubscribe): never swap it for the tail.
+                continue;
+            }
             let repaired = sanitize_transcript_update(&mut value);
             if repaired > 0 {
                 tracing::info!(repaired, chat = %chat_id, "direct transcript: repaired items");
@@ -1348,6 +1387,25 @@ async fn mirror_transcript(
                     continue;
                 }
             };
+            if history_pending {
+                // The newest rows, shown at once; `entries` (the complete
+                // list later deltas apply to) waits for the full reset.
+                let TranscriptFrame::Reset { reset: tail } = update.frame else {
+                    continue;
+                };
+                if let Err(err) = core.write(|doc| reconcile(doc, &mut written, &tail)) {
+                    tracing::warn!(error = %err, "direct transcript tail write failed");
+                    written.clear();
+                    let _ = core.write(|doc| doc.truncate_messages(0));
+                    continue;
+                }
+                if let Some(usage) = update.context_usage {
+                    let _ = core.write(|doc| doc.update_context_usage(usage.tokens, usage.window));
+                }
+                core.set_hydrated();
+                core.schedule_refresh();
+                continue;
+            }
             if let Err(err) = apply_transcript_frame(&mut entries, update.frame) {
                 tracing::info!(error = %err, "direct transcript desync; resubscribing");
                 break;
