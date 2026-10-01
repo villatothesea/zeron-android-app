@@ -33,6 +33,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -44,6 +45,7 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import sh.zeron.android.core.Machine
 import sh.zeron.android.core.ZeronModel
 import sh.zeron.android.design.AnchoredMenu
@@ -55,7 +57,10 @@ import sh.zeron.android.design.MenuEntry
 import sh.zeron.android.design.ZeronType
 import sh.zeron.android.design.menuSection
 import uniffi.zeron_core.BusyPolicy
+import uniffi.zeron_core.CatalogSource
 import uniffi.zeron_core.CoreClient
+import uniffi.zeron_core.DirectPhase
+import uniffi.zeron_core.ModelCatalog
 import uniffi.zeron_core.NewSession
 import uniffi.zeron_core.RepoRef
 import uniffi.zeron_core.SendRequest
@@ -67,7 +72,7 @@ import uniffi.zeron_core.modelLabel
 import uniffi.zeron_core.reasoningLabel
 
 /** One model on one harness, as the model menu lists them (iOS ModelChoice). */
-private data class ModelChoice(
+internal data class ModelChoice(
     val harness: String,
     val harnessLabel: String,
     val id: String,
@@ -75,22 +80,58 @@ private data class ModelChoice(
     val efforts: List<String>,
 )
 
+/**
+ * A host's model menu: every offered harness's models, plus the harnesses
+ * whose list isn't live (the computer didn't answer: saved or built-in).
+ */
+internal data class HostCatalog(
+    val models: List<ModelChoice>,
+    val stale: Map<String, CatalogSource> = emptyMap(),
+) {
+    /** [harness]'s list swapped for [fresh] (other harnesses untouched). */
+    fun with(harness: String, fresh: List<ModelChoice>, source: CatalogSource): HostCatalog {
+        val at = models.indexOfFirst { it.harness == harness }.takeIf { it >= 0 } ?: models.size
+        val rest = models.filter { it.harness != harness }
+        val merged = rest.take(at.coerceAtMost(rest.size)) + fresh + rest.drop(at.coerceAtMost(rest.size))
+        return HostCatalog(merged, if (source == CatalogSource.LIVE) stale - harness else stale + (harness to source))
+    }
+}
+
+/** Screenshot tests: stand-ins for the host's ListModels answers. */
+internal object CatalogHooks {
+    var models: ((harness: String, force: Boolean) -> ModelCatalog)? = null
+}
+
 /** The last catalog each host reported: the chip opens on a real model name at once. */
-private val modelCache = HashMap<String, List<ModelChoice>>()
+private val modelCache = HashMap<String, HostCatalog>()
 
 private fun catalogModels(): List<ModelChoice> =
     uniffi.zeron_core.fallbackHarnesses().filter { it.offered }.flatMap { h ->
         uniffi.zeron_core.fallbackModels(h.id).map { ModelChoice(h.id, h.label, it.id, it.label, it.reasoningLevels) }
     }
 
+/** One harness's models and where they came from. `force` re-probes the CLI on the computer. */
+private suspend fun harnessModels(client: CoreClient, device: String, harness: String, label: String, force: Boolean): Pair<List<ModelChoice>, CatalogSource> {
+    val catalog = CatalogHooks.models?.invoke(harness, force) ?: client.modelCatalog(device, harness, force)
+    val models = catalog.models.ifEmpty { uniffi.zeron_core.fallbackModels(harness) }
+    return models.map { ModelChoice(harness, label, it.id, it.label, it.reasoningLevels) } to catalog.source
+}
+
 /** Every offered harness on the host and its models (ListHarnesses + ListModels). */
-private suspend fun hostModels(client: CoreClient, device: String): List<ModelChoice> = coroutineScope {
-    client.listHarnesses(device).filter { it.offered }.map { h ->
+private suspend fun hostModels(client: CoreClient, device: String): HostCatalog = coroutineScope {
+    val harnesses = client.listHarnesses(device).filter { it.offered }
+    // One harness failing (or throwing) mustn't take the others' live lists with it.
+    val parts = harnesses.map { h ->
         async {
-            val models = client.listModels(device, h.id).ifEmpty { uniffi.zeron_core.fallbackModels(h.id) }
-            models.map { ModelChoice(h.id, h.label, it.id, it.label, it.reasoningLevels) }
+            runCatching { harnessModels(client, device, h.id, h.label, force = false) }.getOrElse {
+                uniffi.zeron_core.fallbackModels(h.id).map { m -> ModelChoice(h.id, h.label, m.id, m.label, m.reasoningLevels) } to CatalogSource.STATIC
+            }
         }
-    }.awaitAll().flatten()
+    }.awaitAll()
+    HostCatalog(
+        models = parts.flatMap { it.first },
+        stale = harnesses.zip(parts).filter { (_, part) -> part.second != CatalogSource.LIVE }.associate { (h, part) -> h.id to part.second },
+    )
 }
 
 /**
@@ -130,14 +171,36 @@ fun NewSessionSheet(model: ZeronModel, onDismiss: () -> Unit) {
 
     val project = projects.firstOrNull { it.id == projectId }
     val device = project?.deviceId ?: hostId ?: hosts.firstOrNull()?.id ?: ""
-    var models by remember { mutableStateOf(modelCache[device] ?: catalogModels()) }
-    LaunchedEffect(device) {
-        models = modelCache[device] ?: catalogModels()
+    var catalog by remember { mutableStateOf(modelCache[device] ?: HostCatalog(catalogModels())) }
+    val models = catalog.models
+    // Read again when the link to the computer comes up: a sheet opened while
+    // it was still connecting must not keep the fallback list for good.
+    val linkUp = model.directStatus?.phase.let { it == null || it == DirectPhase.LIVE || it == DirectPhase.SYNCING }
+    LaunchedEffect(device, linkUp) {
+        catalog = modelCache[device] ?: HostCatalog(catalogModels())
         if (device.isEmpty()) return@LaunchedEffect
-        val fresh = runCatching { hostModels(client, device) }.getOrDefault(emptyList())
-        if (fresh.isNotEmpty()) {
+        val fresh = runCatching { hostModels(client, device) }.getOrNull()
+        if (fresh != null && fresh.models.isNotEmpty()) {
             modelCache[device] = fresh
-            models = fresh
+            catalog = fresh
+        }
+    }
+    val scope = rememberCoroutineScope()
+    var refreshing by remember(device) { mutableStateOf<Set<String>>(emptySet()) }
+    var forced by remember(device) { mutableStateOf<Set<String>>(emptySet()) }
+    // Ask the computer to re-probe one CLI (its model list opened, or retry).
+    val refresh: (String) -> Unit = refresh@{ h ->
+        if (h in refreshing || device.isEmpty()) return@refresh
+        val label = models.firstOrNull { it.harness == h }?.harnessLabel ?: harnessLabel(h)
+        refreshing = refreshing + h
+        forced = forced + h
+        scope.launch {
+            val fresh = runCatching { harnessModels(client, device, h, label, force = true) }.getOrNull()
+            refreshing = refreshing - h
+            if (fresh != null && fresh.first.isNotEmpty()) {
+                catalog = catalog.with(h, fresh.first, fresh.second)
+                modelCache[device] = catalog
+            }
         }
     }
     // Keep the pick valid for this host's catalog: same harness first.
@@ -327,6 +390,19 @@ fun NewSessionSheet(model: ZeronModel, onDismiss: () -> Unit) {
                     val byHarness = models.groupBy { it.harness }.entries.sortedBy { it.key }
                     val open = modelHarness?.let { h -> byHarness.firstOrNull { it.key == h } }
                     if (open == null) {
+                        if (catalog.stale.isNotEmpty()) {
+                            // Short here (the CLI rows set the width); the CLI's own list says which list it shows.
+                            val names = catalog.stale.keys.sorted().joinToString("、") { h -> models.firstOrNull { it.harness == h }?.harnessLabel ?: harnessLabel(h) }
+                            val reading = catalog.stale.keys.any { it in refreshing }
+                            add(
+                                MenuEntry(
+                                    stringResource(if (reading) R.string.model_list_reading else R.string.model_list_stale_short),
+                                    subtitle = stringResource(R.string.model_list_retry_for, names),
+                                    keepOpen = true,
+                                    icon = { c -> Glyph(Glyphs.Refresh, 17.dp, c) },
+                                ) { catalog.stale.keys.forEach(refresh) },
+                            )
+                        }
                         byHarness.forEach { (h, list) ->
                             val selected = h == harness
                             add(
@@ -336,12 +412,19 @@ fun NewSessionSheet(model: ZeronModel, onDismiss: () -> Unit) {
                                     checked = selected,
                                     submenu = true,
                                     icon = { _ -> BrandMark(h, colors, 16.dp) },
-                                ) { modelHarness = h },
+                                ) {
+                                    modelHarness = h
+                                    // Opening a CLI's list asks for a fresh one, once per sheet.
+                                    if (h !in forced) refresh(h)
+                                },
                             )
                         }
                     } else {
                         val list = open.value
                         add(MenuEntry(list.first().harnessLabel, back = true) { modelHarness = null })
+                        catalog.stale[open.key]?.let { source ->
+                            add(staleRow(listOf(source), open.key in refreshing) { refresh(open.key) })
+                        }
                         list.forEach { m ->
                             add(MenuEntry(m.label, checked = m.harness == harness && m.id == modelId) {
                                 harness = m.harness
@@ -423,4 +506,12 @@ fun NewSessionSheet(model: ZeronModel, onDismiss: () -> Unit) {
 @Composable
 private fun SortAlphaMark(color: androidx.compose.ui.graphics.Color) {
     Text("A–Z", color = color, fontFamily = ZeronType.Sans, fontWeight = FontWeight.SemiBold, fontSize = 11.sp)
+}
+
+/** 「没能从电脑读取最新列表 · 重试」: the list shown isn't the computer's live one. */
+@Composable
+private fun staleRow(sources: Collection<CatalogSource>, reading: Boolean, onRetry: () -> Unit): MenuEntry {
+    val title = stringResource(if (reading) R.string.model_list_reading else R.string.model_list_stale)
+    val subtitle = stringResource(if (CatalogSource.SAVED in sources) R.string.model_list_showing_saved else R.string.model_list_showing_builtin)
+    return MenuEntry(title, subtitle = subtitle, keepOpen = true, icon = { c -> Glyph(Glyphs.Refresh, 17.dp, c) }) { onRetry() }
 }

@@ -152,6 +152,12 @@
     <string name="attachment">Attachment</string>
     <string name="change_session_failed">Couldn\'t change the session</string>
     <string name="model">Model</string>
+    <string name="model_list_stale">Couldn\'t get the latest list · Retry</string>
+    <string name="model_list_reading">Reading the list…</string>
+    <string name="model_list_showing_saved">Showing the list saved last time</string>
+    <string name="model_list_showing_builtin">Showing the built-in list</string>
+    <string name="model_list_stale_short">Couldn\'t get the latest list</string>
+    <string name="model_list_retry_for">%1$s · Tap to retry</string>
     <string name="reasoning_effort">Reasoning effort</string>
     <string name="open_pull_request">Open Pull Request</string>
     <string name="copy_link">Copy Link</string>
