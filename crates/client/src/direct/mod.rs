@@ -6,7 +6,7 @@
 
 mod clock;
 pub(crate) mod host;
-mod lenient;
+pub(crate) mod lenient;
 mod ssh;
 #[cfg(test)]
 mod tests;

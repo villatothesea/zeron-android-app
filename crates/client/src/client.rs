@@ -546,6 +546,15 @@ impl ClientInner {
         }
     }
 
+    /// A host catalog read failed: warn, and on a direct link also put it in
+    /// the connection log the user can open (连接详情 › 日志).
+    pub(crate) fn catalog_warning(&self, message: String) {
+        match self.direct() {
+            Some(direct) => direct.warn(message),
+            None => tracing::warn!("{message}"),
+        }
+    }
+
     /// Fresh socket for the chat's room (retry delivery).
     pub(crate) fn kick_room(&self, chat_id: &str) {
         if let Some(room) = self.session_core(chat_id).and_then(|c| c.room()) {
@@ -1265,10 +1274,12 @@ impl Client {
                         list
                     }
                     Err(err) => {
-                        tracing::debug!(device = %device_id, error = %err, "ListHarnesses failed; using cache");
-                        cache
-                            .harnesses(device_id)
-                            .unwrap_or_else(catalog::fallback_harnesses)
+                        let saved = cache.harnesses(device_id);
+                        let shown = if saved.is_some() { "saved" } else { "built-in" };
+                        self.inner.catalog_warning(format!(
+                            "ListHarnesses failed: {err}; showing the {shown} list"
+                        ));
+                        saved.unwrap_or_else(catalog::fallback_harnesses)
                     }
                 }
             }
@@ -1284,39 +1295,82 @@ impl Client {
     /// Model catalog for `harness` on `device_id` (normalized live reply,
     /// else the cached one, else the curated static list).
     pub async fn list_models(&self, device_id: &str, harness: &str) -> Vec<ModelInfo> {
-        match self.inner.backend() {
-            Backend::Demo(demo) => demo.list_models(harness).await,
-            Backend::Live(_) | Backend::Direct(_) => {
-                let cache = catalog::DiskCatalog::new(&self.inner.config.data_dir);
-                let reply = self
-                    .inner
-                    .host_rpc(
-                        device_id,
-                        zeron_rpc::methods::LIST_MODELS,
-                        serde_json::json!({ "harness": harness }),
-                    )
-                    .await
-                    .and_then(|v| {
-                        serde_json::from_value::<Vec<ModelInfo>>(v)
-                            .map_err(|e| ClientError::HostError(e.to_string()))
-                    });
-                match reply {
-                    Ok(list) if !list.is_empty() => {
-                        let list = catalog::normalize_models(harness, list);
-                        cache.put_models(device_id, harness, &list);
-                        // Rows and chips pick up newly learned model labels.
-                        self.inner.recompute_workspace();
-                        list
-                    }
-                    _ => match cache.models(device_id, harness) {
-                        Some(list) => {
-                            catalog::learn_labels(harness, &list);
-                            list
-                        }
-                        None => catalog::fallback_models(harness),
-                    },
+        self.model_catalog(device_id, harness, false).await.models
+    }
+
+    /// [`Self::list_models`] plus where the list came from. `force` asks the
+    /// engine to re-probe the CLI instead of answering from its cache (the
+    /// user opened that CLI's model list, or tapped retry). A failed live
+    /// read is logged at warn and noted in the direct connection log.
+    pub async fn model_catalog(
+        &self,
+        device_id: &str,
+        harness: &str,
+        force: bool,
+    ) -> catalog::ModelCatalog {
+        if let Backend::Demo(demo) = self.inner.backend() {
+            return catalog::ModelCatalog {
+                models: demo.list_models(harness).await,
+                source: catalog::CatalogSource::Live,
+                error: None,
+            };
+        }
+        let cache = catalog::DiskCatalog::new(&self.inner.config.data_dir);
+        let mut params = serde_json::json!({ "harness": harness });
+        if force {
+            params["force"] = serde_json::Value::Bool(true);
+        }
+        let reply = self
+            .inner
+            .host_rpc(device_id, zeron_rpc::methods::LIST_MODELS, params)
+            .await
+            .and_then(|v| catalog::decode_models(v).map_err(ClientError::HostError));
+        let error = match reply {
+            Ok((list, notes)) if !list.is_empty() => {
+                if let Some(first) = notes.first() {
+                    self.inner.catalog_warning(format!(
+                        "ListModels {harness}: {} unreadable model row(s) ignored ({first})",
+                        notes.len()
+                    ));
                 }
+                let list = catalog::normalize_models(harness, list);
+                cache.put_models(device_id, harness, &list);
+                catalog::learn_labels(harness, &list);
+                // Rows and chips pick up newly learned model labels.
+                self.inner.recompute_workspace();
+                return catalog::ModelCatalog {
+                    models: list,
+                    source: catalog::CatalogSource::Live,
+                    error: None,
+                };
             }
+            Ok((_, notes)) => match notes.first() {
+                Some(first) => format!("no readable models ({first})"),
+                None => "the computer listed no models".to_owned(),
+            },
+            Err(err) => err.to_string(),
+        };
+        let (models, source) = match cache.models(device_id, harness) {
+            Some(list) => {
+                catalog::learn_labels(harness, &list);
+                (list, catalog::CatalogSource::Saved)
+            }
+            None => (
+                catalog::fallback_models(harness),
+                catalog::CatalogSource::Static,
+            ),
+        };
+        let shown = match source {
+            catalog::CatalogSource::Saved => "saved",
+            _ => "built-in",
+        };
+        self.inner.catalog_warning(format!(
+            "ListModels {harness} failed: {error}; showing the {shown} list"
+        ));
+        catalog::ModelCatalog {
+            models,
+            source,
+            error: Some(error),
         }
     }
 

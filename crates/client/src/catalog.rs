@@ -466,6 +466,39 @@ fn curated_label(id: &str, catalog: &[ModelInfo]) -> Option<String> {
 /// Clean a live `ListModels` reply: drop a `default` placeholder when real
 /// rows exist, fold `[1m]`/`-1m` variants into a Context Window option, and
 /// prefer curated labels (legacy `HarnessCatalog.normalize`).
+/// Where a model list came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CatalogSource {
+    /// The computer answered just now.
+    Live,
+    /// The computer didn't answer; the list it gave last time.
+    Saved,
+    /// Never heard from the computer; the curated built-in list.
+    Static,
+}
+
+/// A harness's model list plus where it came from (and, when it isn't
+/// live, why the live read failed).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModelCatalog {
+    pub models: Vec<ModelInfo>,
+    pub source: CatalogSource,
+    pub error: Option<String>,
+}
+
+/// Decode a `ListModels` reply row by row: a row this app can't read is
+/// repaired (e.g. an option of a new shape is dropped) or skipped, never
+/// fatal for the whole list. Returns the rows and one note per row that
+/// was skipped or repaired.
+pub(crate) fn decode_models(
+    value: serde_json::Value,
+) -> std::result::Result<(Vec<ModelInfo>, Vec<String>), String> {
+    let decoded = crate::direct::lenient::decode_rows::<ModelInfo>(value, &[])?;
+    let mut notes = decoded.errors;
+    notes.extend(decoded.repaired);
+    Ok((decoded.rows, notes))
+}
+
 pub fn normalize_models(harness: &str, models: Vec<ModelInfo>) -> Vec<ModelInfo> {
     let catalog = curated_catalog(harness);
     let ids: Vec<String> = models.iter().map(|m| m.id.clone()).collect();

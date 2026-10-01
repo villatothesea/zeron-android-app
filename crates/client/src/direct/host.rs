@@ -231,9 +231,21 @@ impl DirectHost {
     }
 
     /// Append to the link log (also traced).
-    fn note(&self, message: impl Into<String>) {
+    pub(crate) fn note(&self, message: impl Into<String>) {
         let message = message.into();
         tracing::info!(target: "zeron_client::direct", "{message}");
+        self.push_log(message);
+    }
+
+    /// A failure the user should be able to find in 连接详情 › 日志 (logged
+    /// at warn, not just debug).
+    pub(crate) fn warn(&self, message: impl Into<String>) {
+        let message = message.into();
+        tracing::warn!(target: "zeron_client::direct", "{message}");
+        self.push_log(message);
+    }
+
+    fn push_log(&self, message: String) {
         let mut status = lock(&self.status);
         status.log.push(DirectLogLine {
             at_ms: now_ms(),

@@ -23,6 +23,10 @@ fn fixture(name: &str) -> serde_json::Value {
         "WatchSpaces" => include_str!("fixtures/WatchSpaces.json"),
         "WatchChats" => include_str!("fixtures/WatchChats.json"),
         "WatchSessions" => include_str!("fixtures/WatchSessions.json"),
+        // Captured from a real 0.2.100 engine whose Codex catalog has a
+        // custom model (gpt-6.1-sol) on top.
+        "ListHarnesses" => include_str!("fixtures/ListHarnesses.json"),
+        "ListModels" => include_str!("fixtures/ListModels.codex.json"),
         other => panic!("no fixture {other}"),
     };
     serde_json::from_str(text).expect("fixture json")
@@ -75,9 +79,12 @@ enum Mode {
     /// Like FreshSessions from a computer whose clock is 2 minutes behind
     /// the phone, heartbeating every 100 ms.
     LaggingClock,
+    /// `ListModels` fails the way a busy engine does.
+    BrokenModels,
 }
 
-struct Engine(Mode);
+/// The engine, and every `ListModels` params it was sent (in order).
+struct Engine(Mode, Arc<std::sync::Mutex<Vec<serde_json::Value>>>);
 
 #[async_trait::async_trait]
 impl RpcService for Engine {
@@ -101,6 +108,28 @@ impl RpcService for Engine {
                 }],
                 "warnings": []
             })));
+        }
+        if method == "ListHarnesses" {
+            return Ok(RpcReply::Value(fixture("ListHarnesses")));
+        }
+        if method == "ListModels" {
+            lock(&self.1).push(params);
+            if self.0 == Mode::BrokenModels {
+                return Err(RpcError::Failed("model catalog unavailable; retry".into()));
+            }
+            let mut list = fixture("ListModels");
+            if self.0 == Mode::Drifted {
+                let rows = list.as_array_mut().unwrap();
+                // A newer engine's option kind (a free-form toggle: no
+                // choices, no default) on the top model…
+                rows[0]["options"]
+                    .as_array_mut()
+                    .unwrap()
+                    .push(serde_json::json!({"id": "turbo", "label": "Turbo", "kind": "toggle"}));
+                // …and a row this app can't read at all.
+                rows.push(serde_json::json!({"id": "gpt-7-preview", "label": {"en": "GPT-7"}}));
+            }
+            return Ok(RpcReply::Value(list));
         }
         if !matches!(
             method,
@@ -157,16 +186,18 @@ impl RpcService for Engine {
     }
 }
 
-async fn start_engine(host: &str, mode: Mode) {
+async fn start_engine(host: &str, mode: Mode) -> Arc<std::sync::Mutex<Vec<serde_json::Value>>> {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let url = format!("ws://{}", listener.local_addr().unwrap());
+    let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
     crate::runtime::shared().spawn(zeron_rpc::serve_ws_listener(
         listener,
-        Arc::new(Engine(mode)),
+        Arc::new(Engine(mode, seen.clone())),
     ));
     lock(&TEST_ENGINES)
         .get_or_insert_with(Default::default)
         .insert(host.to_owned(), url);
+    seen
 }
 
 fn direct_client(host: &str, dir: &std::path::Path) -> Client {
@@ -796,4 +827,122 @@ fn the_most_telling_error_wins() {
         Some(connect("lan"))
     );
     assert_eq!(SshError::most_telling(Vec::new()), None);
+}
+
+// ── host catalogs (New Session model list) ─────────────────────────────────
+
+async fn live_client(
+    host: &str,
+    mode: Mode,
+    dir: &std::path::Path,
+) -> (
+    Client,
+    Arc<std::sync::Mutex<Vec<serde_json::Value>>>,
+    String,
+) {
+    let seen = start_engine(host, mode).await;
+    let client = direct_client(host, dir);
+    wait_for(&client, "live", |c| {
+        c.direct_status()
+            .is_some_and(|s| s.phase == DirectPhase::Live)
+    })
+    .await;
+    let device = client
+        .direct_status()
+        .and_then(|s| s.engine_device_id)
+        .expect("engine device");
+    (client, seen, device)
+}
+
+fn log_has(client: &Client, needle: &str) -> bool {
+    client
+        .direct_status()
+        .is_some_and(|s| s.log.iter().any(|l| l.message.contains(needle)))
+}
+
+/// The real engine's reply reaches the phone intact: gpt-6.1-sol on top,
+/// marked live, and a plain read doesn't ask the engine to re-probe.
+#[tokio::test(flavor = "multi_thread")]
+async fn real_model_catalog_is_live_with_custom_model_on_top() {
+    let dir = tempfile::tempdir().unwrap();
+    let (client, seen, device) = live_client("catalog-real.test", Mode::Real, dir.path()).await;
+    let harnesses = client.list_harnesses(&device).await;
+    let offered: Vec<&str> = harnesses
+        .iter()
+        .filter(|h| h.offered())
+        .map(|h| h.id.as_str())
+        .collect();
+    assert_eq!(offered, ["claude-code", "codex", "devin", "pi", "opencode"]);
+    let catalog = client.model_catalog(&device, "codex", false).await;
+    assert_eq!(catalog.source, crate::catalog::CatalogSource::Live);
+    assert_eq!(catalog.error, None);
+    assert_eq!(catalog.models.len(), 7);
+    assert_eq!(catalog.models[0].id, "gpt-6.1-sol");
+    assert_eq!(
+        lock(&seen).as_slice(),
+        [serde_json::json!({"harness": "codex"})]
+    );
+    // `force` rides along only when asked for.
+    client.model_catalog(&device, "codex", true).await;
+    assert_eq!(
+        lock(&seen).last().unwrap(),
+        &serde_json::json!({"harness": "codex", "force": true})
+    );
+    client.shutdown();
+}
+
+/// One row a newer engine shapes differently used to fail the whole reply
+/// and silently show the saved list. Now that row is repaired or skipped
+/// and the rest stays live; the skip is in the connection log.
+#[tokio::test(flavor = "multi_thread")]
+async fn drifted_model_rows_degrade_one_row_not_the_list() {
+    let dir = tempfile::tempdir().unwrap();
+    let (client, _, device) = live_client("catalog-drift.test", Mode::Drifted, dir.path()).await;
+    let catalog = client.model_catalog(&device, "codex", false).await;
+    assert_eq!(catalog.source, crate::catalog::CatalogSource::Live);
+    let ids: Vec<&str> = catalog.models.iter().map(|m| m.id.as_str()).collect();
+    assert_eq!(ids[0], "gpt-6.1-sol");
+    assert!(!ids.contains(&"gpt-7-preview"), "{ids:?}");
+    assert_eq!(ids.len(), 7);
+    assert!(
+        log_has(&client, "ListModels codex: "),
+        "{:?}",
+        client.direct_status()
+    );
+    client.shutdown();
+}
+
+/// A failed live read falls back (saved list after one good read, else
+/// built-in), says so through `source`, and leaves a warning in the
+/// connection log instead of failing silently.
+#[tokio::test(flavor = "multi_thread")]
+async fn failed_model_read_is_visible_and_falls_back() {
+    let dir = tempfile::tempdir().unwrap();
+    let (client, seen, device) =
+        live_client("catalog-broken.test", Mode::BrokenModels, dir.path()).await;
+    let catalog = client.model_catalog(&device, "codex", false).await;
+    assert_eq!(catalog.source, crate::catalog::CatalogSource::Static);
+    assert!(
+        catalog
+            .error
+            .as_deref()
+            .unwrap()
+            .contains("model catalog unavailable")
+    );
+    assert_eq!(catalog.models, crate::catalog::fallback_models("codex"));
+    assert_eq!(lock(&seen).len(), 1, "the request reached the engine");
+    assert!(
+        log_has(&client, "ListModels codex failed: "),
+        "{:?}",
+        client.direct_status()
+    );
+    // A list saved by an earlier good read is what shows next.
+    let saved = crate::catalog::DiskCatalog::new(dir.path());
+    let earlier: Vec<crate::catalog::ModelInfo> =
+        serde_json::from_value(fixture("ListModels")).unwrap();
+    saved.put_models(&device, "codex", &earlier[1..]);
+    let catalog = client.model_catalog(&device, "codex", true).await;
+    assert_eq!(catalog.source, crate::catalog::CatalogSource::Saved);
+    assert_eq!(catalog.models[0].id, "gpt-6-astra");
+    client.shutdown();
 }
