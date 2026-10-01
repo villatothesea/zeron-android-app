@@ -109,6 +109,13 @@ impl RpcService for Engine {
                 "warnings": []
             })));
         }
+        if method == "ReadWorkspaceFile" {
+            lock(&self.1).push(params.clone());
+            return Ok(RpcReply::Value(serde_json::json!({
+                "checkoutId": "co", "path": params["path"], "text": "# Report\n", "size": 9,
+                "encoding": "utf8", "truncated": false
+            })));
+        }
         if method == "ListHarnesses" {
             return Ok(RpcReply::Value(fixture("ListHarnesses")));
         }
@@ -944,5 +951,33 @@ async fn failed_model_read_is_visible_and_falls_back() {
     let catalog = client.model_catalog(&device, "codex", true).await;
     assert_eq!(catalog.source, crate::catalog::CatalogSource::Saved);
     assert_eq!(catalog.models[0].id, "gpt-6-astra");
+    client.shutdown();
+}
+
+/// A file link in a message (relative path with an editor line ref) is read from the chat's workspace by relative path.
+#[tokio::test(flavor = "multi_thread")]
+async fn file_links_read_from_the_chats_workspace() {
+    let dir = tempfile::tempdir().unwrap();
+    let (client, seen, _) = live_client("file-link.test", Mode::Real, dir.path()).await;
+    wait_for(&client, "chats", |c| !c.workspace().projects.is_empty()).await;
+    let chat = client
+        .workspace()
+        .sessions
+        .values()
+        .next()
+        .expect("a chat")
+        .clone();
+    let url = "docs/report.md:12";
+    let file = client.read_file_link(&chat.id, url).await.expect("read");
+    assert_eq!(file.text.as_deref(), Some("# Report\n"));
+    assert_eq!(
+        lock(&seen).last().unwrap(),
+        &serde_json::json!({"chatId": chat.id, "path": "docs/report.md"})
+    );
+    let outside = client.read_file_link(&chat.id, "/etc/passwd").await;
+    assert!(
+        matches!(outside, Err(crate::ClientError::InvalidArgument(_))),
+        "{outside:?}"
+    );
     client.shutdown();
 }

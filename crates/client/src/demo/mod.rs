@@ -1172,3 +1172,34 @@ fn text_hash(text: &str) -> String {
     text.hash(&mut h);
     format!("{:016x}", h.finish())
 }
+
+/// What Demo's computer answers for a file link: a short Markdown report
+/// (any path; it shows which one was asked for).
+pub(crate) fn demo_file(path: &str) -> crate::file_links::WorkspaceFile {
+    let name = path.rsplit('/').next().unwrap_or(path);
+    let text = if name.ends_with(".md") || name.ends_with(".markdown") {
+        format!(
+            "# 传输层重构报告\n\n\
+             > 由 Codex 生成 · `{path}`\n\n\
+             ## 结论\n\n\
+             新的 **SSH 隧道** 在局域网与 Tailscale 之间切换时不再丢失会话，冷启动连接从 *9.8 s* 降到 **2.1 s**。\n\n\
+             ## 改动\n\n\
+             - 每个地址单独的连接超时（局域网 4 s，Tailscale 12 s）\n\
+             - 失败时在连接详情里写明原因\n\
+             - 模型列表读取失败会显示「重试」\n\n\
+             ## 下一步\n\n\
+             1. 在真机上复测弱网\n\
+             2. 合并到 `main`\n\n\
+             ```rust\nlet budget = relay::deadline(method).max(CALL_TIMEOUT);\n```\n\n\
+             详见 [连接诊断](https://zeron.sh/docs/connect)。\n"
+        )
+    } else {
+        format!("// {path}\nfn main() {{\n    println!(\"hello from the demo computer\");\n}}\n")
+    };
+    crate::file_links::WorkspaceFile {
+        path: path.to_owned(),
+        size: text.len() as u64,
+        text: Some(text),
+        truncated: false,
+    }
+}

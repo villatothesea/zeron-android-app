@@ -34,6 +34,7 @@ mod demo;
 pub mod direct;
 pub mod error;
 pub mod events;
+pub mod file_links;
 mod live;
 pub mod rpc;
 pub mod runtime;

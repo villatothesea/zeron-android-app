@@ -1374,6 +1374,57 @@ impl Client {
         }
     }
 
+    /// Read the text file a message link points at (`zeron-file:` mention,
+    /// absolute path under the chat's checkout, `file://` URL…) from the
+    /// chat's computer. Paths outside the chat's workspace are refused.
+    pub async fn read_file_link(
+        &self,
+        chat_id: &str,
+        url: &str,
+    ) -> Result<crate::file_links::WorkspaceFile> {
+        let chat = self
+            .inner
+            .workspace
+            .chat(chat_id)
+            .ok_or_else(|| ClientError::NotFound(chat_id.to_owned()))?;
+        let (state, _) = self.inner.workspace.state();
+        let space_path = chat
+            .space_id
+            .as_deref()
+            .and_then(|id| state.spaces.iter().find(|s| s.id == id))
+            .map(|s| s.path.clone());
+        let roots: Vec<&str> = [
+            chat.cwd.as_deref(),
+            chat.harness_session_cwd.as_deref(),
+            space_path.as_deref(),
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
+        let path = crate::file_links::workspace_link_path(url, &roots).ok_or_else(|| {
+            ClientError::InvalidArgument(format!("{url} is outside this session's project folder"))
+        })?;
+        if let Backend::Demo(_) = self.inner.backend() {
+            return Ok(crate::demo::demo_file(&path));
+        }
+        let value = self
+            .inner
+            .host_rpc(
+                &chat.device_id,
+                zeron_rpc::methods::READ_WORKSPACE_FILE,
+                serde_json::json!({ "chatId": chat_id, "path": path }),
+            )
+            .await?;
+        let read: zeron_proto::WorkspaceFileText =
+            serde_json::from_value(value).map_err(|e| ClientError::HostError(e.to_string()))?;
+        Ok(crate::file_links::WorkspaceFile {
+            path: read.path,
+            text: read.text,
+            size: read.size,
+            truncated: read.truncated,
+        })
+    }
+
     pub async fn list_refs(&self, device_id: &str, repo_path: &str) -> Result<Vec<RepoRef>> {
         match self.inner.backend() {
             Backend::Demo(demo) => demo.list_refs(repo_path).await,
