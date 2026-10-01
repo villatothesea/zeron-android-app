@@ -938,6 +938,46 @@ pub struct ModelInfo {
     pub default_reasoning: Option<String>,
 }
 
+/// Where a model list came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum CatalogSource {
+    /// The computer answered just now.
+    Live,
+    /// The computer didn't answer: the list it gave last time.
+    Saved,
+    /// Never heard from the computer: the built-in list.
+    Static,
+}
+
+impl From<zc::catalog::CatalogSource> for CatalogSource {
+    fn from(s: zc::catalog::CatalogSource) -> Self {
+        match s {
+            zc::catalog::CatalogSource::Live => Self::Live,
+            zc::catalog::CatalogSource::Saved => Self::Saved,
+            zc::catalog::CatalogSource::Static => Self::Static,
+        }
+    }
+}
+
+/// A harness's models plus where they came from (and why the live read
+/// failed, when it did).
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct ModelCatalog {
+    pub models: Vec<ModelInfo>,
+    pub source: CatalogSource,
+    pub error: Option<String>,
+}
+
+impl From<zc::catalog::ModelCatalog> for ModelCatalog {
+    fn from(c: zc::catalog::ModelCatalog) -> Self {
+        Self {
+            models: c.models.into_iter().map(Into::into).collect(),
+            source: c.source.into(),
+            error: c.error,
+        }
+    }
+}
+
 impl From<zc::catalog::ModelInfo> for ModelInfo {
     fn from(m: zc::catalog::ModelInfo) -> Self {
         Self {

@@ -888,6 +888,8 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_zeron_mobile_checksum_method_coreclient_mark_seen(
     ): Int
+    external fun uniffi_zeron_mobile_checksum_method_coreclient_model_catalog(
+    ): Int
     external fun uniffi_zeron_mobile_checksum_method_coreclient_move_pin(
     ): Int
     external fun uniffi_zeron_mobile_checksum_method_coreclient_on_background(
@@ -1146,6 +1148,8 @@ internal object UniffiLib {
     ): Long
     external fun uniffi_zeron_mobile_fn_method_coreclient_mark_seen(`ptr`: Long,`chatId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
+    external fun uniffi_zeron_mobile_fn_method_coreclient_model_catalog(`ptr`: Long,`deviceId`: RustBuffer.ByValue,`harness`: RustBuffer.ByValue,`force`: Byte,
+    ): Long
     external fun uniffi_zeron_mobile_fn_method_coreclient_move_pin(`ptr`: Long,`chatId`: RustBuffer.ByValue,`after`: RustBuffer.ByValue,`before`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
     external fun uniffi_zeron_mobile_fn_method_coreclient_on_background(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
@@ -1685,6 +1689,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_zeron_mobile_checksum_method_coreclient_mark_seen() and 0xFFFF) != 64234) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_zeron_mobile_checksum_method_coreclient_model_catalog() and 0xFFFF) != 9259) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_zeron_mobile_checksum_method_coreclient_move_pin() and 0xFFFF) != 26081) {
@@ -2954,6 +2961,12 @@ public interface CoreClientInterface {
     fun `markSeen`(`chatId`: kotlin.String)
     
     /**
+     * [`Self::list_models`] plus the list's source. `force` makes the
+     * engine re-probe the CLI (the user opened its model list or retried).
+     */
+    suspend fun `modelCatalog`(`deviceId`: kotlin.String, `harness`: kotlin.String, `force`: kotlin.Boolean): ModelCatalog
+    
+    /**
      * Reorder a pin between neighbours (`None` at either end).
      */
     fun `movePin`(`chatId`: kotlin.String, `after`: kotlin.String?, `before`: kotlin.String?)
@@ -3698,6 +3711,33 @@ open class CoreClient: Disposable, AutoCloseable, CoreClientInterface
     }
     
     
+
+    
+    /**
+     * [`Self::list_models`] plus the list's source. `force` makes the
+     * engine re-probe the CLI (the user opened its model list or retried).
+     */
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+    override suspend fun `modelCatalog`(`deviceId`: kotlin.String, `harness`: kotlin.String, `force`: kotlin.Boolean) : ModelCatalog {
+        return uniffiRustCallAsync(
+        callWithHandle { uniffiHandle ->
+            UniffiLib.uniffi_zeron_mobile_fn_method_coreclient_model_catalog(
+                uniffiHandle,
+                
+        FfiConverterString.lower(`deviceId`),
+        FfiConverterString.lower(`harness`),
+        FfiConverterBoolean.lower(`force`),
+            )
+        },
+        { future, callback, continuation -> UniffiLib.ffi_zeron_mobile_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.ffi_zeron_mobile_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.ffi_zeron_mobile_rust_future_free_rust_buffer(future) },
+        // lift function
+        { FfiConverterTypeModelCatalog.lift(it) },
+        // Error FFI converter
+        UniffiNullRustCallStatusErrorHandler,
+    )
+    }
 
     
     /**
@@ -9018,6 +9058,53 @@ public object FfiConverterTypeLiveStatus: FfiConverterRustBuffer<LiveStatus> {
 
 
 
+/**
+ * A harness's models plus where they came from (and why the live read
+ * failed, when it did).
+ */
+data class ModelCatalog (
+    var `models`: List<ModelInfo>
+    , 
+    var `source`: CatalogSource
+    , 
+    var `error`: kotlin.String?
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeModelCatalog: FfiConverterRustBuffer<ModelCatalog> {
+    override fun read(buf: ByteBuffer): ModelCatalog {
+        return ModelCatalog(
+            FfiConverterSequenceTypeModelInfo.read(buf),
+            FfiConverterTypeCatalogSource.read(buf),
+            FfiConverterOptionalString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: ModelCatalog) = (
+            FfiConverterSequenceTypeModelInfo.allocationSize(value.`models`) +
+            FfiConverterTypeCatalogSource.allocationSize(value.`source`) +
+            FfiConverterOptionalString.allocationSize(value.`error`)
+    )
+
+    override fun write(value: ModelCatalog, buf: ByteBuffer) {
+            FfiConverterSequenceTypeModelInfo.write(value.`models`, buf)
+            FfiConverterTypeCatalogSource.write(value.`source`, buf)
+            FfiConverterOptionalString.write(value.`error`, buf)
+    }
+}
+
+
+
 data class ModelInfo (
     var `id`: kotlin.String
     , 
@@ -11472,6 +11559,53 @@ public object FfiConverterTypeBusyPolicy: FfiConverterRustBuffer<BusyPolicy> {
     override fun allocationSize(value: BusyPolicy) = 4UL
 
     override fun write(value: BusyPolicy, buf: ByteBuffer) {
+        buf.putInt(value.ordinal + 1)
+    }
+}
+
+
+
+
+
+/**
+ * Where a model list came from.
+ */
+
+enum class CatalogSource {
+    
+    /**
+     * The computer answered just now.
+     */
+    LIVE,
+    /**
+     * The computer didn't answer: the list it gave last time.
+     */
+    SAVED,
+    /**
+     * Never heard from the computer: the built-in list.
+     */
+    STATIC;
+
+    
+
+
+    companion object
+}
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeCatalogSource: FfiConverterRustBuffer<CatalogSource> {
+    override fun read(buf: ByteBuffer) = try {
+        CatalogSource.values()[buf.getInt() - 1]
+    } catch (e: IndexOutOfBoundsException) {
+        throw RuntimeException("invalid enum value, something is very wrong!!", e)
+    }
+
+    override fun allocationSize(value: CatalogSource) = 4UL
+
+    override fun write(value: CatalogSource, buf: ByteBuffer) {
         buf.putInt(value.ordinal + 1)
     }
 }

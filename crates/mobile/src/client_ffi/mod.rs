@@ -379,6 +379,26 @@ impl CoreClient {
             .collect()
     }
 
+    /// [`Self::list_models`] plus the list's source. `force` makes the
+    /// engine re-probe the CLI (the user opened its model list or retried).
+    pub async fn model_catalog(
+        &self,
+        device_id: String,
+        harness: String,
+        force: bool,
+    ) -> ModelCatalog {
+        let client = self.client.clone();
+        let fallback = harness.clone();
+        on_runtime(async move { Ok(client.model_catalog(&device_id, &harness, force).await) })
+            .await
+            .unwrap_or_else(|err| zc::catalog::ModelCatalog {
+                models: zc::catalog::fallback_models(&fallback),
+                source: zc::catalog::CatalogSource::Static,
+                error: Some(err.to_string()),
+            })
+            .into()
+    }
+
     pub async fn list_refs(
         &self,
         device_id: String,
