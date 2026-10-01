@@ -668,4 +668,10 @@
         <item quantity="other">插入 %d 个文件</item>
     </plurals>
     <string name="no_files">这里是空的。</string>
+    <string name="file_share">分享</string>
+    <string name="file_reading">正在从电脑读取…</string>
+    <string name="file_outside_project">这个文件不在该会话的项目目录内，无法在这里打开。</string>
+    <string name="file_read_failed">没能从电脑读取文件</string>
+    <string name="file_binary">这是二进制文件（%1$s），无法预览。</string>
+    <string name="file_truncated">文件较大，只显示了开头部分。</string>
 </resources>

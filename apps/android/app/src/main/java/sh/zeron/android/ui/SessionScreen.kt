@@ -226,6 +226,9 @@ fun SessionScreen(model: ZeronModel, chatId: String) {
     }
     var lightbox by remember { mutableStateOf<Bitmap?>(null) }
     var detail by remember { mutableStateOf<Pair<String, String>?>(null) }
+    // A file link in a reply (report.md, /abs/path/x.md:12): previewed
+    // full screen from the chat's workspace.
+    var filePreview by remember(chatId) { mutableStateOf<String?>(null) }
     // Root-relative top of the composer stack and the screen height: the
     // transcript stops a gap above the composer (keyboard included).
     var composerTop by remember { mutableIntStateOf(0) }
@@ -287,6 +290,8 @@ fun SessionScreen(model: ZeronModel, chatId: String) {
                         runCatching {
                             context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url)))
                         }
+                    } else if (runCatching { uniffi.zeron_core.isFileLink(url) }.getOrDefault(false)) {
+                        filePreview = url
                     } else model.showToast(url)
                 }
                 host.onImage = { bmp -> lightbox = bmp }
@@ -590,6 +595,14 @@ fun SessionScreen(model: ZeronModel, chatId: String) {
                 draft = PcFileRefs.insert(draft, paths.map { PcFileRefs.reference(cwd, it) })
                 pcFiles = false
             }
+        }
+        filePreview?.let { url ->
+            FilePreview(
+                url,
+                onClose = { filePreview = null },
+                load = { client.readFileLink(chatId, url) },
+                onCopied = { model.showToast(context.getString(R.string.copied)) },
+            )
         }
         lightbox?.let { bmp ->
             Box(

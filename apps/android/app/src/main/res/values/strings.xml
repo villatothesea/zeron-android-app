@@ -678,4 +678,10 @@
         <item quantity="other">Insert %d files</item>
     </plurals>
     <string name="no_files">Nothing here.</string>
+    <string name="file_share">Share</string>
+    <string name="file_reading">Reading from the computer…</string>
+    <string name="file_outside_project">This file isn’t inside the session’s project folder, so it can’t be opened here.</string>
+    <string name="file_read_failed">Couldn’t read the file from the computer</string>
+    <string name="file_binary">This is a binary file (%1$s) and can’t be previewed.</string>
+    <string name="file_truncated">The file is large; only the beginning is shown.</string>
 </resources>
