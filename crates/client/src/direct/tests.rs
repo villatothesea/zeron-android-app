@@ -881,7 +881,32 @@ async fn live_client(
         .direct_status()
         .and_then(|s| s.engine_device_id)
         .expect("engine device");
+    // The link reads every offered CLI's models on its own right after
+    // connecting; let that finish so each test sees only its own reads.
+    wait_for_prefetch(&seen).await;
+    lock(&seen).clear();
     (client, seen, device)
+}
+
+const OFFERED: [&str; 5] = ["claude-code", "codex", "devin", "pi", "opencode"];
+
+async fn wait_for_prefetch(seen: &std::sync::Mutex<Vec<serde_json::Value>>) {
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    loop {
+        let read = lock(seen)
+            .iter()
+            .filter(|p| p.get("harness").is_some())
+            .count();
+        if read >= OFFERED.len() {
+            return;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "catalog prefetch: {:?}",
+            lock(seen)
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
 }
 
 fn log_has(client: &Client, needle: &str) -> bool {
@@ -902,16 +927,14 @@ async fn real_model_catalog_is_live_with_custom_model_on_top() {
         .filter(|h| h.offered())
         .map(|h| h.id.as_str())
         .collect();
-    assert_eq!(offered, ["claude-code", "codex", "devin", "pi", "opencode"]);
+    assert_eq!(offered, OFFERED);
     let catalog = client.model_catalog(&device, "codex", false).await;
     assert_eq!(catalog.source, crate::catalog::CatalogSource::Live);
     assert_eq!(catalog.error, None);
     assert_eq!(catalog.models.len(), 7);
     assert_eq!(catalog.models[0].id, "gpt-6.1-sol");
-    assert_eq!(
-        lock(&seen).as_slice(),
-        [serde_json::json!({"harness": "codex"})]
-    );
+    // A plain read right after connecting is the prefetched live list.
+    assert!(lock(&seen).is_empty(), "{:?}", lock(&seen));
     // `force` rides along only when asked for.
     client.model_catalog(&device, "codex", true).await;
     assert_eq!(
@@ -1038,6 +1061,67 @@ async fn only_the_transcript_on_screen_streams() {
             "the stream should stop after leaving"
         );
         tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    client.shutdown();
+}
+
+/// ListHarnesses failing to reach the computer doesn't fan out into one
+/// ListModels per CLI, each waiting out its own timeout: the model reads
+/// right after answer at once with the saved/built-in list and the reason.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_unreachable_catalog_does_not_cascade() {
+    test_double("catalog-down.test", "refuse");
+    let dir = tempfile::tempdir().unwrap();
+    let client = direct_client("catalog-down.test", dir.path());
+    let device = "pc".to_owned();
+    let harnesses = client.list_harnesses(&device).await;
+    assert!(!harnesses.is_empty(), "built-in harnesses");
+    let began = std::time::Instant::now();
+    for h in ["codex", "claude-code", "gemini"] {
+        let catalog = client.model_catalog(&device, h, false).await;
+        assert_ne!(catalog.source, crate::catalog::CatalogSource::Live);
+        let error = catalog.error.unwrap_or_default();
+        assert!(error.contains("ListHarnesses failed"), "{error}");
+    }
+    assert!(
+        began.elapsed() < Duration::from_secs(2),
+        "model reads waited {:?}",
+        began.elapsed()
+    );
+    client.shutdown();
+}
+
+/// Right after the link is up, before any transcript streams, the phone reads
+/// and saves the computer's CLI list and every offered CLI's models (plain
+/// reads, not forced re-probes), so New Session doesn't wait on a busy link.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_catalog_is_read_and_saved_right_after_connecting() {
+    let dir = tempfile::tempdir().unwrap();
+    let seen = start_engine("catalog-prefetch.test", Mode::Real).await;
+    let client = direct_client("catalog-prefetch.test", dir.path());
+    wait_for_prefetch(&seen).await;
+    let reads: Vec<serde_json::Value> = lock(&seen).clone();
+    let wanted: Vec<serde_json::Value> = OFFERED
+        .iter()
+        .map(|h| serde_json::json!({ "harness": h }))
+        .collect();
+    for w in &wanted {
+        assert!(reads.contains(w), "{reads:?}");
+    }
+    assert!(reads.iter().all(|p| p.get("force").is_none()), "{reads:?}");
+    wait_for(&client, "live", |c| {
+        c.direct_status()
+            .is_some_and(|s| s.phase == DirectPhase::Live)
+    })
+    .await;
+    let device = client
+        .direct_status()
+        .and_then(|s| s.engine_device_id)
+        .expect("engine device");
+    let saved = crate::catalog::DiskCatalog::new(dir.path());
+    assert!(saved.harnesses(&device).is_some(), "harness list saved");
+    for h in OFFERED {
+        assert!(saved.models(&device, h).is_some(), "{h} models saved");
     }
     client.shutdown();
 }

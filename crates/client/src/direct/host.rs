@@ -33,6 +33,8 @@ use futures::StreamExt;
 
 const BACKOFF_MIN: Duration = Duration::from_secs(1);
 const BACKOFF_MAX: Duration = Duration::from_secs(30);
+/// How long transcripts wait for the catalog prefetch after a link comes up.
+const CATALOG_HEAD_START: Duration = Duration::from_secs(3);
 /// Presence beat while the link is up (well inside PRESENCE_FRESH_MS).
 const BEAT: Duration = Duration::from_secs(5);
 /// Probe a feed that has been quiet this long (see `probe_feed`); well
@@ -634,6 +636,25 @@ impl DirectHost {
                 // A registry stream ending means the tunnel is gone.
                 link.cancel.cancel();
             });
+        }
+        // The computer's CLI/model lists first (on the request channel),
+        // before any transcript starts streaming: New Session then has
+        // live lists saved even if the link gets busy later.
+        if let Some(client) = self.client.upgrade() {
+            let (done, read) = tokio::sync::oneshot::channel::<()>();
+            let device = link.engine_device_id.clone();
+            crate::runtime::shared().spawn(async move {
+                crate::client::Client::prefetch_catalog(client, device).await;
+                let _ = done.send(());
+            });
+            tokio::select! {
+                _ = read => {}
+                _ = tokio::time::sleep(CATALOG_HEAD_START) => {
+                    self.note("the CLI/model lists are still loading; starting transcripts anyway");
+                }
+                _ = cancel.cancelled() => {}
+                _ = link.cancel.cancelled() => {}
+            }
         }
         // Re-attach every open session and flush commands queued offline.
         if let Some(client) = self.client.upgrade() {

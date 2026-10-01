@@ -31,6 +31,13 @@ use crate::{lock, now_ms, read, write};
 const ATTACHMENT_CACHE_BYTES: usize = 48 * 1024 * 1024;
 /// Time-driven re-derivation cadence (staleness, presence, send grace).
 const TICK: Duration = Duration::from_secs(1);
+/// After ListHarnesses fails to reach a computer, plain model reads use the
+/// saved lists for this long (see `Client::model_catalog`).
+const CATALOG_OUTAGE: Duration = Duration::from_secs(60);
+/// A live catalog read (the prefetch right after a direct link comes up, or
+/// any later read) answers plain reads for this long without asking the
+/// computer again, so opening New Session never waits behind a busy link.
+const CATALOG_FRESH: Duration = Duration::from_secs(180);
 /// Detached sessions kept warm (doc + room) before the least recently used
 /// is evicted. On-screen sessions, streaming ones and ones with unadopted
 /// sends are never evicted.
@@ -82,6 +89,13 @@ pub(crate) struct ClientInner {
     foreground: AtomicBool,
     synced: AtomicBool,
     harness_catalogs: Mutex<HashMap<String, Vec<HarnessInfo>>>,
+    /// Device → when ListHarnesses last failed to reach it, and why. Plain
+    /// model reads skip the computer for a while after (see
+    /// [`CATALOG_OUTAGE`]) instead of each waiting out its own timeout.
+    catalog_outage: Mutex<HashMap<String, (std::time::Instant, String)>>,
+    /// (device, harness — "" for the harness list) → when it was last read
+    /// live. Plain reads within [`CATALOG_FRESH`] use the saved copy.
+    catalog_fresh: Mutex<HashMap<(String, String), std::time::Instant>>,
 }
 
 impl Drop for ClientInner {
@@ -678,6 +692,8 @@ impl Client {
             foreground: AtomicBool::new(true),
             synced: AtomicBool::new(false),
             harness_catalogs: Mutex::new(HashMap::new()),
+            catalog_outage: Mutex::new(HashMap::new()),
+            catalog_fresh: Mutex::new(HashMap::new()),
             credentials: credentials.clone(),
             config,
         });
@@ -1254,6 +1270,42 @@ impl Client {
     /// the last cached list, else the static fallback. Cached in memory for
     /// capability gating (mid-turn steering).
     pub async fn list_harnesses(&self, device_id: &str) -> Vec<HarnessInfo> {
+        self.harness_list(device_id, true).await
+    }
+
+    /// Read the harness list and every offered CLI's models now and save
+    /// them, so New Session has the computer's live lists before anything
+    /// else is asked for (direct: right after the link comes up, before
+    /// transcripts start streaming).
+    pub(crate) async fn prefetch_catalog(inner: Arc<ClientInner>, device_id: String) {
+        let client = Client { inner };
+        let harnesses = client.harness_list(&device_id, false).await;
+        let reads = harnesses
+            .iter()
+            .filter(|h| h.offered())
+            .map(|h| client.read_models(&device_id, &h.id, false, false));
+        futures::future::join_all(reads).await;
+    }
+
+    fn catalog_is_fresh(&self, device_id: &str, key: &str) -> bool {
+        lock(&self.inner.catalog_fresh)
+            .get(&(device_id.to_owned(), key.to_owned()))
+            .is_some_and(|at| at.elapsed() < CATALOG_FRESH)
+    }
+
+    fn mark_catalog_fresh(&self, device_id: &str, key: &str) {
+        lock(&self.inner.catalog_fresh).insert(
+            (device_id.to_owned(), key.to_owned()),
+            std::time::Instant::now(),
+        );
+    }
+
+    async fn harness_list(&self, device_id: &str, use_fresh: bool) -> Vec<HarnessInfo> {
+        if use_fresh && self.catalog_is_fresh(device_id, "") {
+            if let Some(list) = lock(&self.inner.harness_catalogs).get(device_id) {
+                return list.clone();
+            }
+        }
         let list = match self.inner.backend() {
             Backend::Demo(demo) => demo.list_harnesses(device_id).await,
             Backend::Live(_) | Backend::Direct(_) => {
@@ -1272,12 +1324,20 @@ impl Client {
                     });
                 match reply {
                     Ok(list) => {
+                        lock(&self.inner.catalog_outage).remove(device_id);
+                        self.mark_catalog_fresh(device_id, "");
                         let list: Vec<HarnessInfo> =
                             list.into_iter().filter(|h| h.id != "mock").collect();
                         cache.put_harnesses(device_id, &list);
                         list
                     }
                     Err(err) => {
+                        if let ClientError::HostUnavailable(why) = &err {
+                            lock(&self.inner.catalog_outage).insert(
+                                device_id.to_owned(),
+                                (std::time::Instant::now(), why.clone()),
+                            );
+                        }
                         let saved = cache.harnesses(device_id);
                         let shown = if saved.is_some() { "saved" } else { "built-in" };
                         self.inner.catalog_warning(format!(
@@ -1312,6 +1372,16 @@ impl Client {
         harness: &str,
         force: bool,
     ) -> catalog::ModelCatalog {
+        self.read_models(device_id, harness, force, true).await
+    }
+
+    async fn read_models(
+        &self,
+        device_id: &str,
+        harness: &str,
+        force: bool,
+        use_fresh: bool,
+    ) -> catalog::ModelCatalog {
         if let Backend::Demo(demo) = self.inner.backend() {
             return catalog::ModelCatalog {
                 models: demo.list_models(harness).await,
@@ -1320,15 +1390,36 @@ impl Client {
             };
         }
         let cache = catalog::DiskCatalog::new(&self.inner.config.data_dir);
+        if use_fresh && !force && self.catalog_is_fresh(device_id, harness) {
+            if let Some(list) = cache.models(device_id, harness) {
+                return catalog::ModelCatalog {
+                    models: list,
+                    source: catalog::CatalogSource::Live,
+                    error: None,
+                };
+            }
+        }
         let mut params = serde_json::json!({ "harness": harness });
         if force {
             params["force"] = serde_json::Value::Bool(true);
         }
-        let reply = self
-            .inner
-            .host_rpc(device_id, zeron_rpc::methods::LIST_MODELS, params)
-            .await
-            .and_then(|v| catalog::decode_models(v).map_err(ClientError::HostError));
+        // ListHarnesses just failed to reach the computer: don't send one
+        // ListModels per CLI to wait out the same timeout (up to 100 s
+        // each); say why and show the saved list. Retry (force) still asks.
+        let outage = lock(&self.inner.catalog_outage)
+            .get(device_id)
+            .filter(|(at, _)| !force && at.elapsed() < CATALOG_OUTAGE)
+            .map(|(_, why)| why.clone());
+        let reply = match outage {
+            Some(why) => Err(ClientError::HostUnavailable(format!(
+                "ListHarnesses failed ({why})"
+            ))),
+            None => self
+                .inner
+                .host_rpc(device_id, zeron_rpc::methods::LIST_MODELS, params)
+                .await
+                .and_then(|v| catalog::decode_models(v).map_err(ClientError::HostError)),
+        };
         let error = match reply {
             Ok((list, notes)) if !list.is_empty() => {
                 if let Some(first) = notes.first() {
@@ -1339,6 +1430,7 @@ impl Client {
                 }
                 let list = catalog::normalize_models(harness, list);
                 cache.put_models(device_id, harness, &list);
+                self.mark_catalog_fresh(device_id, harness);
                 catalog::learn_labels(harness, &list);
                 // Rows and chips pick up newly learned model labels.
                 self.inner.recompute_workspace();
