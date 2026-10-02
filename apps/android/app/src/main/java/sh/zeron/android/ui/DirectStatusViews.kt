@@ -226,7 +226,7 @@ internal fun clockOffsetText(offsetMs: Long): String {
 }
 
 /**
- * Connection details > 线路: the network the phone is on, then every
+ * Connection details > 线路 (Routes): the network the phone is on, then every
  * address of the computer in the order it is tried, with the one in use
  * and what each did last.
  */
@@ -249,7 +249,7 @@ private fun RoutesSection(model: ZeronModel, colors: ZeronColors, status: Direct
     )
 }
 
-/** "Wi-Fi 192.168.1.0/24 · Tailscale 已开启". */
+/** "Wi-Fi 192.168.1.0/24 · Tailscale 已开启" ("… · Tailscale on"). */
 @Composable
 internal fun networkText(net: sh.zeron.android.core.NetworkSnapshot): String {
     val subnet = net.localSubnets.firstOrNull()?.toString().orEmpty()

@@ -42,7 +42,7 @@ internal fun UpdateDownloadSheets(model: ZeronModel, colors: ZeronColors) {
 
 /**
  * Badge tap while an update downloads: how far, from where, how fast, and
- * the two ways out of a bad download, 换个镜像 and 取消下载.
+ * the two ways out of a bad download, 换个镜像 (Switch mirror) and 取消下载 (Cancel download).
  */
 @Composable
 internal fun DownloadSheet(model: ZeronModel, colors: ZeronColors) {
@@ -94,7 +94,7 @@ internal fun DownloadSheet(model: ZeronModel, colors: ZeronColors) {
 }
 
 /**
- * 换个镜像: every source, the one in use ticked, with the last speed or
+ * 换个镜像 (Switch mirror): every source, the one in use ticked, with the last speed or
  * failure seen this session. Picking one carries on from the bytes on disk.
  */
 @Composable

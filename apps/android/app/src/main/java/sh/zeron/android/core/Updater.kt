@@ -351,7 +351,7 @@ class Updater(
     fun sources(release: Release): List<UpdateSources.Source> =
         UpdateSources.choices(release.downloadUrl, mirror, token, release.assetApiUrl, builtInMirrors)
 
-    /** Key of the user's own mirror (高级 settings), if one is set. */
+    /** Key of the user's own mirror (高级 / Advanced settings), if one is set. */
     fun customMirrorKey(): String? = UpdateSources.normalizeMirror(mirror)
 
     /** Unblock a download in progress; pair with its `cancelled` returning true. */

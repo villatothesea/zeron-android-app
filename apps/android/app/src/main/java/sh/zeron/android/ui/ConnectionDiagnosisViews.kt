@@ -73,7 +73,7 @@ internal fun ConnectionDiagnosis.Result.hintRes(): Int? = when (kind) {
 internal val ConnectionDiagnosis.Result.showsReconnectLine: Boolean
     get() = early && !(kind == Kind.NO_NETWORK || (kind == Kind.TAILSCALE_OFF || kind == Kind.AWAY_TAILSCALE_OFF) && !otherVpn)
 
-/** "打开 Tailscale" / "安装 Tailscale" as a full-width primary button, when it's the fix. */
+/** "打开 Tailscale" / "安装 Tailscale" ("Open Tailscale" / "Install Tailscale") as a full-width primary button, when it's the fix. */
 @Composable
 internal fun TailscaleAction(model: ZeronModel, colors: ZeronColors, diagnosis: ConnectionDiagnosis.Result?, modifier: Modifier = Modifier) {
     val d = diagnosis ?: return
@@ -109,9 +109,9 @@ internal fun FailureReason(colors: ZeronColors, view: ConnectionState.View) {
 }
 
 /**
- * Top of a computer's page (Settings > 账户与电脑 > computer, also what the
+ * Top of a computer's page (Settings > 账户与电脑 (Accounts & Computers) > computer, also what the
  * home chip opens): the link's state and route; when it's down, why and
- * the fix (打开 Tailscale…), then Retry / Connection Details / Switch.
+ * the fix (打开 Tailscale / Open Tailscale…), then Retry / Connection Details / Switch.
  * Another computer than the active one gets Connect / Switch.
  */
 @OptIn(ExperimentalLayoutApi::class)

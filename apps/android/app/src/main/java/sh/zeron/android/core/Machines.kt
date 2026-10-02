@@ -146,7 +146,7 @@ class MachineStore(context: Context) {
     }
 
     /**
-     * 自动选择线路: on (default), the dial order follows the network (LAN at
+     * 自动选择线路 (Auto-select route): on (default), the dial order follows the network (LAN at
      * home, else Tailscale) and the link moves when the network changes; off,
      * each computer uses only the address picked for it ([pinnedAddress]).
      */

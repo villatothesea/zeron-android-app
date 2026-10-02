@@ -87,7 +87,7 @@ internal data class ModelChoice(
 /**
  * A host's model menu: every offered harness's models, plus the harnesses
  * still on the built-in list (never read from this computer: 「没能从电脑读取
- * 最新列表 · 重试」). A list the computer gave (live now, or saved from an
+ * 最新列表 · 重试」 / "Couldn't get the latest list · Retry"). A list the computer gave (live now, or saved from an
  * earlier read) is the real one and gets no retry row.
  */
 internal data class HostCatalog(
@@ -619,7 +619,7 @@ private fun SortAlphaMark(color: androidx.compose.ui.graphics.Color) {
     Text("A–Z", color = color, fontFamily = ZeronType.Sans, fontWeight = FontWeight.SemiBold, fontSize = 11.sp)
 }
 
-/** 「没能从电脑读取最新列表 · 重试」: the list shown isn't the computer's live one. */
+/** 「没能从电脑读取最新列表 · 重试」 ("Couldn't get the latest list · Retry"): the list shown isn't the computer's live one. */
 @Composable
 private fun staleRow(sources: Collection<CatalogSource>, reading: Boolean, error: String? = null, onRetry: () -> Unit): MenuEntry {
     val title = stringResource(if (reading) R.string.model_list_reading else R.string.model_list_stale)

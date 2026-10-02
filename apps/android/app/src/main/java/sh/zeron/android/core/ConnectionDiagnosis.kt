@@ -57,9 +57,9 @@ object ConnectionDiagnosis {
         /** Auto-select is off and a LAN address is picked although the computer has others. */
         val pickedLan: Boolean = false,
     ) {
-        /** Show "打开 Tailscale". */
+        /** Show "打开 Tailscale" ("Open Tailscale"). */
         val opensTailscale: Boolean get() = kind == Kind.TAILSCALE_OFF || kind == Kind.AWAY_TAILSCALE_OFF
-        /** Show "安装 Tailscale". */
+        /** Show "安装 Tailscale" ("Install Tailscale"). */
         val installsTailscale: Boolean get() = kind == Kind.TAILSCALE_MISSING
     }
 

@@ -17,7 +17,7 @@ import sh.zeron.android.R
  * of the core's `relative_time_label` (crates/client/src/workspace/view.rs),
  * so the row can re-derive it instead of keeping the snapshot's `timeLabel`
  * (which goes stale until the next refresh). Future timestamps read as `now`.
- * With [Resources] the units are localized but stay compact (`34分钟`).
+ * With [Resources] the units are localized but stay compact (`34分钟` in Chinese).
  */
 object RelativeTime {
     fun label(atMs: Long, nowMs: Long, res: Resources? = null): String {

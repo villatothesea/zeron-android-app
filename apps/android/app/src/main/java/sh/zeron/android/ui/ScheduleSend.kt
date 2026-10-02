@@ -62,7 +62,7 @@ internal enum class ScheduleMode { AT, AFTER }
 /** "After" quick picks, in minutes. */
 private val QuickMinutes = listOf(5, 15, 30, 60, 120)
 
-/** When [atMs] is relative to now: "13:20", "明天 13:20" / "tomorrow 13:20", or "10月2日 13:20". */
+/** When [atMs] is relative to now: "13:20", "明天 13:20" / "tomorrow 13:20", or "10月2日 13:20" (a date: Oct 2, 13:20). */
 internal fun scheduleWhenText(context: android.content.Context, atMs: Long, nowMs: Long = System.currentTimeMillis()): String {
     val clock = ScheduleTime.clock(atMs)
     return when (ScheduleTime.daysFrom(atMs, nowMs)) {

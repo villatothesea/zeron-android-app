@@ -109,7 +109,7 @@ internal fun HomeStatsCapsule(running: Int, failed: Int, colors: ZeronColors, mo
             .glassSurface(colors, 15.dp)
             .clip(RoundedCornerShape(15.dp))
             .then(if (idle) Modifier else Modifier.clickable(onClick = onOpen))
-            // Tight: the old 28sp "会话" + 6dp gap put the computer chip 62dp
+            // Tight: the old 28sp "会话" (Sessions) + 6dp gap put the computer chip 62dp
             // in; capsule + its 4dp gap must not take more
             // (HomeStatsCapsuleWidthTest).
             .padding(horizontal = 5.dp),
@@ -134,7 +134,7 @@ internal fun HomeStatsCapsule(running: Int, failed: Int, colors: ZeronColors, mo
     }
 }
 
-/** The capsule's popover: 运行中 and 失败 groups (empty ones hidden); a row opens its session. */
+/** The capsule's popover: 运行中 (Working) and 失败 (Failed) groups (empty ones hidden); a row opens its session. */
 @Composable
 internal fun homeStatsEntries(stats: HomeStats, colors: ZeronColors, open: (String) -> Unit): List<MenuEntry> {
     val running = stringResource(R.string.status_working)

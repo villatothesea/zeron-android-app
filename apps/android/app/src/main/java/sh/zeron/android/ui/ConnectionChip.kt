@@ -163,7 +163,7 @@ internal fun EndpointKind.label(): String = stringResource(
 )
 
 /**
- * Small "局域网" / "Tailscale" tag: which address the link runs over.
+ * Small "局域网" (LAN) / "Tailscale" tag: which address the link runs over.
  * [connected]: filled with the accent (white text) — the address in use now.
  */
 @Composable
@@ -480,7 +480,7 @@ internal fun ConnectionFailureSheet(model: ZeronModel, colors: ZeronColors) {
     }
 }
 
-/** "局域网 192.168.1.102 — 连接超时" in the failure sheet. */
+/** "局域网 192.168.1.102 — 连接超时" ("LAN 192.168.1.102 — Connection timed out") in the failure sheet. */
 @Composable
 private fun FailureEndpointRow(colors: ZeronColors, e: uniffi.zeron_core.DirectEndpointStat, several: Boolean) {
     Row(verticalAlignment = Alignment.Top) {

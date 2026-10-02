@@ -66,7 +66,7 @@ private fun traceOf(entry: CrashLog.Entry): String {
 
 private fun crashTime(atMs: Long): String = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date(atMs))
 
-/** Next launch after a crash: 上次意外退出 with 复制日志 / 分享 / 关闭. Any choice marks it seen. */
+/** Next launch after a crash: 上次意外退出 (Zeron Quit Unexpectedly) with 复制日志 / 分享 / 关闭 (Copy Log / Share / Close). Any choice marks it seen. */
 @Composable
 internal fun LastCrashDialog(model: ZeronModel, entry: CrashLog.Entry) {
     val colors = LocalZeronColors.current

@@ -189,15 +189,15 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
     private var downloadCancel: java.util.concurrent.atomic.AtomicBoolean? = null
     /** Release tag whose download was cancelled once (its partial file kept); a second cancel deletes it. */
     private var cancelledTag: String? = null
-    /** Badge tap while downloading: the small sheet with progress, source, 换个镜像 and 取消下载. */
+    /** Badge tap while downloading: the small sheet with progress, source, 换个镜像 (Switch mirror) and 取消下载 (Cancel download). */
     var showDownloadSheet by mutableStateOf(false)
-    /** The 换个镜像 list. */
+    /** The 换个镜像 (Switch mirror) list. */
     var showSourcePicker by mutableStateOf(false)
     /** What each download source ([UpdateSources.Source.key]) did last in this session. */
     var sourceStats by mutableStateOf<Map<String, SourceStat>>(emptyMap())
     var autoUpdate by mutableStateOf(updater.autoUpdate)
         private set
-    /** Settings > 自动选择线路 (see [MachineStore.autoRoute]). */
+    /** Settings > 自动选择线路 / Auto-select route (see [MachineStore.autoRoute]). */
     var autoRoute by mutableStateOf(machineStore.autoRoute)
         private set
     /** Bumped when an address is picked by hand, so pickers re-read [pinnedAddress]. */
@@ -549,7 +549,7 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
         tailscaleInstalled = Tailscale.installed(getApplication())
     }
 
-    /** "打开 Tailscale": its app, or its store page (with a note) when it isn't installed. */
+    /** "打开 Tailscale" ("Open Tailscale"): its app, or its store page (with a note) when it isn't installed. */
     fun openTailscale() {
         val app = getApplication<Application>()
         if (!Tailscale.open(app)) {
@@ -559,7 +559,7 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** "安装 Tailscale": its store page. */
+    /** "安装 Tailscale" ("Install Tailscale"): its store page. */
     fun installTailscale() {
         Tailscale.openStore(getApplication())
     }
@@ -572,7 +572,7 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
     }
 
     /**
-     * Chip tap: Settings > 账户与电脑 > the active computer's page (its link
+     * Chip tap: Settings > 账户与电脑 (Accounts & Computers) > the active computer's page (its link
      * state, the failure reason and fixes on top); Demo / Cloud open the
      * computers list. Back walks up that path.
      */
@@ -584,7 +584,7 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
         editMachine = machines.firstOrNull { it.id == id }
     }
 
-    /** Chip long-press (and "切换电脑" on the computer page): the quick switcher over home. */
+    /** Chip long-press (and "切换电脑" ("Switch Computer") on the computer page): the quick switcher over home. */
     fun openSwitcher() {
         editMachine = null
         showMachines = false
@@ -697,7 +697,7 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
     }
 
     /**
-     * Settings > 自动选择线路. Turning it off keeps the link where it is: the
+     * Settings > 自动选择线路 (Auto-select route). Turning it off keeps the link where it is: the
      * address in use becomes the active computer's picked one.
      */
     fun applyAutoRoute(on: Boolean) {
@@ -907,7 +907,7 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
 
     /**
      * One download at a time; [auto] ones stay silent and hide the badge
-     * until ready. [prefer] puts that source first (the 换个镜像 pick); the
+     * until ready. [prefer] puts that source first (the 换个镜像 / Switch mirror pick); the
      * others still follow if it fails. Resumes whatever part is on disk.
      */
     private fun startDownload(install: Boolean, auto: Boolean, prefer: String? = null) {
@@ -980,7 +980,7 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
     }
 
     /**
-     * 取消下载: stop now and put the arrow back. The bytes so far stay for
+     * 取消下载 (Cancel download): stop now and put the arrow back. The bytes so far stay for
      * the next try; cancelling the same release a second time deletes them
      * (a new release drops old parts anyway, see [Updater.download]).
      */
@@ -1005,7 +1005,7 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
     }
 
     /**
-     * 换个镜像: restart the download from [key], resuming from the bytes
+     * 换个镜像 (Switch mirror): restart the download from [key], resuming from the bytes
      * already on disk. Not counted as a cancel.
      */
     fun switchSource(key: String) {
@@ -1020,7 +1020,7 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
         if (downloadJob == null) resetDownloadState()
     }
 
-    /** One row of the 换个镜像 list. */
+    /** One row of the 换个镜像 (Switch mirror) list. */
     data class SourceChoice(val source: UpdateSources.Source, val current: Boolean, val custom: Boolean, val stat: SourceStat?)
 
     fun sourceChoices(): List<SourceChoice> {
