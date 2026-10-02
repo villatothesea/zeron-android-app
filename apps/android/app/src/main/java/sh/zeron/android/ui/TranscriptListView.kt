@@ -631,6 +631,33 @@ class TranscriptListView(context: Context) : View(context) {
                 // The label ages by the minute: repaint now and then (no relayout).
                 postInvalidateDelayed(30_000)
             }
+            is WidgetKind.HistoryPending -> {
+                // Only the newest rows are here; the rest of the transcript
+                // is still on its way (a Direct link sends it whole, which
+                // over a slow relay takes a while). Centred, faint: spinner,
+                // "Loading earlier messages…", and how much has come in.
+                val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    typeface = faces[FaceRole.SANS] ?: faces[FaceRole.SANS_MEDIUM]
+                    textSize = 12.5f
+                    color = colors.tertiary.toArgb()
+                }
+                val word = context.getString(sh.zeron.android.R.string.history_loading)
+                val got = kind.receivedBytes.toLong()
+                val size = if (got > 0) "  " + context.getString(
+                    sh.zeron.android.R.string.history_received,
+                    android.text.format.Formatter.formatShortFileSize(context, got),
+                ) else ""
+                val spin = 14f
+                val textW = paint.measureText(word) + paint.measureText(size)
+                val total = spin + 8f + textW
+                val x0 = w.x + max(0f, (w.w - total) / 2f)
+                drawSpinner(canvas, x0, w.y + (w.h - spin) / 2f, spin, spin, colors, trailer = false, now = now)
+                val baseline = w.y + w.h / 2f - (paint.ascent() + paint.descent()) / 2f
+                val tx = x0 + spin + 8f
+                canvas.drawText(word, tx, baseline, paint)
+                if (size.isNotEmpty()) canvas.drawText(size, tx + paint.measureText(word), baseline, paint)
+                animate = true
+            }
             is WidgetKind.Detail -> Unit
             is WidgetKind.Icon -> {
                 val px = max(w.w, w.h) * density

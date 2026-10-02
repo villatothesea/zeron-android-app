@@ -90,6 +90,8 @@
     <string name="status_working">运行中</string>
     <string name="status_input">待输入</string>
     <string name="status_done">完成</string>
+    <string name="history_loading">正在加载更早的消息…</string>
+    <string name="history_received">已收到 %1$s</string>
     <string name="nothing_here">暂无内容</string>
     <string name="search">搜索</string>
     <string name="search_placeholder">会话、项目、消息</string>

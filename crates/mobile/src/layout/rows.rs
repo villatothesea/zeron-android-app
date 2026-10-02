@@ -54,6 +54,9 @@ pub struct TranscriptInput {
     /// How the last turn ended (the tail done/failed row once none runs);
     /// `None` shows no such row.
     pub outcome: Option<zeron_client::TurnOutcome>,
+    /// Older rows are still on their way (`Some(bytes received so far)`):
+    /// the head row says so. `None` shows no such row.
+    pub history_pending: Option<u64>,
 }
 
 pub(crate) fn row_key(id: &str) -> u64 {
@@ -95,6 +98,7 @@ pub(crate) enum Content {
     Image { reference: String },
     Working { since_ms: Option<i64>, streaming: bool },
     TurnEnd { failed: bool, at_ms: i64 },
+    HistoryPending { received_bytes: u64 },
 }
 
 /// A width-independent row: identity, top gap class and prepared content.
@@ -146,6 +150,7 @@ pub(crate) mod geom {
     pub const IMAGE: f32 = 260.0;
     pub const WORKING: f32 = 36.0;
     pub const TURN_END: f32 = 28.0;
+    pub const HISTORY_PENDING: f32 = 32.0;
 }
 
 impl Gap {
@@ -184,6 +189,7 @@ pub(crate) struct RowBuilder {
     pending: HashMap<String, (String, Arc<RowCore>)>,
     working: Option<Arc<RowCore>>,
     turn_end: Option<Arc<RowCore>>,
+    history: Option<Arc<RowCore>>,
     pub expanded: HashSet<u64>,
     pub collapsed: HashSet<u64>,
     /// Per-tool inline detail overrides (row detail key → open).
@@ -307,6 +313,25 @@ impl RowBuilder {
             }
             let core = self.turn_end.clone().expect("set above");
             out.push(Placed { core, gap: Gap::Reply });
+        }
+        // Older rows still downloading: the head says so (scrolling up to
+        // it is where they'd be missed).
+        if let Some(received_bytes) = input.history_pending.filter(|_| !out.is_empty()) {
+            let stale = self.history.as_ref().is_none_or(|h| {
+                !matches!(&h.content, Content::HistoryPending { received_bytes: r } if *r == received_bytes)
+            });
+            if stale {
+                self.history = Some(Arc::new(RowCore {
+                    key: row_key("#history-pending"),
+                    version: next_version(),
+                    kind: RowKind::Working,
+                    entry_id: Arc::from(""),
+                    content: Content::HistoryPending { received_bytes },
+                    copy_text: String::new(),
+                }));
+            }
+            let core = self.history.clone().expect("set above");
+            out.insert(0, Placed { core, gap: Gap::First });
         }
         out
     }
@@ -647,6 +672,19 @@ pub(crate) fn place_row(core: &RowCore, gap: Gap, px: Px, width: f32, mut out: O
             }
             side
         }
+        Content::HistoryPending { received_bytes } => {
+            let h = px.v(HISTORY_PENDING);
+            if let Some(out) = out {
+                out.widget(
+                    WidgetKind::HistoryPending {
+                        received_bytes: *received_bytes,
+                    },
+                    (x, top, cw, h),
+                    None,
+                );
+            }
+            h
+        }
         Content::TurnEnd { failed, at_ms } => {
             let h = px.v(TURN_END);
             if let Some(out) = out {
@@ -787,6 +825,6 @@ pub(crate) fn content_heap_bytes(content: &Content) -> usize {
         Content::Tools(t) => super::tools::heap_bytes(t),
         Content::Chip(c) => c.text.p.heap_bytes(),
         Content::Image { reference } => reference.len(),
-        Content::Working { .. } | Content::TurnEnd { .. } => 0,
+        Content::Working { .. } | Content::TurnEnd { .. } | Content::HistoryPending { .. } => 0,
     }
 }

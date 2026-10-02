@@ -209,6 +209,10 @@ final class RowView: UIView {
                 // (`TranscriptView.setTurnEndMarker`, Android only so far);
                 // iOS doesn't turn it on, so this never arrives.
                 view = UIView()
+            case .historyPending:
+                // The "Loading earlier messages…" head row is opt-in too
+                // (`TranscriptView.setHistoryMarker`, Android only so far).
+                view = UIView()
             case let .detail(title):
                 let b = UIControl()
                 b.accessibilityLabel = "\(title) details"

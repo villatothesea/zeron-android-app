@@ -348,6 +348,11 @@ pub struct TranscriptView {
     /// Show how the last turn ended at the transcript's end (opt-in per
     /// platform; see [`TranscriptView::set_turn_end_marker`]).
     turn_end: Arc<std::sync::atomic::AtomicBool>,
+    /// Head the transcript with "loading earlier messages" while only its
+    /// newest rows are here (opt-in; see [`TranscriptView::set_history_marker`]).
+    history_marker: Arc<std::sync::atomic::AtomicBool>,
+    /// [`TranscriptView::set_debug_history_pending`]: bytes received, or -1.
+    debug_history: std::sync::atomic::AtomicI64,
 }
 
 #[uniffi::export]
@@ -368,6 +373,8 @@ impl TranscriptView {
             shared,
             watch: Mutex::new(None),
             turn_end: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            history_marker: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            debug_history: std::sync::atomic::AtomicI64::new(-1),
         })
     }
 
@@ -379,6 +386,7 @@ impl TranscriptView {
         };
         let tx = Mutex::new(self.tx.lock().unwrap().clone());
         let turn_end = self.turn_end.clone();
+        let history_marker = self.history_marker.clone();
         let guard = handle.watch(move |snap| {
             let input = TranscriptInput {
                 entries: snap.transcript_messages(),
@@ -398,6 +406,9 @@ impl TranscriptView {
                 } else {
                     None
                 },
+                history_pending: (snap.history_pending
+                    && history_marker.load(std::sync::atomic::Ordering::Relaxed))
+                .then_some(snap.history_received_bytes),
             };
             let _ = tx.lock().unwrap().send(Msg::Input(input));
         });
@@ -410,6 +421,14 @@ impl TranscriptView {
     /// Off by default; call before `attach`.
     pub fn set_turn_end_marker(&self, on: bool) {
         self.turn_end.store(on, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// While only a transcript's newest rows are here (a Direct link's
+    /// opening tail) and the older ones are still downloading, head it with
+    /// a spinner, "Loading earlier messages…" and how much has come in
+    /// (`WidgetKind::HistoryPending`). Off by default; call before `attach`.
+    pub fn set_history_marker(&self, on: bool) {
+        self.history_marker.store(on, std::sync::atomic::Ordering::Relaxed);
     }
 
     pub fn set_viewport(&self, width: f32, text_scale: f32) {
@@ -436,7 +455,18 @@ impl TranscriptView {
 
     /// Feed markdown fixtures directly (demo screens, benchmarks, tests).
     pub fn set_debug_entries(&self, entries: Vec<DebugEntry>, working: bool) {
-        self.send(Msg::Input(debug_input(entries, working)));
+        let mut input = debug_input(entries, working);
+        let history = self.debug_history.load(std::sync::atomic::Ordering::Relaxed);
+        input.history_pending = u64::try_from(history).ok();
+        self.send(Msg::Input(input));
+    }
+
+    /// Head the next [`TranscriptView::set_debug_entries`] fixtures with the
+    /// "loading earlier messages" row (`received_bytes` so far), or not
+    /// (`None`). Renders and tests.
+    pub fn set_debug_history_pending(&self, received_bytes: Option<u64>) {
+        let v = received_bytes.map_or(-1, |b| i64::try_from(b).unwrap_or(i64::MAX));
+        self.debug_history.store(v, std::sync::atomic::Ordering::Relaxed);
     }
 
     pub fn close(&self) {
@@ -486,6 +516,7 @@ pub(crate) fn debug_input(entries: Vec<DebugEntry>, working: bool) -> Transcript
         working,
         working_since_ms: None,
         outcome: None,
+        history_pending: None,
         streaming: working,
     }
 }

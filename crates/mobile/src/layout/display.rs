@@ -177,6 +177,11 @@ pub enum WidgetKind {
     /// done check or a failed dot, then the time it ended (`at_ms`, epoch
     /// ms), which the painter labels itself so it never goes stale.
     TurnEnd { failed: bool, at_ms: i64 },
+    /// At the transcript's head while only its newest rows are here and the
+    /// older ones are still downloading: a spinner and "Loading earlier
+    /// messages…", then how much has come in (`received_bytes`; 0 = not
+    /// known), which the painter formats.
+    HistoryPending { received_bytes: u64 },
     /// A small activity spinner (running tools).
     Spinner,
     /// Tap target revealing the full text in `payload` (truncated tool lines).

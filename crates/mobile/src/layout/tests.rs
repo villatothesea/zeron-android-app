@@ -189,7 +189,7 @@ fn bench_layout_passes() {
             continuation_of: None,
             duration_ms: None,
         }));
-        w.input = TranscriptInput { entries: e, pending: vec![], working: true, working_since_ms: None, streaming: true, outcome: None };
+        w.input = TranscriptInput { entries: e, pending: vec![], working: true, working_since_ms: None, streaming: true, outcome: None, history_pending: None };
         let t = Instant::now();
         w.pass();
         total += t.elapsed();
@@ -335,4 +335,40 @@ fn the_tail_row_shows_the_running_turn_then_how_it_ended() {
     finished.outcome = Some(done);
     finished.pending = vec![PendingUser { id: "p1".into(), text: "next".into() }];
     assert!(!matches!(tail(finished), Some(display::WidgetKind::TurnEnd { .. })));
+}
+
+/// While only a transcript's newest rows are here (a Direct link's opening
+/// tail), its head says the older ones are loading, and how much of them has
+/// come in; scrolled to the top, that's what shows instead of nothing. The
+/// row goes once the complete history is in, and never shows for an empty
+/// transcript.
+#[test]
+fn the_head_row_says_older_rows_are_still_loading() {
+    let head = |input: TranscriptInput| {
+        let mut w = worker(390.0);
+        w.input = input;
+        let frame = w.pass();
+        (frame.row_count(), frame.display(0).and_then(|d| d.widgets.first().map(|w| w.kind.clone())))
+    };
+    let (plain_rows, plain_head) = head(transcript(2));
+    assert!(!matches!(plain_head, Some(display::WidgetKind::HistoryPending { .. })));
+
+    let mut loading = transcript(2);
+    loading.history_pending = Some(1_234_567);
+    let (rows, first) = head(loading.clone());
+    assert_eq!(rows, plain_rows + 1, "one extra row, at the head");
+    assert_eq!(first, Some(display::WidgetKind::HistoryPending { received_bytes: 1_234_567 }));
+
+    // The tail is unchanged: a running turn still ends with the working row.
+    loading.working = true;
+    let mut w = worker(390.0);
+    w.input = loading;
+    let frame = w.pass();
+    let last = frame.display(frame.row_count() - 1).unwrap();
+    assert!(matches!(last.widgets.last().map(|w| &w.kind), Some(display::WidgetKind::Working { .. })));
+
+    // Nothing shown yet: no head row on its own.
+    let mut empty = transcript(0);
+    empty.history_pending = Some(0);
+    assert_eq!(head(empty).0, 0);
 }

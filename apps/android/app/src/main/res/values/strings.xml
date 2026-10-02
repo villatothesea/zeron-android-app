@@ -90,6 +90,8 @@
     <string name="status_working">Working</string>
     <string name="status_input">Input</string>
     <string name="status_done">Done</string>
+    <string name="history_loading">Loading earlier messages…</string>
+    <string name="history_received">%1$s received</string>
     <string name="nothing_here">Nothing here</string>
     <string name="search">Search</string>
     <string name="search_placeholder">Sessions, projects, messages</string>

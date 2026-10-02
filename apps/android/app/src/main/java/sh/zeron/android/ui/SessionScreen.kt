@@ -176,6 +176,10 @@ fun SessionScreen(model: ZeronModel, chatId: String) {
             // The transcript ends with how the last turn ended (done / failed
             // and when) once none runs.
             it.setTurnEndMarker(true)
+            // Over a Direct link the newest rows come first; until the rest
+            // arrives the transcript is headed with "Loading earlier
+            // messages…" (scrolled to the top, that's why nothing older yet).
+            it.setHistoryMarker(true)
             it.attach(client, chatId)
             handle.setViewAttached(true)
         }
