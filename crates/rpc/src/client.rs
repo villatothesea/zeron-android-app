@@ -386,15 +386,28 @@ pub async fn connect_ws(url: &str) -> Result<RpcClient, RpcError> {
     Ok(spawn_ws(ws))
 }
 
+/// The largest message a tunnelled connection accepts. The engine sends a
+/// transcript's complete reset as one WebSocket message (one frame), and a
+/// long session's runs past tungstenite's default limits (16 MiB a frame,
+/// 64 MiB a message; a 16.4 MB opening reset was measured on a desktop):
+/// over the default the phone dropped the connection and asked again,
+/// forever, so that chat's older rows never arrived.
+const TUNNEL_MAX_MESSAGE: usize = 256 << 20;
+
 /// Run the WebSocket handshake over an already-open byte stream (e.g. an SSH
 /// `direct-tcpip` channel to the engine's loopback port) and wrap it.
 pub async fn connect_ws_stream<S>(url: &str, stream: S) -> Result<RpcClient, RpcError>
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
 {
+    let config = tokio_tungstenite::tungstenite::protocol::WebSocketConfig {
+        max_message_size: Some(TUNNEL_MAX_MESSAGE),
+        max_frame_size: Some(TUNNEL_MAX_MESSAGE),
+        ..Default::default()
+    };
     let (ws, _) = tokio::time::timeout(
         CONNECT_TIMEOUT * 3,
-        tokio_tungstenite::client_async(url, stream),
+        tokio_tungstenite::client_async_with_config(url, stream, Some(config)),
     )
     .await
     .map_err(|_| RpcError::Transport(format!("timed out opening {url}")))?
