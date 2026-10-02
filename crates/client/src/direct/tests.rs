@@ -1406,6 +1406,10 @@ async fn the_newest_rows_show_first_then_the_whole_transcript() {
     }
     assert_eq!(ids(&handle), ["m3"], "the tail shows first");
     assert!(handle.snapshot().hydrated);
+    assert!(
+        handle.snapshot().history_pending,
+        "older rows still to come"
+    );
     while ids(&handle).len() < 3 {
         assert!(
             began.elapsed() < Duration::from_secs(10),
@@ -1415,6 +1419,10 @@ async fn the_newest_rows_show_first_then_the_whole_transcript() {
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
     assert_eq!(ids(&handle), ["m1", "m2", "m3"]);
+    assert!(
+        !handle.snapshot().history_pending,
+        "the whole transcript is in"
+    );
     let watch = lock(&seen)
         .iter()
         .find(|v| v.get("watch").is_some())
@@ -2016,3 +2024,55 @@ async fn a_message_just_sent_shows_working_not_the_previous_turns_outcome() {
     client.shutdown();
 }
 
+/// Regression (round5-14: scrolled to the top, older rows never came): a
+/// chat left while its whole transcript is still downloading keeps
+/// downloading it (the newest rows came first; leaving used to drop the
+/// half-received history, so every visit restarted it). Once it's in the
+/// stream stops, and coming back shows every row.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_chat_left_before_its_history_arrived_keeps_loading_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let (client, seen, _) = live_client("history-left.test", Mode::OpeningTail, dir.path()).await;
+    wait_for(&client, "chats", |c| !c.workspace().sessions.is_empty()).await;
+    let chat = client.workspace().sessions.keys().next().unwrap().clone();
+    let handle = client.open_session(&chat).unwrap();
+    handle.set_view_attached(true);
+    let ids = |h: &crate::session::SessionHandle| -> Vec<String> {
+        h.snapshot()
+            .transcript_messages()
+            .iter()
+            .map(|m| m.id.clone())
+            .collect()
+    };
+    let began = std::time::Instant::now();
+    while ids(&handle).is_empty() {
+        assert!(began.elapsed() < Duration::from_secs(10), "nothing shown");
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert!(handle.snapshot().history_pending);
+    // Leave before the rest arrives (600 ms after the tail).
+    handle.set_view_attached(false);
+    let deadline = std::time::Instant::now() + Duration::from_secs(12);
+    while !lock(&seen).iter().any(|v| v.get("unwatch").is_some()) {
+        assert!(std::time::Instant::now() < deadline, "stops once it's in");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert_eq!(ids(&handle), ["m1", "m2", "m3"], "finished while away");
+    assert!(!handle.snapshot().history_pending);
+    // Back: the resubscription only sends the tail; every row still shows.
+    handle.set_view_attached(true);
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while lock(&seen)
+        .iter()
+        .filter(|v| v.get("watch").is_some())
+        .count()
+        < 2
+    {
+        assert!(std::time::Instant::now() < deadline, "resubscribed");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert_eq!(ids(&handle), ["m1", "m2", "m3"]);
+    assert!(!handle.snapshot().history_pending);
+    client.shutdown();
+}

@@ -166,6 +166,11 @@ struct CoreState {
     last_submitted: Option<String>,
     transfer_progress: Option<f64>,
     hydrated: bool,
+    /// Only the opening tail is shown; the complete history is on its way
+    /// (Direct `openingTail`). See [`SessionSnapshot::history_pending`].
+    history_pending: bool,
+    /// Bytes of that complete history received so far (0 = unknown).
+    history_received: u64,
     /// A send of ours the host adopted but hasn't reported a turn for yet.
     awaiting_turn: Option<AwaitingTurn>,
     transcript_revision: u64,
@@ -194,6 +199,8 @@ pub(crate) struct SessionCore {
     view_attached: AtomicBool,
     /// Last open/attach/detach (warm-set eviction order).
     touched_ms: std::sync::atomic::AtomicI64,
+    /// When the view last left the screen (0 = never on screen).
+    detached_ms: std::sync::atomic::AtomicI64,
 }
 
 impl SessionCore {
@@ -240,6 +247,8 @@ impl SessionCore {
                 last_submitted: None,
                 transfer_progress: None,
                 hydrated: false,
+                history_pending: false,
+                history_received: 0,
                 awaiting_turn: None,
                 transcript_revision: 0,
                 composer_revision: 0,
@@ -249,6 +258,7 @@ impl SessionCore {
             recompute_gate: Mutex::new(()),
             view_attached: AtomicBool::new(false),
             touched_ms: std::sync::atomic::AtomicI64::new(now_ms()),
+            detached_ms: std::sync::atomic::AtomicI64::new(0),
         });
         // Coalesced republish for remote imports (a backfill of N rows costs
         // ~one refresh per frame, not N).
@@ -369,6 +379,36 @@ impl SessionCore {
         lock(&self.state).hydrated = true;
     }
 
+    /// Whether only the opening tail is shown and the complete history is
+    /// still on its way (set by the Direct mirror).
+    pub(crate) fn history_pending(&self) -> bool {
+        lock(&self.state).history_pending
+    }
+
+    pub(crate) fn set_history_pending(&self, pending: bool) {
+        let changed = {
+            let mut st = lock(&self.state);
+            if !pending {
+                st.history_received = 0;
+            }
+            std::mem::replace(&mut st.history_pending, pending) != pending
+        };
+        if changed {
+            self.schedule_refresh();
+        }
+    }
+
+    /// Bytes of the complete history received so far (while pending).
+    pub(crate) fn set_history_received(&self, bytes: u64) {
+        let changed = {
+            let mut st = lock(&self.state);
+            st.history_pending && std::mem::replace(&mut st.history_received, bytes) != bytes
+        };
+        if changed {
+            self.schedule_refresh();
+        }
+    }
+
     /// A send of ours is adopted but its turn not yet reported (the tick
     /// refreshes such a session so the wait can time out).
     pub(crate) fn awaiting_turn(&self) -> bool {
@@ -477,6 +517,8 @@ impl SessionCore {
             let live = LiveFlags {
                 working,
                 working_since_ms,
+                history_pending: st.history_pending,
+                history_received: st.history_received,
                 // No end-of-turn row while a turn runs or is about to, nor
                 // under a send of ours still in flight, queued or failed.
                 outcome: if working || !st.pending.is_empty() {
@@ -495,6 +537,8 @@ impl SessionCore {
             let live_changed = previous.working != live.working
                 || previous.working_since_ms != live.working_since_ms
                 || previous.outcome != live.outcome
+                || previous.history_pending != live.history_pending
+                || previous.history_received_bytes != live.history_received
                 || previous.hydrated != st.hydrated;
             if change.is_some()
                 || echoes_changed
@@ -639,6 +683,21 @@ impl SessionCore {
 
     pub(crate) fn touched_ms(&self) -> i64 {
         self.touched_ms.load(Ordering::Acquire)
+    }
+
+    /// When the view last left the screen (0 = it never was on screen).
+    pub(crate) fn detached_ms(&self) -> i64 {
+        self.detached_ms.load(Ordering::Acquire)
+    }
+
+    /// Another session's transcript view is on screen.
+    pub(crate) fn other_view_attached(&self) -> bool {
+        self.client().is_ok_and(|client| {
+            client
+                .cores()
+                .iter()
+                .any(|core| core.chat_id != self.chat_id && core.view_attached())
+        })
     }
 }
 
@@ -861,6 +920,8 @@ struct LiveFlags {
     working: bool,
     working_since_ms: Option<i64>,
     outcome: Option<TurnOutcome>,
+    history_pending: bool,
+    history_received: u64,
 }
 
 /// How long after the host adopted a send of ours the transcript keeps
@@ -1111,6 +1172,8 @@ fn build_snapshot(
         working: live.working,
         working_since_ms: live.working_since_ms,
         outcome: live.outcome,
+        history_pending: live.history_pending,
+        history_received_bytes: live.history_received,
         pending: st.pending.clone(),
         context_usage: st.context_usage,
         hydrated: st.hydrated,
@@ -1204,6 +1267,9 @@ impl SessionHandle {
     pub fn set_view_attached(&self, attached: bool) {
         let was = self.core.view_attached.swap(attached, Ordering::AcqRel);
         self.core.touch();
+        if !attached && was {
+            self.core.detached_ms.store(now_ms(), Ordering::Release);
+        }
         if attached
             && !was
             && let Some(room) = self.core.room()

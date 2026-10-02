@@ -114,6 +114,14 @@ pub struct SessionSnapshot {
     /// (`SessionRow::last_outcome`). `None` while working, for a chat that
     /// never ran, and for a turn that was stopped.
     pub outcome: Option<TurnOutcome>,
+    /// Only the newest rows are here (a Direct link's opening tail); the
+    /// complete history is still downloading. The transcript's head says
+    /// so ("正在加载更早的消息…" (Loading earlier messages…)).
+    pub history_pending: bool,
+    /// How much of that complete history has come in so far (bytes; 0 =
+    /// unknown). The engine sends it as one message, so nothing shows until
+    /// it's whole: this says it's moving.
+    pub history_received_bytes: u64,
     /// This device's unadopted sends, oldest first. Their echo entries are
     /// `entries[transcript_len..]` (same order, same ids).
     pub pending: Vec<PendingSend>,

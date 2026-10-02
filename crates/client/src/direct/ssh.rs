@@ -2,7 +2,10 @@
 //! WebSocket IPC carried over a `direct-tcpip` channel (nothing listens on
 //! the phone), TOFU host-key pinning, ed25519 key generation/import.
 
+use std::pin::Pin;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 
 use russh::client;
@@ -121,6 +124,18 @@ impl SshSession {
         &self,
         engine_port: u16,
     ) -> Result<zeron_rpc::RpcClient, SshError> {
+        self.open_engine_counted(engine_port)
+            .await
+            .map(|(rpc, _)| rpc)
+    }
+
+    /// [`Self::open_engine`], with a running count of the bytes received on
+    /// the channel (after SSH decompression): how far a multi-MB message in
+    /// progress has come, which the WebSocket only hands over once whole.
+    pub(crate) async fn open_engine_counted(
+        &self,
+        engine_port: u16,
+    ) -> Result<(zeron_rpc::RpcClient, Arc<AtomicU64>), SshError> {
         let channel = tokio::time::timeout(
             HANDSHAKE_TIMEOUT,
             self.handle
@@ -133,9 +148,14 @@ impl SshSession {
                 "the machine refused a tunnel to 127.0.0.1:{engine_port} ({e}). Is Zeron running there?"
             ))
         })?;
-        let stream = channel.into_stream();
+        let received = Arc::new(AtomicU64::new(0));
+        let stream = Counted {
+            inner: channel.into_stream(),
+            received: received.clone(),
+        };
         zeron_rpc::connect_ws_stream(&format!("ws://127.0.0.1:{engine_port}/"), stream)
             .await
+            .map(|rpc| (rpc, received))
             .map_err(|e| {
                 SshError::Engine(format!(
                     "no Zeron engine answered on 127.0.0.1:{engine_port} ({e})"
@@ -358,4 +378,45 @@ pub async fn probe(target: &SshTarget) -> Result<ProbeResult, SshError> {
     .await;
     session.close().await;
     result
+}
+
+/// A byte stream that counts what it reads (see
+/// [`SshSession::open_engine_counted`]).
+struct Counted<S> {
+    inner: S,
+    received: Arc<AtomicU64>,
+}
+
+impl<S: tokio::io::AsyncRead + Unpin> tokio::io::AsyncRead for Counted<S> {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        let before = buf.filled().len();
+        let polled = Pin::new(&mut self.inner).poll_read(cx, buf);
+        if let Poll::Ready(Ok(())) = polled {
+            let read = (buf.filled().len() - before) as u64;
+            self.received.fetch_add(read, Ordering::Relaxed);
+        }
+        polled
+    }
+}
+
+impl<S: tokio::io::AsyncWrite + Unpin> tokio::io::AsyncWrite for Counted<S> {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<std::io::Result<usize>> {
+        Pin::new(&mut self.inner).poll_write(cx, buf)
+    }
+
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        Pin::new(&mut self.inner).poll_flush(cx)
+    }
+
+    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        Pin::new(&mut self.inner).poll_shutdown(cx)
+    }
 }

@@ -102,7 +102,7 @@ struct Link {
     /// opened ahead so an open costs no extra round trips. `None` with no
     /// SSH (test engine) or when the machine won't open more channels:
     /// transcripts share `rpc`.
-    transcript_spare: Mutex<Option<zeron_rpc::RpcClient>>,
+    transcript_spare: Mutex<Option<TranscriptChannel>>,
     /// Per-chat transcript channels are possible (SSH, and the machine
     /// opened the extra channels at connect).
     transcript_channels: bool,
@@ -131,7 +131,7 @@ impl Link {
 
     /// A channel of its own for one transcript (the spare, refilled in the
     /// background), or `None`: stream on the feed connection.
-    async fn transcript_channel(self: &Arc<Self>) -> Option<zeron_rpc::RpcClient> {
+    async fn transcript_channel(self: &Arc<Self>) -> Option<TranscriptChannel> {
         if !self.transcript_channels {
             return None;
         }
@@ -156,10 +156,18 @@ impl Link {
         channel
     }
 
-    async fn open_transcript_channel(&self) -> Option<zeron_rpc::RpcClient> {
+    async fn open_transcript_channel(&self) -> Option<TranscriptChannel> {
         let ssh = self.ssh.as_ref()?;
-        ssh.open_engine(self.engine_port).await.ok()
+        let (rpc, received) = ssh.open_engine_counted(self.engine_port).await.ok()?;
+        Some(TranscriptChannel { rpc, received })
     }
+}
+
+/// One transcript's own tunnel channel, and how many bytes have come in on
+/// it (the complete history's download progress).
+struct TranscriptChannel {
+    rpc: zeron_rpc::RpcClient,
+    received: Arc<std::sync::atomic::AtomicU64>,
 }
 
 pub(crate) struct DirectHost {
@@ -463,7 +471,7 @@ impl DirectHost {
         let port = self.target.engine_port;
         let open_extra = || async {
             match &ssh {
-                Some(ssh) => Some(ssh.open_engine(port).await),
+                Some(ssh) => Some(ssh.open_engine_counted(port).await),
                 None => None,
             }
         };
@@ -475,6 +483,9 @@ impl DirectHost {
             open_extra(),
             open_extra(),
         );
+        let calls = calls.map(|c| c.map(|(rpc, _)| rpc));
+        let transcripts =
+            transcripts.map(|c| c.map(|(rpc, received)| TranscriptChannel { rpc, received }));
         let info = info
             .map_err(|_| SshError::Engine("EngineInfo timed out".into()))?
             .map_err(|e| SshError::Engine(e.to_string()))?;
@@ -1390,14 +1401,18 @@ impl DirectHost {
     /// snapshot, all on the one feed the session heartbeats ride; warm
     /// sessions streaming in the background backlogged that feed on slow
     /// links. A session that leaves the screen stops streaming within a
-    /// beat; it keeps what it already showed.
+    /// beat; it keeps what it already showed — except one left while its
+    /// complete history was still downloading (see [`finishing_history`]).
     fn wants_mirror(core: &SessionCore) -> bool {
-        core.view_attached() || core.has_pending_sends()
+        wants_mirror(core)
     }
 
-    /// A session's view came on screen (or it gained a pending send).
+    /// A session's view came on screen (or it gained a pending send). A
+    /// history still finishing for a chat left earlier stops: the one on
+    /// screen gets the link.
     pub(crate) fn session_attached(self: &Arc<Self>, core: &Arc<SessionCore>) {
         self.session_opened(core);
+        self.reconcile_mirrors();
     }
 
     /// A session's view left the screen: stop its stream now rather than at
@@ -1537,8 +1552,31 @@ impl DirectHost {
     }
 }
 
+/// How long a chat left while its complete history was still downloading
+/// keeps downloading it (so coming back shows it, instead of starting the
+/// multi-MB reset over: minutes over a relay, measured in
+/// `tests/slow_link_sim.rs` `slow_link_history`).
+const HISTORY_FINISH_MS: i64 = 10 * 60_000;
+
+/// See [`DirectHost::wants_mirror`].
+fn wants_mirror(core: &SessionCore) -> bool {
+    core.view_attached() || core.has_pending_sends() || finishing_history(core)
+}
+
+/// Left while only its opening tail had arrived: the complete history keeps
+/// coming (then the stream stops) for [`HISTORY_FINISH_MS`], unless another
+/// transcript is on screen — that one comes first on a slow link.
+fn finishing_history(core: &SessionCore) -> bool {
+    let left = core.detached_ms();
+    left > 0
+        && core.history_pending()
+        && now_ms() - left < HISTORY_FINISH_MS
+        && !core.other_view_attached()
+}
+
 /// Stream one chat's transcript into its shadow doc until the link drops,
-/// the core is evicted, or the mirror is replaced.
+/// the core is evicted, or the mirror is replaced (or, off screen, once
+/// what it was kept for is done: see [`finishing_history`]).
 async fn mirror_transcript(
     link: Arc<Link>,
     core: Weak<SessionCore>,
@@ -1560,7 +1598,12 @@ async fn mirror_transcript(
         own = link.transcript_channel() => own,
     };
     loop {
-        let rpc = own.as_ref().unwrap_or(&link.rpc);
+        let rpc = own.as_ref().map_or(&link.rpc, |own| &own.rpc);
+        // Bytes in on this channel (its own only), for the history's progress.
+        let received = own.as_ref().map(|own| own.received.clone());
+        let mut history_from: Option<u64> = None;
+        let mut progress = tokio::time::interval(HISTORY_PROGRESS_EVERY);
+        progress.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         // `openingTail`: the engine first sends the newest ~128 parts
         // (`historyPending: true`), then the complete reset, then deltas.
         // Engines without it ignore the flag and open with the reset.
@@ -1617,6 +1660,16 @@ async fn mirror_transcript(
                         None => continue,
                     }
                 }
+                _ = progress.tick(), if history_from.is_some() => {
+                    // How much of the complete history has come in so far.
+                    if let (Some(from), Some(received), Some(core)) =
+                        (history_from, received.as_ref(), core.upgrade())
+                    {
+                        let now = received.load(std::sync::atomic::Ordering::Relaxed);
+                        core.set_history_received(now.saturating_sub(from));
+                    }
+                    continue;
+                }
                 item = sub.recv() => item,
                 }
             };
@@ -1654,6 +1707,9 @@ async fn mirror_transcript(
                     }
                     core.schedule_refresh();
                 }
+                history_from = received
+                    .as_ref()
+                    .map(|r| r.load(std::sync::atomic::Ordering::Relaxed));
                 continue;
             }
             let repaired = sanitize_transcript_update(&mut value);
@@ -1683,7 +1739,13 @@ async fn mirror_transcript(
                     let _ = core.write(|doc| doc.update_context_usage(usage.tokens, usage.window));
                 }
                 core.set_hydrated();
+                // Older rows follow with the complete reset: the transcript's
+                // head says so until then.
+                core.set_history_pending(true);
                 core.schedule_refresh();
+                history_from = received
+                    .as_ref()
+                    .map(|r| r.load(std::sync::atomic::Ordering::Relaxed));
                 continue;
             }
             if let Err(err) = apply_transcript_frame(&mut entries, update.frame) {
@@ -1733,7 +1795,19 @@ async fn mirror_transcript(
                 let _ = core.write(|doc| doc.update_context_usage(usage.tokens, usage.window));
             }
             core.set_hydrated();
+            // The complete transcript is in (the first frame after the tail
+            // is the complete reset).
+            history_from = None;
+            core.set_history_pending(false);
             core.schedule_refresh();
+            if !wants_mirror(&core) {
+                // Kept streaming off screen only to finish the history.
+                token.cancel();
+                return;
+            }
+            // The backlog check starts only now: never while the complete
+            // history is still coming (swapping the channel then would throw
+            // the partial download away and start it over).
             if lag.is_none() && own.is_some() {
                 lag = Some(Box::pin(lag_check(rpc)));
             }
@@ -1749,6 +1823,9 @@ async fn mirror_transcript(
         tokio::time::sleep(Duration::from_millis(500)).await;
     }
 }
+
+/// How often the complete history's download progress is published.
+const HISTORY_PROGRESS_EVERY: Duration = Duration::from_secs(1);
 
 /// At most this many queued transcript frames go into one doc write (the
 /// rest wait for the next round, so the mirror still yields to its checks).
