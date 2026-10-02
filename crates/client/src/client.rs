@@ -644,7 +644,9 @@ impl ClientInner {
         self.recompute_connectivity();
         self.recompute_workspace();
         for core in self.cores() {
-            if core.has_pending_sends() {
+            // Time-driven: delivery grace, and a just-adopted send's wait
+            // for its turn to be reported.
+            if core.has_pending_sends() || core.awaiting_turn() {
                 core.refresh();
             }
         }

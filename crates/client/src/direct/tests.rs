@@ -102,6 +102,31 @@ enum Mode {
     /// model added since (the user edited the pi config); the next forced
     /// one fails.
     PiProviders,
+    /// A finished turn (user + complete assistant reply). A relayed Run's
+    /// user entry lands in the transcript at once, but the session status
+    /// never says the new turn runs (as when its heartbeat is still on its
+    /// way over another channel).
+    AdoptsBeforeStatus,
+}
+
+/// [`Mode::AdoptsBeforeStatus`]'s chat: idle on the engine, last message set
+/// (its row's last outcome reads Completed).
+const IDLE_CHAT: &str = "026ea64d-c3e6-47dd-bd75-f387dc79ca5a";
+
+fn turn_entry(id: &str, role: zeron_doc::MessageRole) -> zeron_doc::SessionMessageEntry {
+    zeron_doc::SessionMessageEntry {
+        id: id.into(),
+        role,
+        parts: vec![zeron_doc::MessagePart::Text {
+            id: format!("{id}-t"),
+            text: format!("text of {id}"),
+        }],
+        created_at: 1_782_800_000_000,
+        device_id: "pc".into(),
+        status: Some(zeron_doc::MessageStatus::Complete),
+        continuation_of: None,
+        duration_ms: Some(60_000),
+    }
 }
 
 /// [`Mode::PiProviders`]'s Pi list; `added` includes the model added later.
@@ -190,6 +215,45 @@ impl RpcService for Engine {
                 "checkoutId": "co", "path": params["path"], "text": "# Report\n", "size": 9,
                 "encoding": "utf8", "truncated": false
             })));
+        }
+        if method == "RelayCommand" && self.0 == Mode::AdoptsBeforeStatus {
+            let id = params["entry"]["payload"]["messageId"].clone();
+            lock(&self.1).push(serde_json::json!({ "relayed": id }));
+            return Ok(RpcReply::Value(
+                serde_json::json!({ "outcome": "executed" }),
+            ));
+        }
+        if method == "WatchDocMessages" && self.0 == Mode::AdoptsBeforeStatus {
+            use zeron_doc::MessageRole::{Assistant, User};
+            let opening = serde_json::json!({
+                "reset": [turn_entry("u0", User), turn_entry("a0", Assistant)]
+            });
+            // The relayed message's user entry, as soon as it's relayed.
+            let seen = self.1.clone();
+            let adopted = futures::stream::unfold(seen, |seen| async move {
+                loop {
+                    let relayed = lock(&seen)
+                        .iter()
+                        .find_map(|v| v.get("relayed").and_then(|v| v.as_str()).map(str::to_owned));
+                    if let Some(id) = relayed {
+                        let mut user = turn_entry(&id, User);
+                        user.duration_ms = None;
+                        let frame = serde_json::json!({
+                            "upsert": [{ "after": "a0", "entry": user }],
+                            "append": [], "remove": [], "count": 3
+                        });
+                        return Some((frame, seen));
+                    }
+                    tokio::time::sleep(Duration::from_millis(20)).await;
+                }
+            })
+            .take(1);
+            return Ok(RpcReply::Stream(
+                futures::stream::iter([opening])
+                    .chain(adopted)
+                    .chain(futures::stream::pending())
+                    .boxed(),
+            ));
         }
         if method == "WatchDocMessages" {
             // Record who streams which transcript, and when it stops.
@@ -1872,3 +1936,83 @@ fn a_tail_that_outran_the_kept_transcript_still_shows_the_newest_rows() {
         ]
     );
 }
+
+// ── the transcript's tail right after a send ───────────────────────────────
+
+/// Regression (round5-14: "✓ 完成" (Done) flashed under a message just
+/// sent, then the working dots): the host adopts the message (its user entry
+/// lands in the transcript, ending the pending send) a moment before its
+/// status says the new turn runs. In that gap the transcript must say
+/// working, not how the previous turn ended.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_message_just_sent_shows_working_not_the_previous_turns_outcome() {
+    let dir = tempfile::tempdir().unwrap();
+    let (client, seen, _) = live_client(
+        "adopts-before-status.test",
+        Mode::AdoptsBeforeStatus,
+        dir.path(),
+    )
+    .await;
+    wait_for(&client, "the idle chat", |c| {
+        c.workspace().session(IDLE_CHAT).is_some()
+    })
+    .await;
+    let handle = client.open_session(IDLE_CHAT).unwrap();
+    handle.set_view_attached(true);
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while handle.snapshot().transcript_messages().len() < 2 {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the finished turn shows"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    // Before: the finished turn ends the transcript with its outcome.
+    let before = handle.snapshot();
+    assert!(!before.working);
+    assert!(
+        before.outcome.is_some_and(|o| !o.failed),
+        "{:?}",
+        before.outcome
+    );
+
+    let crate::SendOutcome::Started { message_id } = handle
+        .send(crate::SendRequest::text("next question"))
+        .unwrap()
+    else {
+        panic!("an idle chat starts a turn");
+    };
+    let sent = handle.snapshot();
+    assert!(sent.working && sent.outcome.is_none(), "in flight: working");
+
+    // Adopted, while the engine still reports the chat idle.
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while !handle
+        .snapshot()
+        .transcript_messages()
+        .iter()
+        .any(|m| m.id == message_id)
+    {
+        assert!(std::time::Instant::now() < deadline, "adopted");
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert!(lock(&seen).iter().any(|v| v.get("relayed").is_some()));
+    for _ in 0..20 {
+        let snap = handle.snapshot();
+        assert!(snap.pending.is_empty(), "the send is adopted");
+        assert_eq!(
+            client
+                .workspace()
+                .session(IDLE_CHAT)
+                .unwrap()
+                .host_indicator,
+            crate::ChatIndicator::Idle,
+            "the host hasn't reported the turn"
+        );
+        assert!(snap.working, "a message just sent: working");
+        assert_eq!(snap.outcome, None, "no done row under it");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    client.shutdown();
+}
+

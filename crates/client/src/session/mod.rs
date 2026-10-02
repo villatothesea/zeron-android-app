@@ -166,6 +166,8 @@ struct CoreState {
     last_submitted: Option<String>,
     transfer_progress: Option<f64>,
     hydrated: bool,
+    /// A send of ours the host adopted but hasn't reported a turn for yet.
+    awaiting_turn: Option<AwaitingTurn>,
     transcript_revision: u64,
     composer_revision: u64,
 }
@@ -238,6 +240,7 @@ impl SessionCore {
                 last_submitted: None,
                 transfer_progress: None,
                 hydrated: false,
+                awaiting_turn: None,
                 transcript_revision: 0,
                 composer_revision: 0,
             }),
@@ -366,6 +369,12 @@ impl SessionCore {
         lock(&self.state).hydrated = true;
     }
 
+    /// A send of ours is adopted but its turn not yet reported (the tick
+    /// refreshes such a session so the wait can time out).
+    pub(crate) fn awaiting_turn(&self) -> bool {
+        lock(&self.state).awaiting_turn.is_some()
+    }
+
     /// Serialized doc write, then an incremental refresh.
     pub(crate) fn write<R>(
         &self,
@@ -408,12 +417,11 @@ impl SessionCore {
         let now = now_ms();
         let degraded = client.chat_delivery_degraded(&self.chat_id);
         let row = client.workspace.snapshot().session(&self.chat_id).cloned();
-        let (indicator_working, working_since_ms) = row.as_ref().map_or((false, None), |row| {
-            (
-                row.host_indicator == ChatIndicator::Working,
-                row.working_since_ms,
-            )
-        });
+        let host_indicator = row
+            .as_ref()
+            .map_or(ChatIndicator::Idle, |row| row.host_indicator);
+        let indicator_working = host_indicator == ChatIndicator::Working;
+        let working_since_ms = row.as_ref().and_then(|row| row.working_since_ms);
         let mut transcript_event = None;
         let send_before;
         let send_after;
@@ -430,6 +438,11 @@ impl SessionCore {
             if dirty.meta {
                 st.context_usage = self.doc.context_usage();
             }
+            let unadopted: Vec<(String, PendingKind)> = st
+                .pending
+                .iter()
+                .map(|p| (p.message_id.clone(), p.kind))
+                .collect();
             let echoes_changed = derive_pending(&mut st, &client.config.device_id, degraded, now);
             send_after = oldest_state(&st.pending);
             let previous = self.snapshot();
@@ -439,11 +452,34 @@ impl SessionCore {
                 .last()
                 .is_some_and(|e| e.is_streaming());
             let sending = st.pending.iter().any(|p| p.state == SendState::Sending);
-            let working = indicator_working || streaming || sending;
+            // A send the host just adopted: its turn starts any moment, but
+            // the host's status (another feed) may say so seconds later.
+            // Until then the transcript says working, not how the previous
+            // turn ended (the "✓ 完成" (Done) row flashed in that gap).
+            for (id, _) in unadopted
+                .iter()
+                .filter(|(_, kind)| matches!(kind, PendingKind::Run | PendingKind::Steer))
+            {
+                if st.tracker.contains_id(id) && !st.pending.iter().any(|p| &p.message_id == id) {
+                    st.awaiting_turn = Some(AwaitingTurn {
+                        message_id: id.clone(),
+                        since_ms: now,
+                    });
+                }
+            }
+            if let Some(waiting) = &st.awaiting_turn
+                && !waiting.still_waiting(host_indicator, streaming, st.tracker.entries(), now)
+            {
+                st.awaiting_turn = None;
+            }
+            let starting = st.awaiting_turn.is_some();
+            let working = indicator_working || streaming || sending || starting;
             let live = LiveFlags {
                 working,
                 working_since_ms,
-                outcome: if working {
+                // No end-of-turn row while a turn runs or is about to, nor
+                // under a send of ours still in flight, queued or failed.
+                outcome: if working || !st.pending.is_empty() {
                     None
                 } else {
                     row.as_deref().and_then(|row| {
@@ -827,6 +863,49 @@ struct LiveFlags {
     outcome: Option<TurnOutcome>,
 }
 
+/// How long after the host adopted a send of ours the transcript keeps
+/// saying "working" without the host reporting the turn (the session status
+/// rides another feed: a heartbeat every ~3 s, later over a slow relay).
+pub(crate) const TURN_START_GRACE_MS: i64 = 30_000;
+
+/// A send of ours the host adopted (its user entry is in the transcript)
+/// whose turn the host hasn't reported running yet.
+#[derive(Debug, Clone)]
+struct AwaitingTurn {
+    message_id: String,
+    /// When it was adopted (phone clock).
+    since_ms: i64,
+}
+
+impl AwaitingTurn {
+    /// Still waiting: the host reports no turn running or waiting on input
+    /// yet, no reply after the message has finished (a turn quicker than
+    /// the status feed), and the grace hasn't run out.
+    fn still_waiting(
+        &self,
+        host: ChatIndicator,
+        streaming: bool,
+        entries: &[Arc<Entry>],
+        now: i64,
+    ) -> bool {
+        if streaming
+            || matches!(host, ChatIndicator::Working | ChatIndicator::AwaitingInput)
+            || now - self.since_ms > TURN_START_GRACE_MS
+        {
+            return false;
+        }
+        let Some(at) = entries.iter().position(|e| e.id == self.message_id) else {
+            return false;
+        };
+        !entries[at + 1..].iter().any(|e| {
+            e.message.role == zeron_doc::MessageRole::Assistant
+                && e.message
+                    .status
+                    .is_some_and(|s| s != MessageStatus::Streaming)
+        })
+    }
+}
+
 /// [`SessionSnapshot::outcome`] from the session row's `last_outcome` (the
 /// outcome its glyph shows on the home list) and the transcript (when the
 /// turn ended; else the row's `last_activity_ms`).
@@ -884,6 +963,51 @@ mod turn_outcome_tests {
             echo: None,
             append: None,
         })
+    }
+
+    #[test]
+    fn an_adopted_send_waits_for_its_turn_until_the_host_or_the_transcript_says_so() {
+        let now = 10_000_000;
+        let sent = entry(MessageRole::User, None, 2_000_000, None);
+        let wait = AwaitingTurn {
+            message_id: sent.id.clone(),
+            since_ms: now,
+        };
+        let finished = vec![
+            entry(MessageRole::User, None, 1_000_000, None),
+            entry(
+                MessageRole::Assistant,
+                Some(MessageStatus::Complete),
+                1_000_500,
+                Some(1),
+            ),
+            sent.clone(),
+        ];
+        // Adopted, the host still says idle (its status on its way): waiting.
+        assert!(wait.still_waiting(ChatIndicator::Idle, false, &finished, now + 500));
+        assert!(wait.still_waiting(ChatIndicator::Completed, false, &finished, now + 500));
+        // The host says it runs (or asks), or the reply streams: not waiting.
+        for host in [ChatIndicator::Working, ChatIndicator::AwaitingInput] {
+            assert!(!wait.still_waiting(host, false, &finished, now + 500));
+        }
+        assert!(!wait.still_waiting(ChatIndicator::Idle, true, &finished, now + 500));
+        // A turn quicker than the host's status: its reply finished.
+        let mut replied = finished.clone();
+        replied.push(entry(
+            MessageRole::Assistant,
+            Some(MessageStatus::Complete),
+            2_000_100,
+            Some(1),
+        ));
+        assert!(!wait.still_waiting(ChatIndicator::Completed, false, &replied, now + 500));
+        // Gone from the transcript, or never started: give up.
+        assert!(!wait.still_waiting(ChatIndicator::Idle, false, &finished[..2], now + 500));
+        assert!(!wait.still_waiting(
+            ChatIndicator::Idle,
+            false,
+            &finished,
+            now + TURN_START_GRACE_MS + 1
+        ));
     }
 
     #[test]
