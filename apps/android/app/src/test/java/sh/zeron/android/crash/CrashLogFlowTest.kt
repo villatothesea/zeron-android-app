@@ -32,7 +32,7 @@ import sh.zeron.android.screenshots.FakeAndroidKeyStore
 import sh.zeron.android.screenshots.Screenshots
 
 /**
- * After a crash: the next launch's 上次意外退出 dialog copies the log and is
+ * After a crash: the next launch's 上次意外退出 (Zeron Quit Unexpectedly) dialog copies the log and is
  * not shown again; Settings > About > Crash logs lists, and clears, them.
  */
 @RunWith(RobolectricTestRunner::class)

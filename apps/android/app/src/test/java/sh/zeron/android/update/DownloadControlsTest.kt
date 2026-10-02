@@ -30,8 +30,8 @@ import java.io.File
 
 /**
  * Cancel / switch mirror while an update downloads: the badge opens the
- * download sheet, 换个镜像 lists every source with what it did last, and
- * 取消下载 puts the arrow back, keeping the partial file the first time and
+ * download sheet, 换个镜像 (Switch mirror) lists every source with what it did last, and
+ * 取消下载 (Cancel download) puts the arrow back, keeping the partial file the first time and
  * deleting it the second.
  */
 @RunWith(RobolectricTestRunner::class)
@@ -84,7 +84,7 @@ class DownloadControlsTest {
         assertFalse(model.showUpdate)
         compose.onNodeWithTag("download-sheet").assertExists()
 
-        // 换个镜像 -> every source, the current one ticked, the rest with their history.
+        // 换个镜像 (Switch mirror) -> every source, the current one ticked, the rest with their history.
         compose.onNodeWithTag("download-switch").performClick()
         settle()
         compose.onNodeWithTag("source-picker").assertExists()

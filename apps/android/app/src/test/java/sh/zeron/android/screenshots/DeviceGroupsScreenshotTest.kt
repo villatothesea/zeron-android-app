@@ -43,7 +43,7 @@ import uniffi.zeron_core.DirectStreamStat
 /**
  * One computer, several addresses (LAN + Tailscale), in Chinese, dark +
  * light: the chip's route tag, the switcher, Edit computer's address list
- * (and the merge picker), Connection details' 线路 section, and the failure
+ * (and the merge picker), Connection details' 线路 (Routes) section, and the failure
  * sheet's per-address reasons. Output: device-groups/ under the renders dir.
  */
 @RunWith(RobolectricTestRunner::class)
@@ -160,7 +160,7 @@ class DeviceGroupsScreenshotTest {
             model.connectionSheet = null
             settle()
 
-            // Connection details > 线路, on Tailscale after LAN timed out.
+            // Connection details > 线路 (Routes), on Tailscale after LAN timed out.
             model.showLinkDetails = true
             settle()
             compose.onNodeWithText(app.getString(R.string.route_auto_hint)).assertExists()
@@ -204,7 +204,7 @@ class DeviceGroupsScreenshotTest {
         scenario.close()
     }
 
-    /** Settings > 自动选择线路, and with it off: picking the address by hand. */
+    /** Settings > 自动选择线路 (Auto-select route), and with it off: picking the address by hand. */
     @Test
     fun manualRouteScreens() {
         val app = ApplicationProvider.getApplicationContext<Application>()

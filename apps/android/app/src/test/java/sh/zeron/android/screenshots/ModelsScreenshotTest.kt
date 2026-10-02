@@ -31,7 +31,7 @@ import uniffi.zeron_core.ModelInfo
 /**
  * New Session's model menu: the computer's live Codex list (a custom
  * gpt-6.1-sol on top, as a real 0.2.100 engine reports it) and the fallback
- * when the live read failed (the saved list + 「没能从电脑读取最新列表 · 重试」).
+ * when the live read failed (the saved list + 「没能从电脑读取最新列表 · 重试」 / "Couldn't get the latest list · Retry").
  * Output: models/ or zh/models/.
  */
 @OptIn(ExperimentalRoborazziApi::class)

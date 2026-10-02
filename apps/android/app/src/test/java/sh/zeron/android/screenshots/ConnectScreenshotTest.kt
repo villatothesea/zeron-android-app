@@ -124,7 +124,7 @@ open class ConnectScreenshotTest {
             model.applyAppearance(mode)
             settle(1000)
 
-            // Home Wi-Fi, LAN didn't answer, Tailscale off on the phone: 「Tailscale 未启动」.
+            // Home Wi-Fi, LAN didn't answer, Tailscale off on the phone: 「Tailscale 未启动」 ("Tailscale isn't running").
             state(villa, home, status(DirectPhase.FAILED, listOf(stat(lan, lanTimeout), stat(ts, tsTimeout)), lanTimeout))
             check(model.connectionView().diagnosis?.kind == ConnectionDiagnosis.Kind.TAILSCALE_OFF)
             compose.onNodeWithTag("tailscale-action").assertExists()

@@ -24,7 +24,7 @@ import sh.zeron.android.screenshots.Screenshots
 
 /**
  * The periodic update check lives only while the app is in the foreground,
- * and 自动检查并下载更新 off means no automatic check at all.
+ * and 自动检查并下载更新 (Auto-check & download updates) off means no automatic check at all.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])

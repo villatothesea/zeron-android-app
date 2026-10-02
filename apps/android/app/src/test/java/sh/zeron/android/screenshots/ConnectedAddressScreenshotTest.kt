@@ -30,7 +30,7 @@ import uniffi.zeron_core.DirectPhase
 import uniffi.zeron_core.DirectStatus
 
 /**
- * The computer page's 地址 list: the route tag of the address the link runs
+ * The computer page's 地址 (Addresses) list: the route tag of the address the link runs
  * over right now is filled with the accent (white text); the others stay
  * plain. Dark + light, at home (LAN) and away (Tailscale), English here and
  * Chinese in the subclass. Output: connected-address/ (zh/connected-address/).

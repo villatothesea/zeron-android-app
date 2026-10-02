@@ -195,7 +195,7 @@ class UpdaterTest {
         val kept = u.partialBytes(rel)
         assertTrue("kept $kept", kept in 30_000L until apk.size.toLong())
         assertEquals(listOf("GitHub", "127.0.0.1"), u.sources(rel).map { it.label })
-        // 换个镜像 -> the mirror, from the same byte.
+        // 换个镜像 (Switch mirror) -> the mirror, from the same byte.
         val file = u.download(rel, prefer = mirror) {}
         assertEquals(listOf("bytes=$kept-"), ranges.toList())
         assertArrayEquals(apk, file.readBytes())

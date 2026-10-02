@@ -24,7 +24,7 @@ import sh.zeron.android.core.ZeronModel
 
 /**
  * The update download controls: the sheet the badge opens while
- * downloading, the 换个镜像 list, and the update screen's two buttons.
+ * downloading, the 换个镜像 (Switch mirror) list, and the update screen's two buttons.
  * Output: update-download/<lang>-*.png under the renders dir.
  */
 @RunWith(RobolectricTestRunner::class)
