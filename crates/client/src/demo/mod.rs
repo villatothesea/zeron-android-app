@@ -964,12 +964,22 @@ impl DemoHost {
             installed: true,
             enabled: Some(true),
         });
+        // Pi with two providers serving the same models (see `demo_models`).
+        list.push(HarnessInfo {
+            id: "pi".into(),
+            label: "Pi".into(),
+            supports_steering: Some(true),
+            steering_mode: Some("step-boundary".into()),
+            reasoning_levels: Vec::new(),
+            installed: true,
+            enabled: Some(true),
+        });
         list
     }
 
     pub(crate) async fn list_models(&self, harness: &str) -> Vec<ModelInfo> {
         tokio::time::sleep(Duration::from_millis(100)).await;
-        catalog::fallback_models(harness)
+        demo_models(harness)
     }
 
     fn seeded_refs(path: &str) -> Vec<RepoRef> {
@@ -1171,6 +1181,40 @@ fn text_hash(text: &str) -> String {
     let mut h = std::collections::hash_map::DefaultHasher::new();
     text.hash(&mut h);
     format!("{:016x}", h.finish())
+}
+
+/// Demo's model lists: the built-in ones, except Pi, which lists what a pi
+/// config with two providers serving the same models reports (providers
+/// `AG.20` and `AG.50`, both offering gpt-6-astra and gpt-6.1-sol under the
+/// same names). The rows differ only by the `provider/` prefix of their
+/// engine ids, so the pickers have to name the provider under each one.
+pub(crate) fn demo_models(harness: &str) -> Vec<ModelInfo> {
+    if harness != "pi" {
+        return catalog::fallback_models(harness);
+    }
+    let ladder: Vec<String> = ["minimal", "low", "medium", "high", "xhigh", "max"]
+        .iter()
+        .map(|s| (*s).to_owned())
+        .collect();
+    ["AG.20", "AG.50"]
+        .iter()
+        .flat_map(|provider| {
+            [
+                ("gpt-6-astra", "GPT-6 Astra"),
+                ("gpt-6.1-sol", "GPT-6.1 Sol"),
+            ]
+            .iter()
+            .map(|(id, label)| ModelInfo {
+                id: format!("{provider}/{id}"),
+                label: (*label).to_owned(),
+                // pi-acp sends no description; the provider is in the id.
+                description: None,
+                reasoning_levels: ladder.clone(),
+                options: Vec::new(),
+            })
+            .collect::<Vec<_>>()
+        })
+        .collect()
 }
 
 /// What Demo's computer answers for a file link: a short Markdown report

@@ -97,6 +97,32 @@ enum Mode {
     /// The engine holds the desktop's sidebar pins (a synced profile):
     /// `WatchSidebarPreferences` lists [`desktop_pinned`].
     DesktopPins,
+    /// Pi with two providers serving the same models under the same names
+    /// (`AG.20/…`, `AG.50/…`). The first forced `ListModels pi` finds a
+    /// model added since (the user edited the pi config); the next forced
+    /// one fails.
+    PiProviders,
+}
+
+/// [`Mode::PiProviders`]'s Pi list; `added` includes the model added later.
+fn pi_provider_models(added: bool) -> serde_json::Value {
+    let row = |id: &str, label: &str| {
+        serde_json::json!({
+            "id": id, "label": label, "description": null,
+            "reasoningLevels": ["minimal", "low", "medium", "high", "xhigh", "max"],
+            "options": []
+        })
+    };
+    let mut rows = vec![
+        row("AG.20/gpt-6-astra", "GPT-6 Astra"),
+        row("AG.20/gpt-6.1-sol", "GPT-6.1 Sol"),
+        row("AG.50/gpt-6-astra", "GPT-6 Astra"),
+        row("AG.50/gpt-6.1-sol", "GPT-6.1 Sol"),
+    ];
+    if added {
+        rows.push(row("AG.50/gpt-6.2-nova", "GPT-6.2 Nova"));
+    }
+    serde_json::Value::Array(rows)
 }
 
 /// Two of the fixture's front-page chats (not archived, no project), the
@@ -239,9 +265,22 @@ impl RpcService for Engine {
             return Ok(RpcReply::Value(fixture("ListHarnesses")));
         }
         if method == "ListModels" {
-            lock(&self.1).push(params);
+            let pi_forced =
+                self.0 == Mode::PiProviders && params["harness"] == "pi" && params["force"] == true;
+            lock(&self.1).push(params.clone());
             if matches!(self.0, Mode::BrokenModels | Mode::BrokenCatalog) {
                 return Err(RpcError::Failed("model catalog unavailable; retry".into()));
+            }
+            if self.0 == Mode::PiProviders && params["harness"] == "pi" {
+                let forced = lock(&self.1)
+                    .iter()
+                    .filter(|p| p["harness"] == "pi" && p["force"] == true)
+                    .count();
+                return match (pi_forced, forced) {
+                    (false, _) => Ok(RpcReply::Value(pi_provider_models(false))),
+                    (true, 1) => Ok(RpcReply::Value(pi_provider_models(true))),
+                    (true, _) => Err(RpcError::Failed("pi: provider AG.50 unreachable".into())),
+                };
             }
             let mut list = fixture("ListModels");
             if self.0 == Mode::Drifted {
@@ -1498,6 +1537,94 @@ async fn a_failing_refresh_keeps_the_saved_catalog() {
     let read = client.model_catalog(&device, "codex", true).await;
     assert_eq!(read.source, crate::catalog::CatalogSource::Saved);
     assert_eq!(model_ids(&read.models), model_ids(&models));
+    client.shutdown();
+}
+
+/// The model list's refresh (a forced read): it asks the computer even
+/// while the last live read is still fresh (plain reads answer from it for
+/// half an hour), saves what comes back for this computer, and a failed one
+/// keeps the saved list and says why. Pi's same-named rows from two
+/// providers both come through, told apart by their `provider/` ids.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_forced_refresh_rereads_a_fresh_list_and_never_downgrades() {
+    let dir = tempfile::tempdir().unwrap();
+    let (client, seen, device) =
+        live_client("catalog-refresh.test", Mode::PiProviders, dir.path()).await;
+    let saved = crate::catalog::DiskCatalog::new(dir.path());
+    // The engine has seen the prefetch's reads; wait for the phone to have
+    // taken Pi's answer in (saved, then marked fresh right after).
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while saved.models(&device, "pi").is_none() {
+        assert!(std::time::Instant::now() < deadline, "Pi's prefetched list");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    // Fresh from the prefetch: a plain read doesn't ask the computer.
+    let plain = client.model_catalog(&device, "pi", false).await;
+    assert_eq!(plain.source, crate::catalog::CatalogSource::Live);
+    assert!(lock(&seen).is_empty(), "{:?}", lock(&seen));
+    assert_eq!(
+        model_ids(&plain.models),
+        [
+            "AG.20/gpt-6-astra",
+            "AG.20/gpt-6.1-sol",
+            "AG.50/gpt-6-astra",
+            "AG.50/gpt-6.1-sol"
+        ]
+    );
+    let labels: Vec<&str> = plain.models.iter().map(|m| m.label.as_str()).collect();
+    assert_eq!(
+        labels,
+        ["GPT-6 Astra", "GPT-6.1 Sol", "GPT-6 Astra", "GPT-6.1 Sol"]
+    );
+
+    // Refresh: asks anyway, and the new list is saved and served after.
+    let forced = client.model_catalog(&device, "pi", true).await;
+    assert_eq!(
+        lock(&seen).last().unwrap(),
+        &serde_json::json!({"harness": "pi", "force": true})
+    );
+    assert_eq!(forced.source, crate::catalog::CatalogSource::Live);
+    assert_eq!(forced.error, None);
+    let refreshed = model_ids(&forced.models);
+    assert_eq!(
+        refreshed.last().map(String::as_str),
+        Some("AG.50/gpt-6.2-nova")
+    );
+    assert_eq!(
+        saved.models(&device, "pi").map(|l| model_ids(&l)),
+        Some(refreshed.clone())
+    );
+    let shown = client.saved_catalog(&device);
+    let pi = &shown.iter().find(|(h, _)| h.id == "pi").unwrap().1;
+    assert_eq!(model_ids(&pi.models), refreshed);
+    let asked = lock(&seen).len();
+    let plain = client.model_catalog(&device, "pi", false).await;
+    assert_eq!(model_ids(&plain.models), refreshed);
+    assert_eq!(
+        lock(&seen).len(),
+        asked,
+        "a plain read after a refresh is fresh"
+    );
+
+    // A refresh that fails keeps the saved list and carries the real reason.
+    let failed = client.model_catalog(&device, "pi", true).await;
+    assert_eq!(lock(&seen).len(), asked + 1, "the failed refresh asked too");
+    assert_eq!(failed.source, crate::catalog::CatalogSource::Saved);
+    assert_eq!(model_ids(&failed.models), refreshed);
+    assert!(
+        failed
+            .error
+            .as_deref()
+            .is_some_and(|e| e.contains("provider AG.50 unreachable")),
+        "{:?}",
+        failed.error
+    );
+    assert_eq!(
+        saved.models(&device, "pi").map(|l| model_ids(&l)),
+        Some(refreshed)
+    );
     client.shutdown();
 }
 

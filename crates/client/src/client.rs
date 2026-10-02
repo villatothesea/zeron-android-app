@@ -37,7 +37,8 @@ const CATALOG_OUTAGE: Duration = Duration::from_secs(60);
 /// A live catalog read (the prefetch right after a direct link comes up, the
 /// background refresh every [`CATALOG_REFRESH`], or any later read) answers
 /// plain reads for this long without asking the computer again, so opening
-/// New Session never waits behind a busy link.
+/// New Session never waits behind a busy link. A forced read (retry, or the
+/// model list's refresh action) always asks.
 const CATALOG_FRESH: Duration = Duration::from_secs(30 * 60 + 60);
 /// While a direct link is up, the CLI/model lists are re-read in the
 /// background this often (and once right after connecting). A failed read
@@ -1333,7 +1334,11 @@ impl Client {
                         error: None,
                     },
                     _ => catalog::ModelCatalog {
-                        models: catalog::fallback_models(&h.id),
+                        models: if demo {
+                            crate::demo::demo_models(&h.id)
+                        } else {
+                            catalog::fallback_models(&h.id)
+                        },
                         source: if demo {
                             catalog::CatalogSource::Live
                         } else {
@@ -1436,8 +1441,11 @@ impl Client {
 
     /// [`Self::list_models`] plus where the list came from. `force` asks the
     /// engine to re-probe the CLI instead of answering from its cache (the
-    /// user opened that CLI's model list, or tapped retry). A failed live
-    /// read is logged at warn and noted in the direct connection log.
+    /// user tapped retry, or refresh on a saved list): it skips
+    /// [`CATALOG_FRESH`] and the [`CATALOG_OUTAGE`] shortcut, and a good
+    /// answer replaces the list saved for this computer. A failed read never
+    /// touches the saved list: it answers with it (`Saved`) and the reason in
+    /// `error`, is logged at warn and noted in the direct connection log.
     pub async fn model_catalog(
         &self,
         device_id: &str,
