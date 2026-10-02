@@ -90,6 +90,29 @@ enum Mode {
     /// Like OpeningTail, but a later subscription's tail also carries a
     /// row written while nobody watched (m4), and no complete reset.
     GrowingTail,
+    /// Like GrowingTail, but more was written while nobody watched than the
+    /// later tail covers: it carries only m5 and m6 (m4 is in neither the
+    /// kept copy nor the tail), and the complete reset never comes.
+    OutrunTail,
+    /// The engine holds the desktop's sidebar pins (a synced profile):
+    /// `WatchSidebarPreferences` lists [`desktop_pinned`].
+    DesktopPins,
+}
+
+/// Two of the fixture's front-page chats (not archived, no project), the
+/// later one first.
+fn desktop_pinned() -> Vec<String> {
+    let chats = fixture("WatchChats");
+    let mut ids: Vec<String> = chats
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|c| c["archived"] != true && c["parentChatId"].is_null() && c["spaceId"].is_null())
+        .map(|c| c["id"].as_str().unwrap().to_owned())
+        .take(2)
+        .collect();
+    ids.reverse();
+    ids
 }
 
 fn transcript_entry(id: &str) -> serde_json::Value {
@@ -162,12 +185,20 @@ impl RpcService for Engine {
                 "watch": chat, "openingTail": params["openingTail"].clone()
             }));
             let guard = Unwatch(self.1.clone(), chat);
-            let opening: Vec<serde_json::Value> = if self.0 == Mode::GrowingTail && earlier > 0 {
+            let opening: Vec<serde_json::Value> = if self.0 == Mode::OutrunTail && earlier > 0 {
+                vec![serde_json::json!({
+                    "reset": [transcript_entry("m5"), transcript_entry("m6")],
+                    "historyPending": true
+                })]
+            } else if self.0 == Mode::GrowingTail && earlier > 0 {
                 vec![serde_json::json!({
                     "reset": [transcript_entry("m3"), transcript_entry("m4")],
                     "historyPending": true
                 })]
-            } else if matches!(self.0, Mode::OpeningTail | Mode::GrowingTail) {
+            } else if matches!(
+                self.0,
+                Mode::OpeningTail | Mode::GrowingTail | Mode::OutrunTail
+            ) {
                 let tail = serde_json::json!({
                     "reset": [transcript_entry("m3")], "historyPending": true
                 });
@@ -225,6 +256,18 @@ impl RpcService for Engine {
                 rows.push(serde_json::json!({"id": "gpt-7-preview", "label": {"en": "GPT-7"}}));
             }
             return Ok(RpcReply::Value(list));
+        }
+        if method == "WatchSidebarPreferences" && self.0 == Mode::DesktopPins {
+            lock(&self.1).push(serde_json::json!({ "watchSidebarPreferences": true }));
+            let frame = serde_json::json!({
+                "revision": 3, "synced": true, "initialized": true, "sections": [],
+                "pinnedSessionIds": desktop_pinned()
+            });
+            return Ok(RpcReply::Stream(
+                futures::stream::iter([frame])
+                    .chain(futures::stream::pending())
+                    .boxed(),
+            ));
         }
         if !matches!(
             method,
@@ -591,6 +634,8 @@ fn newer_minor_engines_get_a_notice_patches_do_not() {
     assert!(engine_notice(None).is_none());
 }
 
+/// An engine holding no pins (a local profile) and no desktop settings file
+/// to read (no SSH here): the phone's pins start empty and are its own.
 #[tokio::test(flavor = "multi_thread")]
 async fn direct_pins_are_phone_only_and_start_empty() {
     start_engine("pins.test", Mode::Real).await;
@@ -625,6 +670,36 @@ async fn direct_pins_are_phone_only_and_start_empty() {
     })
     .await;
     assert!(client.workspace().front.pinned.is_empty());
+    client.shutdown();
+}
+
+/// Regression (desktop pins never reached the phone): pins the desktop
+/// holds show as pinned on the phone, in the desktop's order, and stay
+/// phone-editable.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_desktops_pins_show_as_pinned_on_the_phone() {
+    start_engine("desktop-pins.test", Mode::DesktopPins).await;
+    let dir = tempfile::tempdir().unwrap();
+    let client = direct_client("desktop-pins.test", dir.path());
+    let want = desktop_pinned();
+    assert_eq!(want.len(), 2);
+    wait_for(&client, "desktop pins", |c| {
+        let ws = c.workspace();
+        ws.front
+            .pinned
+            .iter()
+            .map(|r| r.id.clone())
+            .collect::<Vec<_>>()
+            == want
+    })
+    .await;
+    assert!(client.workspace().session(&want[0]).unwrap().pinned);
+    // Unpinning on the phone sticks: the desktop's list didn't change.
+    client.unpin_session(&want[0]).unwrap();
+    wait_for(&client, "unpinned", |c| {
+        c.workspace().session(&want[0]).is_some_and(|r| !r.pinned)
+    })
+    .await;
     client.shutdown();
 }
 
@@ -1496,6 +1571,40 @@ async fn a_chat_left_shows_its_kept_transcript_at_once_on_return() {
     client.shutdown();
 }
 
+/// Regression (round5-13 "最近的都没有"): coming back to a chat that moved
+/// on by more than the opening tail covers shows the newest rows at once on
+/// top of the kept transcript, without waiting for the complete reset.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_return_shows_the_newest_rows_even_when_the_tail_outran_the_kept_copy() {
+    let dir = tempfile::tempdir().unwrap();
+    let (client, seen, _) = live_client("outrun-tail.test", Mode::OutrunTail, dir.path()).await;
+    wait_for(&client, "chats", |c| !c.workspace().sessions.is_empty()).await;
+    let chat = client.workspace().sessions.keys().next().unwrap().clone();
+    let watches = |key: &str| {
+        lock(&seen)
+            .iter()
+            .filter(|v| v.get(key).is_some_and(|c| c == &serde_json::json!(chat)))
+            .count()
+    };
+    let handle = client.open_session(&chat).unwrap();
+    handle.set_view_attached(true);
+    wait_ids(&handle, &["m1", "m2", "m3"]).await;
+    drop(handle);
+    client.close_session(&chat);
+    let deadline = std::time::Instant::now() + Duration::from_secs(12);
+    while watches("unwatch") == 0 {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "unsubscribed on leaving"
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    let reopened = client.open_session(&chat).unwrap();
+    reopened.set_view_attached(true);
+    wait_ids(&reopened, &["m1", "m2", "m3", "m5", "m6"]).await;
+    client.shutdown();
+}
+
 /// Over a direct link only the last few chats viewed stay in memory after
 /// leaving them; older ones are dropped (they load again when opened).
 #[tokio::test(flavor = "multi_thread")]
@@ -1548,11 +1657,30 @@ fn entry_with_parts(id: &str, parts: &[&str]) -> zeron_doc::SessionMessageEntry 
     entry
 }
 
+fn shape(entries: &[zeron_doc::SessionMessageEntry]) -> Vec<(String, Vec<String>)> {
+    entries
+        .iter()
+        .map(|e| {
+            (
+                e.id.clone(),
+                e.parts.iter().map(|p| p.id().to_owned()).collect(),
+            )
+        })
+        .collect()
+}
+
+fn row(id: &str, parts: &[&str]) -> (String, Vec<String>) {
+    (
+        id.to_owned(),
+        parts.iter().map(|p| (*p).to_owned()).collect(),
+    )
+}
+
 /// The opening tail's first row can be cut to its last parts: laid over a
-/// kept transcript it keeps the earlier parts it already had, adds what's
-/// new, and doesn't apply at all when it doesn't line up with what's kept.
+/// kept transcript it keeps the earlier parts it already had and adds
+/// what's new.
 #[test]
-fn a_tail_is_laid_over_the_kept_transcript_only_where_it_lines_up() {
+fn a_tail_is_laid_over_the_kept_transcript_where_it_lines_up() {
     use super::host::splice_tail;
     let kept = vec![
         entry_with_parts("m1", &["a"]),
@@ -1564,31 +1692,56 @@ fn a_tail_is_laid_over_the_kept_transcript_only_where_it_lines_up() {
         entry_with_parts("m3", &["c"]),
     ];
     let joined = splice_tail(&kept, &tail).expect("lines up");
-    let shape: Vec<(String, Vec<String>)> = joined
-        .iter()
-        .map(|e| {
-            (
-                e.id.clone(),
-                e.parts.iter().map(|p| p.id().to_owned()).collect(),
-            )
-        })
-        .collect();
     assert_eq!(
-        shape,
+        shape(&joined),
         [
-            ("m1".to_owned(), vec!["a".to_owned()]),
-            (
-                "m2".to_owned(),
-                vec!["b1", "b2", "b3", "b4"]
-                    .into_iter()
-                    .map(String::from)
-                    .collect()
-            ),
-            ("m3".to_owned(), vec!["c".to_owned()]),
+            row("m1", &["a"]),
+            row("m2", &["b1", "b2", "b3", "b4"]),
+            row("m3", &["c"]),
         ]
     );
-    // More changed than the tail covers: wait for the complete reset.
-    assert!(splice_tail(&kept, &[entry_with_parts("m9", &["z"])]).is_none());
-    assert!(splice_tail(&kept, &[entry_with_parts("m2", &["b9"])]).is_none());
     assert!(splice_tail(&kept, &[]).is_none());
+}
+
+/// Regression (round5-13 "最近的都没有" — none of the newest rows): when
+/// more changed while away than the opening tail covers, the newest rows
+/// still go on top of the kept transcript at once instead of waiting for
+/// the complete reset (megabytes: minutes over a relay, never if the chat
+/// is left first). The reset fills the gap later.
+#[test]
+fn a_tail_that_outran_the_kept_transcript_still_shows_the_newest_rows() {
+    use super::host::splice_tail;
+    let kept = vec![
+        entry_with_parts("m1", &["a"]),
+        entry_with_parts("m2", &["b1", "b2", "b3"]),
+    ];
+    // m2 grew past the tail's window (b4..b8 never seen; the tail starts at
+    // b9) and m3 is new.
+    let tail = vec![
+        entry_with_parts("m2", &["b9", "b10"]),
+        entry_with_parts("m3", &["c"]),
+    ];
+    assert_eq!(
+        shape(&splice_tail(&kept, &tail).unwrap()),
+        [
+            row("m1", &["a"]),
+            row("m2", &["b1", "b2", "b3", "b9", "b10"]),
+            row("m3", &["c"]),
+        ]
+    );
+    // Whole rows were written while away (m3, m4 not in the tail): the
+    // kept rows, then the newest ones.
+    let tail = vec![
+        entry_with_parts("m5", &["e"]),
+        entry_with_parts("m6", &["f"]),
+    ];
+    assert_eq!(
+        shape(&splice_tail(&kept, &tail).unwrap()),
+        [
+            row("m1", &["a"]),
+            row("m2", &["b1", "b2", "b3"]),
+            row("m5", &["e"]),
+            row("m6", &["f"]),
+        ]
+    );
 }

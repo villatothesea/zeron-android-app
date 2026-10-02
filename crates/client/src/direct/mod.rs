@@ -5,6 +5,7 @@
 //! so the rest of the client (views, composer, commands) is unchanged.
 
 mod clock;
+mod desktop_pins;
 pub(crate) mod host;
 pub(crate) mod lenient;
 mod ssh;
@@ -12,6 +13,13 @@ mod ssh;
 mod tests;
 
 pub use ssh::{ProbeResult, SshKeyPair, generate_ed25519, import_key, probe};
+
+/// Tests only: how often an open transcript's own tunnel channel is checked
+/// for backlog and how long the check may take (defaults 10 s / 15 s).
+#[doc(hidden)]
+pub fn set_transcript_lag_check(every: std::time::Duration, limit: std::time::Duration) {
+    host::set_lag_check(every, limit);
+}
 
 /// Where the link to the machine stands, for the UI and the diagnostics
 /// readout (a blank sessions page must never be the only symptom).

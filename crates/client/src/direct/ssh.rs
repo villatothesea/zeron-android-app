@@ -143,6 +143,39 @@ impl SshSession {
             })
     }
 
+    /// Run one read-only command on the machine (an `exec` channel) and
+    /// return what it printed, at most `limit` bytes; `None` if it can't be
+    /// run, fails, or takes longer than `within`.
+    pub(crate) async fn exec_read(
+        &self,
+        command: &str,
+        limit: usize,
+        within: Duration,
+    ) -> Option<Vec<u8>> {
+        let run = async {
+            let mut channel = self.handle.channel_open_session().await.ok()?;
+            channel.exec(true, command).await.ok()?;
+            let mut out = Vec::new();
+            let mut status = None;
+            while let Some(msg) = channel.wait().await {
+                match msg {
+                    russh::ChannelMsg::Data { data } => {
+                        if out.len() + data.len() > limit {
+                            return None;
+                        }
+                        out.extend_from_slice(&data);
+                    }
+                    russh::ChannelMsg::ExitStatus { exit_status } => status = Some(exit_status),
+                    russh::ChannelMsg::Failure => return None,
+                    russh::ChannelMsg::Close => break,
+                    _ => {}
+                }
+            }
+            (status == Some(0)).then_some(out)
+        };
+        tokio::time::timeout(within, run).await.ok().flatten()
+    }
+
     pub(crate) async fn close(&self) {
         let _ = self
             .handle

@@ -45,6 +45,9 @@ const PROBE_TIMEOUT: Duration = Duration::from_secs(60);
 const CALL_TIMEOUT: Duration = Duration::from_secs(45);
 /// How long a call waits for a (re)connecting link.
 const LINK_WAIT: Duration = Duration::from_secs(20);
+/// How often the desktop's sidebar pins are read again while linked (see
+/// [`super::desktop_pins`]).
+const DESKTOP_PINS_EVERY: Duration = Duration::from_secs(60);
 /// Phone-created rows survive a mirror pass this long before the engine's
 /// echo must include them.
 const LOCAL_ROW_GRACE_MS: i64 = 20_000;
@@ -716,6 +719,115 @@ impl DirectHost {
         });
     }
 
+    /// Mirror the desktop's sidebar pins once the registry is in, then every
+    /// [`DESKTOP_PINS_EVERY`] while the link is up.
+    fn desktop_pins_while_up(self: &Arc<Self>, link: &Arc<Link>, cancel: &CancellationToken) {
+        let host = self.clone();
+        let link = link.clone();
+        let stopped = cancel.clone();
+        crate::runtime::shared().spawn(async move {
+            loop {
+                let ready = match host.client.upgrade() {
+                    Some(client) => client.workspace.state().1.is_some(),
+                    None => return,
+                };
+                if ready {
+                    tokio::select! {
+                        _ = host.mirror_desktop_pins(&link) => {}
+                        _ = link.cancel.cancelled() => return,
+                        _ = stopped.cancelled() => return,
+                    }
+                }
+                let wait = if ready {
+                    DESKTOP_PINS_EVERY
+                } else {
+                    Duration::from_millis(500)
+                };
+                tokio::select! {
+                    _ = tokio::time::sleep(wait) => {}
+                    _ = link.cancel.cancelled() => return,
+                    _ = stopped.cancelled() => return,
+                }
+            }
+        });
+    }
+
+    /// The desktop's pins: the engine's own when it holds them (a synced
+    /// profile), else the local profile's from the desktop's settings file,
+    /// read (never written) over the SSH session. `None`: unknown, leave the
+    /// phone's pins alone.
+    async fn read_desktop_pins(link: &Link, platform: Option<&str>) -> Option<Vec<String>> {
+        let engine = async {
+            let mut sub = link
+                .calls()
+                .subscribe_scoped(
+                    zeron_rpc::methods::WATCH_SIDEBAR_PREFERENCES,
+                    serde_json::json!({}),
+                )
+                .await
+                .ok()?;
+            let first = sub.recv().await?;
+            super::desktop_pins::parse_engine_preferences(&first)
+        };
+        if let Ok(Some(pins)) = tokio::time::timeout(Duration::from_secs(15), engine).await {
+            return Some(pins);
+        }
+        let ssh = link.ssh.as_ref()?;
+        let text = ssh
+            .exec_read(
+                super::desktop_pins::settings_command(platform),
+                4 * 1024 * 1024,
+                Duration::from_secs(20),
+            )
+            .await?;
+        super::desktop_pins::parse_ui_settings(&String::from_utf8_lossy(&text))
+    }
+
+    async fn mirror_desktop_pins(&self, link: &Link) {
+        use super::desktop_pins::{apply_pins, load_mirrored, merge_pins, save_mirrored};
+        let platform = self.client.upgrade().and_then(|client| {
+            client
+                .workspace
+                .state()
+                .0
+                .devices
+                .iter()
+                .find(|d| d.id == link.engine_device_id)
+                .map(|d| d.platform.clone())
+        });
+        let Some(desktop) = Self::read_desktop_pins(link, platform.as_deref()).await else {
+            return;
+        };
+        let Some(client) = self.client.upgrade() else {
+            return;
+        };
+        let (state, prefs) = client.workspace.state();
+        let Some(prefs) = prefs else { return };
+        let known: HashSet<String> = state.chats.iter().map(|c| c.id.clone()).collect();
+        let desktop: Vec<String> = desktop
+            .into_iter()
+            .filter(|id| known.contains(id))
+            .collect();
+        let dir = client.config.data_dir.clone();
+        let last = load_mirrored(&dir, &link.engine_device_id);
+        if last.as_deref() == Some(desktop.as_slice()) {
+            // Unchanged on the desktop: the phone's own edits stand.
+            return;
+        }
+        let target = merge_pins(&desktop, last.as_deref(), &prefs.pinned_session_ids, &known);
+        if target != prefs.pinned_session_ids
+            && let Err(err) = client.registry_write(|doc| {
+                apply_pins(doc, &target);
+                Ok(())
+            })
+        {
+            tracing::warn!(error = %err, "direct: desktop pins not applied");
+            return;
+        }
+        save_mirrored(&dir, &link.engine_device_id, &desktop);
+        self.note(format!("desktop pins mirrored ({})", desktop.len()));
+    }
+
     /// Drive one link until it drops. Returns whether it ever fully synced.
     async fn run_link(self: &Arc<Self>, link: Link, cancel: &CancellationToken) -> bool {
         let link = Arc::new(link);
@@ -785,6 +897,7 @@ impl DirectHost {
             }
         }
         self.refresh_catalog_while_up(&link, cancel);
+        self.desktop_pins_while_up(&link, cancel);
 
         let mut beat = tokio::time::interval(BEAT);
         let sync_deadline = tokio::time::sleep(SYNC_TIMEOUT);
@@ -1440,13 +1553,14 @@ async fn mirror_transcript(
         None => return,
     };
     // This transcript's own channel (see `Link::transcript_spare`); dropped
-    // (closing the channel) when the mirror ends.
-    let own = tokio::select! {
+    // (closing the channel) when the mirror ends, or swapped for a fresh one
+    // when it falls behind (see `lag_check`).
+    let mut own = tokio::select! {
         _ = token.cancelled() => return,
         own = link.transcript_channel() => own,
     };
-    let rpc = own.as_ref().unwrap_or(&link.rpc);
     loop {
+        let rpc = own.as_ref().unwrap_or(&link.rpc);
         // `openingTail`: the engine first sends the newest ~128 parts
         // (`historyPending: true`), then the complete reset, then deltas.
         // Engines without it ignore the flag and open with the reset.
@@ -1464,10 +1578,47 @@ async fn mirror_transcript(
             Err(_) => return,
         };
         let mut entries: Vec<SessionMessageEntry> = Vec::new();
+        // Armed on a channel of its own once the complete reset is in.
+        let mut lag: Option<
+            std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send + '_>>,
+        > = None;
+        let mut fresh = None;
+        // A frame taken while batching that must go through the loop itself.
+        let mut carry: Option<serde_json::Value> = None;
         loop {
-            let item = tokio::select! {
+            let item = if let Some(value) = carry.take() {
+                Some(value)
+            } else {
+                tokio::select! {
                 _ = token.cancelled() => return,
+                behind = async {
+                    match lag.as_mut() {
+                        Some(check) => check.await,
+                        None => std::future::pending().await,
+                    }
+                } => {
+                    lag = None;
+                    if !behind {
+                        lag = Some(Box::pin(lag_check(rpc)));
+                        continue;
+                    }
+                    // A fresh channel starts with an empty engine queue: its
+                    // opening tail brings the newest rows at once.
+                    let next = tokio::select! {
+                        _ = token.cancelled() => return,
+                        next = link.transcript_channel() => next,
+                    };
+                    match next {
+                        Some(next) => {
+                            tracing::info!(chat = %chat_id, "direct transcript behind; fresh channel");
+                            fresh = Some(next);
+                            break;
+                        }
+                        None => continue,
+                    }
+                }
                 item = sub.recv() => item,
+                }
             };
             let Some(value) = item else {
                 // Stream closed (link gone, or the engine dropped it).
@@ -1485,8 +1636,8 @@ async fn mirror_transcript(
             if history_pending && !written.is_empty() {
                 // The session already shows its history (kept from the last
                 // visit, or a resubscribe): never swap it for the tail. The
-                // newest rows go on top of it at once when they line up with
-                // it; the complete reset follows either way.
+                // newest rows go on top of it at once (see `splice_tail`);
+                // the complete reset follows and settles what's in between.
                 let mut value = value;
                 sanitize_transcript_update(&mut value);
                 if let Ok(TranscriptUpdate {
@@ -1539,41 +1690,156 @@ async fn mirror_transcript(
                 tracing::info!(error = %err, "direct transcript desync; resubscribing");
                 break;
             }
+            // Frames that queued up meanwhile go into one write: a busy turn
+            // re-sends its whole live row per tick, and writing every copy
+            // to the doc kept the phone behind what it had already received.
+            let mut usage = update.context_usage;
+            let mut desync = None;
+            for _ in 0..TRANSCRIPT_BATCH {
+                let Some(mut next) = sub.try_recv() else {
+                    break;
+                };
+                if next
+                    .get("historyPending")
+                    .and_then(serde_json::Value::as_bool)
+                    .unwrap_or(false)
+                {
+                    carry = Some(next);
+                    break;
+                }
+                sanitize_transcript_update(&mut next);
+                let Ok(next) = serde_json::from_value::<TranscriptUpdate>(next) else {
+                    continue;
+                };
+                if let Err(err) = apply_transcript_frame(&mut entries, next.frame) {
+                    desync = Some(err);
+                    break;
+                }
+                if next.context_usage.is_some() {
+                    usage = next.context_usage;
+                }
+            }
+            if let Some(err) = desync {
+                tracing::info!(error = %err, "direct transcript desync; resubscribing");
+                break;
+            }
             if let Err(err) = core.write(|doc| reconcile(doc, &mut written, &entries)) {
                 tracing::warn!(error = %err, "direct transcript write failed");
                 written.clear();
                 let _ = core.write(|doc| doc.truncate_messages(0));
                 break;
             }
-            if let Some(usage) = update.context_usage {
+            if let Some(usage) = usage {
                 let _ = core.write(|doc| doc.update_context_usage(usage.tokens, usage.window));
             }
             core.set_hydrated();
             core.schedule_refresh();
+            if lag.is_none() && own.is_some() {
+                lag = Some(Box::pin(lag_check(rpc)));
+            }
+        }
+        drop(lag);
+        drop(sub);
+        if let Some(next) = fresh {
+            // Closing the old channel drops whatever the engine still had
+            // queued on it.
+            own = Some(next);
+            continue;
         }
         tokio::time::sleep(Duration::from_millis(500)).await;
     }
 }
 
+/// At most this many queued transcript frames go into one doc write (the
+/// rest wait for the next round, so the mirror still yields to its checks).
+const TRANSCRIPT_BATCH: usize = 32;
+
+/// How often an open transcript's own channel is checked for backlog, and
+/// how long its check may take before it counts as behind. Settable for
+/// tests ([`super::set_transcript_lag_check`]).
+static LAG_EVERY_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(10_000);
+static LAG_LIMIT_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(15_000);
+
+pub(crate) fn set_lag_check(every: Duration, limit: Duration) {
+    use std::sync::atomic::Ordering;
+    LAG_EVERY_MS.store(every.as_millis() as u64, Ordering::Relaxed);
+    LAG_LIMIT_MS.store(limit.as_millis() as u64, Ordering::Relaxed);
+}
+
+/// After a pause, a tiny request on a transcript's own channel: its reply
+/// comes back behind every frame the engine queued before it. `true` when
+/// it doesn't come back in time: the channel is that far behind.
+///
+/// The engine queues up to 256 frames per connection, and a busy agentic
+/// turn re-sends its whole live row on every tool update: measured on
+/// Villa's 0.2.101 engine (2026-10-02), a running chat whose last row has
+/// 1290 parts produced 19 frames (5.2 MB, ~1.2 MB deflated) a minute,
+/// ~484 KB each — more than a relay carries. The phone then showed the
+/// chat as it was further and further back (minutes), never its newest
+/// rows. A fresh channel drops that queue; the newest rows come first.
+async fn lag_check(rpc: &zeron_rpc::RpcClient) -> bool {
+    use std::sync::atomic::Ordering;
+    tokio::time::sleep(Duration::from_millis(LAG_EVERY_MS.load(Ordering::Relaxed))).await;
+    let limit = Duration::from_millis(LAG_LIMIT_MS.load(Ordering::Relaxed));
+    let reply = tokio::time::timeout(
+        limit,
+        rpc.call(zeron_rpc::methods::LOCAL_DEVICE, serde_json::json!({})),
+    )
+    .await;
+    // Any answer, even an error, came through in order; a dead channel
+    // ends the stream itself.
+    reply.is_err()
+}
+
 /// A kept transcript with the engine's opening tail (the newest rows, the
-/// first one possibly cut to its last parts) laid over its end. `None` when
-/// the tail doesn't line up with what is kept (more changed while away than
-/// the tail covers): then only the complete reset can say what's in between.
+/// first one possibly cut to its last parts) laid over its end. `None` only
+/// for an empty tail.
+///
+/// When more changed while away than the tail covers (its first row isn't
+/// kept, or that row grew by more parts than the tail carries — a busy
+/// agentic turn adds hundreds), the tail still goes on top: the newest rows
+/// show now, with a gap before them that the complete reset fills. Waiting
+/// for the reset instead left every newest row missing for as long as the
+/// reset took (megabytes: minutes over a relay), or for good if the chat
+/// was left before it arrived.
 pub(crate) fn splice_tail(
     kept: &[SessionMessageEntry],
     tail: &[SessionMessageEntry],
 ) -> Option<Vec<SessionMessageEntry>> {
     let first = tail.first()?;
-    let at = kept.iter().position(|e| e.id == first.id)?;
+    let Some(at) = kept.iter().position(|e| e.id == first.id) else {
+        // Nothing kept lines up: the kept rows, then the newest ones.
+        let newest: std::collections::HashSet<&str> = tail.iter().map(|e| e.id.as_str()).collect();
+        return Some(
+            kept.iter()
+                .filter(|e| !newest.contains(e.id.as_str()))
+                .cloned()
+                .chain(tail.iter().cloned())
+                .collect(),
+        );
+    };
     let mut joined = first.clone();
     if let Some(head) = first.parts.first() {
-        // The kept row's parts before the tail's window, then the window.
-        let from = kept[at].parts.iter().position(|p| p.id() == head.id())?;
-        joined.parts = kept[at].parts[..from]
-            .iter()
-            .cloned()
-            .chain(first.parts.iter().cloned())
-            .collect();
+        joined.parts = match kept[at].parts.iter().position(|p| p.id() == head.id()) {
+            // The kept row's parts before the tail's window, then the window.
+            Some(from) => kept[at].parts[..from]
+                .iter()
+                .cloned()
+                .chain(first.parts.iter().cloned())
+                .collect(),
+            // The row grew past the window: what was kept, then the window.
+            None => {
+                let window: std::collections::HashSet<&str> =
+                    first.parts.iter().map(|p| p.id()).collect();
+                kept[at]
+                    .parts
+                    .iter()
+                    .filter(|p| !window.contains(p.id()))
+                    .cloned()
+                    .chain(first.parts.iter().cloned())
+                    .collect()
+            }
+        };
     } else {
         joined.parts = kept[at].parts.clone();
     }
