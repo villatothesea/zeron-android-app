@@ -589,3 +589,485 @@ fn filler_deflates_like_a_transcript() {
     let out = z.finish().unwrap();
     println!("filler ratio {:.2}", text.len() as f64 / out.len() as f64);
 }
+
+// ── the real client: older rows over a slow relay ──────────────────────────
+//
+// The phone's own Direct client (SSH tunnel, a channel per open transcript,
+// the backlog guard) against a 0.2.101-shaped engine behind the slow link
+// above (one TCP connection now: the SSH session, zlib by russh). The
+// transcript is Villa's measured shape: a long history, then a live row of
+// ~1290 parts (~484 KB) that a busy turn re-sends whole every ~3.2 s; the
+// opening tail is its last 128 parts. Protocol timers inside the client
+// (probe, beat) are not compressed; the backlog check is (÷SCALE).
+//
+// Run: cargo test -p zeron-client --test slow_link_sim history -- --ignored --nocapture
+
+mod history_sim {
+    use super::*;
+    use russh::server::{Msg, Server as _, Session};
+    use russh::{Channel, ChannelId};
+    use std::sync::atomic::AtomicU64;
+    use zeron_doc::{
+        MessagePart, MessageRole, MessageStatus, SessionMessageEntry, TranscriptFrame,
+    };
+
+    fn fixture(name: &str) -> serde_json::Value {
+        let text = match name {
+            "EngineInfo" => include_str!("../src/direct/fixtures/EngineInfo.json"),
+            "WatchDevices" => include_str!("../src/direct/fixtures/WatchDevices.json"),
+            "WatchSpaces" => include_str!("../src/direct/fixtures/WatchSpaces.json"),
+            "WatchChats" => include_str!("../src/direct/fixtures/WatchChats.json"),
+            "WatchSessions" => include_str!("../src/direct/fixtures/WatchSessions.json"),
+            "ListHarnesses" => include_str!("../src/direct/fixtures/ListHarnesses.json"),
+            "ListModels" => include_str!("../src/direct/fixtures/ListModels.codex.json"),
+            other => panic!("no fixture {other}"),
+        };
+        serde_json::from_str(text).unwrap()
+    }
+
+    fn text_entry(id: &str, role: MessageRole, len: usize, seed: &mut u64) -> SessionMessageEntry {
+        SessionMessageEntry {
+            id: id.into(),
+            role,
+            parts: vec![MessagePart::Text {
+                id: format!("{id}-t"),
+                text: filler(len, seed),
+            }],
+            created_at: 1_700_000_000_000,
+            device_id: "pc".into(),
+            status: Some(MessageStatus::Complete),
+            continuation_of: None,
+            duration_ms: None,
+        }
+    }
+
+    /// The engine's `read_opening_tail(128)`: the newest 128 parts, the
+    /// first row cut to its last parts.
+    fn opening_tail(entries: &[SessionMessageEntry]) -> Vec<SessionMessageEntry> {
+        let mut out = Vec::new();
+        let mut left = 128usize;
+        for e in entries.iter().rev() {
+            if left == 0 {
+                break;
+            }
+            let mut e = e.clone();
+            if e.parts.len() > left {
+                e.parts = e.parts[e.parts.len() - left..].to_vec();
+            }
+            left -= e.parts.len();
+            out.push(e);
+        }
+        out.reverse();
+        out
+    }
+
+    pub(super) struct Shape {
+        /// Raw size of the complete reset (KB).
+        pub full_kb: usize,
+        /// A turn runs: the live row grows a part and is re-sent whole.
+        pub busy: bool,
+    }
+
+    pub(super) struct Villa {
+        pub history: Vec<SessionMessageEntry>,
+        pub live: Mutex<SessionMessageEntry>,
+        pub busy: bool,
+        pub watches: AtomicU64,
+    }
+
+    impl Villa {
+        pub fn new(shape: &Shape) -> Arc<Self> {
+            let mut seed = 0x51u64;
+            // ~1290 parts, ~484 KB.
+            let mut live = text_entry("live", MessageRole::Assistant, 0, &mut seed);
+            live.status = Some(MessageStatus::Streaming);
+            live.parts = (0..1290)
+                .map(|i| MessagePart::Text {
+                    id: format!("p{i}"),
+                    text: filler(330, &mut seed),
+                })
+                .collect();
+            let history_bytes = (shape.full_kb * 1024).saturating_sub(484 * 1024);
+            let rows = (history_bytes / (12 * 1024)).max(4);
+            let history = (0..rows)
+                .map(|i| {
+                    let role = if i % 2 == 0 {
+                        MessageRole::User
+                    } else {
+                        MessageRole::Assistant
+                    };
+                    text_entry(&format!("h{i:04}"), role, 12 * 1024 - 200, &mut seed)
+                })
+                .collect();
+            Arc::new(Self {
+                history,
+                live: Mutex::new(live),
+                busy: shape.busy,
+                watches: AtomicU64::new(0),
+            })
+        }
+
+        pub fn rows(&self) -> usize {
+            self.history.len() + 1
+        }
+
+        fn entries(&self) -> Vec<SessionMessageEntry> {
+            let mut all = self.history.clone();
+            all.push(lock(&self.live).clone());
+            all
+        }
+    }
+
+    pub(super) struct VillaEngine(pub Arc<Villa>);
+
+    #[async_trait::async_trait]
+    impl RpcService for VillaEngine {
+        async fn handle(
+            &self,
+            method: &str,
+            _params: serde_json::Value,
+        ) -> Result<RpcReply, RpcError> {
+            match method {
+                "EngineInfo" | "ListHarnesses" | "ListModels" => {
+                    Ok(RpcReply::Value(fixture(method)))
+                }
+                "WatchDevices" | "WatchSpaces" | "WatchChats" | "WatchSessions" => {
+                    Ok(RpcReply::Stream(
+                        futures::stream::iter([fixture(method)])
+                            .chain(futures::stream::pending())
+                            .boxed(),
+                    ))
+                }
+                "WatchDocMessages" => {
+                    self.0.watches.fetch_add(1, Ordering::SeqCst);
+                    let entries = self.0.entries();
+                    let mut tail = serde_json::json!({
+                        "reset": opening_tail(&entries)
+                    });
+                    tail["historyPending"] = serde_json::Value::Bool(true);
+                    let full = serde_json::to_value(TranscriptFrame::reset(&entries)).unwrap();
+                    let villa = self.0.clone();
+                    let mut tick = tokio::time::interval(real(3.2));
+                    tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+                    // Like the engine: the next frame is made when the last
+                    // one is handed on (its queue holds up to 256).
+                    let deltas = futures::stream::unfold(
+                        (tick, villa, 0u64),
+                        |(mut tick, villa, mut n)| async move {
+                            tick.tick().await;
+                            if !villa.busy {
+                                futures::future::pending::<()>().await;
+                            }
+                            n += 1;
+                            let (after, entry) = {
+                                let mut live = lock(&villa.live);
+                                let mut seed = n;
+                                let id = format!("q{}", live.parts.len());
+                                live.parts.push(MessagePart::Text {
+                                    id,
+                                    text: filler(330, &mut seed),
+                                });
+                                (villa.history.last().map(|e| e.id.clone()), live.clone())
+                            };
+                            let frame = serde_json::json!({
+                                "upsert": [{ "after": after, "entry": entry }],
+                                "append": [], "remove": [], "count": villa.rows()
+                            });
+                            Some((frame, (tick, villa, n)))
+                        },
+                    );
+                    Ok(RpcReply::Stream(
+                        futures::stream::iter([tail, full])
+                            .chain(deltas.skip(1))
+                            .boxed(),
+                    ))
+                }
+                _ => Ok(RpcReply::Value(serde_json::json!({}))),
+            }
+        }
+    }
+
+    #[derive(Clone)]
+    struct Sshd {
+        engine_port: u16,
+        opened: Arc<AtomicU64>,
+    }
+
+    impl russh::server::Server for Sshd {
+        type Handler = Self;
+        fn new_client(&mut self, _: Option<std::net::SocketAddr>) -> Self {
+            self.clone()
+        }
+    }
+
+    impl russh::server::Handler for Sshd {
+        type Error = russh::Error;
+
+        async fn auth_publickey(
+            &mut self,
+            _: &str,
+            _: &russh::keys::ssh_key::PublicKey,
+        ) -> Result<russh::server::Auth, Self::Error> {
+            Ok(russh::server::Auth::Accept)
+        }
+
+        async fn channel_open_direct_tcpip(
+            &mut self,
+            channel: Channel<Msg>,
+            _host: &str,
+            _port: u32,
+            _oa: &str,
+            _op: u32,
+            reply: russh::server::ChannelOpenHandle,
+            _session: &mut Session,
+        ) -> Result<(), Self::Error> {
+            reply.accept().await;
+            let port = self.engine_port;
+            self.opened.fetch_add(1, Ordering::SeqCst);
+            tokio::spawn(async move {
+                let mut engine = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+                let mut stream = channel.into_stream();
+                let _ = tokio::io::copy_bidirectional(&mut stream, &mut engine).await;
+                let _ = engine.shutdown().await;
+            });
+            Ok(())
+        }
+
+        async fn channel_close(
+            &mut self,
+            _: ChannelId,
+            _: &mut Session,
+        ) -> Result<(), Self::Error> {
+            Ok(())
+        }
+    }
+
+    pub(super) struct Machine {
+        pub target: zeron_client::direct::SshTarget,
+        pub opened: Arc<AtomicU64>,
+        pub link: Arc<Link>,
+    }
+
+    /// The engine behind an SSH server offering zlib, behind the slow link.
+    pub(super) async fn machine(engine: Arc<dyn RpcService>) -> Machine {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let engine_port = listener.local_addr().unwrap().port();
+        tokio::spawn(zeron_rpc::serve_ws_listener(listener, engine));
+        let host_key = russh::keys::PrivateKey::from(
+            russh::keys::ssh_key::private::Ed25519Keypair::from_seed(&[9u8; 32]),
+        );
+        let fingerprint = host_key
+            .public_key()
+            .fingerprint(russh::keys::HashAlg::Sha256)
+            .to_string();
+        static OFFER: [russh::compression::Name; 2] =
+            [russh::compression::NONE, russh::compression::ZLIB_LEGACY];
+        let config = Arc::new(russh::server::Config {
+            keys: vec![host_key],
+            auth_rejection_time: Duration::from_millis(1),
+            preferred: russh::Preferred {
+                compression: std::borrow::Cow::Borrowed(&OFFER),
+                ..russh::Preferred::DEFAULT
+            },
+            ..Default::default()
+        });
+        let sshd = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let sshd_addr = sshd.local_addr().unwrap();
+        let opened = Arc::new(AtomicU64::new(0));
+        let mut server = Sshd {
+            engine_port,
+            opened: opened.clone(),
+        };
+        tokio::spawn(async move {
+            let _ = server.run_on_socket(config, &sshd).await;
+        });
+        let link = Arc::new(Link {
+            conns: Mutex::new(Vec::new()),
+            // The SSH session's socket buffers on the computer's side.
+            window: env("WINDOW_KB", 256.0) as usize * 1024,
+            compress: false,
+            lat: real(env("LAT_MS", 800.0) / 1000.0),
+        });
+        let addr = proxy(link.clone(), sshd_addr).await;
+        let key = zeron_client::direct::generate_ed25519("sim").unwrap();
+        let target = zeron_client::direct::SshTarget {
+            host: "127.0.0.1".into(),
+            port: addr.port(),
+            user: "villa".into(),
+            auth: zeron_client::direct::SshAuth::Key {
+                private_key: key.private_openssh,
+                passphrase: None,
+            },
+            engine_port,
+            host_key_fingerprint: Some(fingerprint),
+            endpoints: Vec::new(),
+        };
+        Machine {
+            target,
+            opened,
+            link,
+        }
+    }
+
+    pub(super) fn client(m: &Machine, dir: &std::path::Path) -> zeron_client::Client {
+        let mut config = zeron_client::ClientConfig::new("https://edge.invalid", dir);
+        config.device_id = "android-sim".into();
+        config.platform = "android".into();
+        zeron_client::Client::new(
+            config,
+            zeron_client::Credentials::Direct(m.target.clone()),
+            Arc::new(zeron_client::events::NullListener),
+        )
+        .unwrap()
+    }
+}
+
+/// One visit pattern: how long until the opening tail and the complete
+/// history show, and how many transcript channels/subscriptions it took.
+async fn history_scenario(name: &str, shape: history_sim::Shape, away: Option<(f64, f64)>) {
+    use history_sim::*;
+    let villa = Villa::new(&shape);
+    let m = machine(Arc::new(VillaEngine(villa.clone()))).await;
+    let dir = tempfile::tempdir().unwrap();
+    let client = client(&m, dir.path());
+    let began = Instant::now();
+    loop {
+        if client
+            .direct_status()
+            .is_some_and(|s| s.phase == zeron_client::direct::DirectPhase::Live)
+            && !client.workspace().sessions.is_empty()
+        {
+            break;
+        }
+        assert!(secs(began.elapsed()) < 600.0, "never linked");
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    let linked = secs(began.elapsed());
+    let chat = client.workspace().sessions.keys().next().unwrap().clone();
+    let h = client.open_session(&chat).unwrap();
+    let opened_before = m.opened.load(Ordering::SeqCst);
+    let t0 = Instant::now();
+    h.set_view_attached(true);
+    let budget = env("BUDGET", 420.0);
+    let (mut tail, mut full) = (None, None);
+    let mut pending_seen = false;
+    let mut left = false;
+    let mut back = false;
+    while secs(t0.elapsed()) < budget {
+        let t = secs(t0.elapsed());
+        if let Some((leave_at, gone_for)) = away {
+            if !left && t >= leave_at {
+                h.set_view_attached(false);
+                left = true;
+            } else if left && !back && t >= leave_at + gone_for {
+                h.set_view_attached(true);
+                back = true;
+            }
+        }
+        let snap = h.snapshot();
+        let rows = snap.transcript_messages().len();
+        if rows > 0 {
+            tail.get_or_insert(t);
+        }
+        pending_seen |= history_pending(&snap);
+        if rows >= villa.rows() {
+            full = Some(t);
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    let channels = m.opened.load(Ordering::SeqCst) - opened_before;
+    println!(
+        "{name:<46} link {linked:5.1}s | tail {:>7} | all {} rows {:>7} | indicator {} | transcript channels {channels}, subscriptions {}",
+        fmt(tail),
+        villa.rows(),
+        fmt(full),
+        if pending_seen { "yes" } else { "no " },
+        villa.watches.load(Ordering::SeqCst),
+    );
+    client.shutdown();
+    m.link.close_all();
+}
+
+/// Whether the snapshot says older rows are still on their way (the
+/// "正在加载更早的消息…" (Loading earlier messages…) indicator).
+fn history_pending(snap: &zeron_client::SessionSnapshot) -> bool {
+    snap.history_pending
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore]
+async fn slow_link_history() {
+    use history_sim::Shape;
+    let check = |s: f64| Duration::from_secs_f64(s / scale());
+    zeron_client::direct::set_transcript_lag_check(check(10.0), check(15.0));
+    println!(
+        "link: {} KB/s, one-way {} ms, time ÷{}; budget {} s",
+        env("RATE", 20480.0) / 1024.0,
+        env("LAT_MS", 800.0),
+        scale(),
+        env("BUDGET", 420.0)
+    );
+    let only = std::env::var("ONLY").unwrap_or_default();
+    // Name, transcript, and when to leave for the home list and for how
+    // long (simulated seconds), if at all.
+    type Scenario = (&'static str, Shape, Option<(f64, f64)>);
+    let all: Vec<Scenario> = vec![
+        (
+            "idle 1.7 MB, stay",
+            Shape {
+                full_kb: 1718,
+                busy: false,
+            },
+            None,
+        ),
+        (
+            "busy 2.2 MB, stay",
+            Shape {
+                full_kb: 2205,
+                busy: true,
+            },
+            None,
+        ),
+        (
+            "busy 8.4 MB, stay",
+            Shape {
+                full_kb: 8430,
+                busy: true,
+            },
+            None,
+        ),
+        (
+            "busy 2.2 MB, list for 10 s at 30 s",
+            Shape {
+                full_kb: 2205,
+                busy: true,
+            },
+            Some((30.0, 10.0)),
+        ),
+        (
+            "busy 8.4 MB, list for 10 s at 60 s",
+            Shape {
+                full_kb: 8430,
+                busy: true,
+            },
+            Some((60.0, 10.0)),
+        ),
+        // A whale (the desktop measured a 16.4 MB opening reset): more than
+        // a WebSocket message may be by default (16 MiB per frame).
+        (
+            "idle 17 MB whale, stay",
+            Shape {
+                full_kb: 17400,
+                busy: false,
+            },
+            None,
+        ),
+    ];
+    for (name, shape, away) in all {
+        if !only.is_empty() && !name.contains(&only) {
+            continue;
+        }
+        history_scenario(name, shape, away).await;
+    }
+}
