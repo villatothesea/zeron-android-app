@@ -62,6 +62,7 @@ import uniffi.zeron_core.CoreClient
 import uniffi.zeron_core.DirectPhase
 import uniffi.zeron_core.HarnessCatalog
 import uniffi.zeron_core.ModelCatalog
+import uniffi.zeron_core.ModelInfo
 import uniffi.zeron_core.ModelOption
 import uniffi.zeron_core.NewSession
 import uniffi.zeron_core.RepoRef
@@ -82,7 +83,53 @@ internal data class ModelChoice(
     val efforts: List<String>,
     /** What else the model offers (Codex service tier, Claude's 1M context…). */
     val options: List<ModelOption> = emptyList(),
-)
+    /**
+     * Who serves the model when the harness routes several providers (pi's
+     * `AG.20`/`AG.50`, opencode's): the row's description like the desktop
+     * picker, else the `provider/` prefix of its id. Shown only where it
+     * tells variants apart (see [ambiguousRows]).
+     */
+    val provider: String? = null,
+) {
+    /** The model id without its `provider/` prefix (`AG.20/gpt-6-astra` → `gpt-6-astra`). */
+    val baseId: String get() = id.substringAfter('/')
+
+    companion object {
+        fun of(harness: String, harnessLabel: String, m: ModelInfo) =
+            ModelChoice(harness, harnessLabel, m.id, m.label, m.reasoningLevels, m.options, providerOf(m, harnessLabel))
+    }
+}
+
+/**
+ * A model row's provider text: its description (desktop pickers.rs shows
+ * that one, unless it only repeats the harness name), else the `provider/`
+ * prefix of its id (pi-acp sends no description: `AG.20/gpt-6-astra`).
+ */
+internal fun providerOf(m: ModelInfo, harnessLabel: String): String? =
+    m.description?.trim()?.takeIf { it.isNotEmpty() && !it.equals(harnessLabel, ignoreCase = true) }
+        ?: m.id.substringBefore('/', "").trim().takeIf { it.isNotEmpty() }
+
+/**
+ * The rows (harness, id) that need their provider to be told apart, like
+ * the desktop's `mark_ambiguous` but wider: another row of the same harness
+ * has the same name, or the same model under another provider (same id
+ * after the `provider/` prefix).
+ */
+internal fun ambiguousRows(rows: List<ModelChoice>): Set<Pair<String, String>> {
+    val names = rows.groupingBy { it.harness to it.label.trim() }.eachCount()
+    val bases = rows.groupingBy { it.harness to it.baseId }.eachCount()
+    return rows
+        .filter { names.getValue(it.harness to it.label.trim()) > 1 || bases.getValue(it.harness to it.baseId) > 1 }
+        .mapTo(HashSet()) { it.harness to it.id }
+}
+
+/** The provider line under a row: only for a row [ambiguousRows] flagged. */
+internal fun ModelChoice.providerLine(ambiguous: Set<Pair<String, String>>): String? =
+    provider?.takeIf { (harness to id) in ambiguous }
+
+/** The name with its provider when it needs one ("GPT-6 Astra · AG.20"), for the chip and the CLI row. */
+internal fun ModelChoice.titleAmong(ambiguous: Set<Pair<String, String>>): String =
+    providerLine(ambiguous)?.let { "$label · $it" } ?: label
 
 /**
  * A host's model menu: every offered harness's models, plus the harnesses
@@ -119,6 +166,24 @@ internal data class HostCatalog(
      * order; each CLI's new list unless that is the built-in one and a list
      * from the computer already shows.
      */
+    /**
+     * A forced re-read's answer ([fresh], or [thrown] when the call itself
+     * failed) laid over what shows, with why it failed (null: the computer
+     * answered). A live list replaces [harness]'s. A failed one never
+     * downgrades: a list the computer gave stays exactly as shown; a CLI
+     * still on the built-in list takes the saved one if the core has it,
+     * else keeps the reason under its retry row.
+     */
+    fun refreshed(harness: String, fresh: HarnessList?, thrown: String? = null): Pair<HostCatalog, String?> {
+        if (fresh != null && fresh.source == CatalogSource.LIVE && fresh.models.isNotEmpty()) {
+            return with(harness, fresh.models, CatalogSource.LIVE) to null
+        }
+        val why = fresh?.error ?: thrown ?: "no answer from the computer"
+        if (harness !in stale) return this to why
+        val next = if (fresh != null && fresh.models.isNotEmpty()) with(harness, fresh.models, fresh.source, why) else this
+        return (if (harness in next.stale) next.copy(errors = next.errors + (harness to why)) else next) to why
+    }
+
     fun merge(fresh: HostCatalog): HostCatalog =
         fresh.models.map { it.harness }.distinct().fold(HostCatalog(emptyList())) { out, h ->
             val shown = models.filter { it.harness == h }
@@ -135,7 +200,7 @@ internal data class HostCatalog(
             saved.filter { it.harness.offered }.fold(HostCatalog(emptyList())) { out, part ->
                 val h = part.harness
                 val list = part.catalog.models.ifEmpty { uniffi.zeron_core.fallbackModels(h.id) }
-                out.with(h.id, list.map { ModelChoice(h.id, h.label, it.id, it.label, it.reasoningLevels, it.options) }, part.catalog.source, part.catalog.error)
+                out.with(h.id, list.map { ModelChoice.of(h.id, h.label, it) }, part.catalog.source, part.catalog.error)
             }
 
         /** The core's failure text, short enough for a menu subtitle. */
@@ -153,17 +218,17 @@ internal object CatalogHooks {
 
 private fun catalogModels(): List<ModelChoice> =
     uniffi.zeron_core.fallbackHarnesses().filter { it.offered }.flatMap { h ->
-        uniffi.zeron_core.fallbackModels(h.id).map { ModelChoice(h.id, h.label, it.id, it.label, it.reasoningLevels, it.options) }
+        uniffi.zeron_core.fallbackModels(h.id).map { ModelChoice.of(h.id, h.label, it) }
     }
 
 /** One harness's models, where they came from, and why a live read failed. */
-private data class HarnessList(val models: List<ModelChoice>, val source: CatalogSource, val error: String?)
+internal data class HarnessList(val models: List<ModelChoice>, val source: CatalogSource, val error: String?)
 
 /** One harness's models. `force` re-probes the CLI on the computer. */
 private suspend fun harnessModels(client: CoreClient, device: String, harness: String, label: String, force: Boolean): HarnessList {
     val catalog = CatalogHooks.models?.invoke(harness, force) ?: client.modelCatalog(device, harness, force)
     val models = catalog.models.ifEmpty { uniffi.zeron_core.fallbackModels(harness) }
-    return HarnessList(models.map { ModelChoice(harness, label, it.id, it.label, it.reasoningLevels, it.options) }, catalog.source, catalog.error)
+    return HarnessList(models.map { ModelChoice.of(harness, label, it) }, catalog.source, catalog.error)
 }
 
 /**
@@ -187,7 +252,7 @@ private suspend fun hostModels(client: CoreClient, device: String): HostCatalog 
         async {
             runCatching { harnessModels(client, device, h.id, h.label, force = false) }.getOrElse { t ->
                 HarnessList(
-                    uniffi.zeron_core.fallbackModels(h.id).map { m -> ModelChoice(h.id, h.label, m.id, m.label, m.reasoningLevels, m.options) },
+                    uniffi.zeron_core.fallbackModels(h.id).map { m -> ModelChoice.of(h.id, h.label, m) },
                     CatalogSource.STATIC,
                     t.message,
                 )
@@ -278,24 +343,31 @@ fun NewSessionSheet(model: ZeronModel, onDismiss: () -> Unit) {
     }
     val scope = rememberCoroutineScope()
     var refreshing by remember(device) { mutableStateOf<Set<String>>(emptySet()) }
-    // Retry: ask the computer to re-probe one CLI still on the built-in list.
+    // How the last refresh of a saved/live list went (harness → line under
+    // the refresh row), shown for a few seconds.
+    var refreshNotes by remember(device) { mutableStateOf<Map<String, String>>(emptyMap()) }
+    // Retry (a CLI still on the built-in list) or refresh (a list the computer
+    // gave): ask the computer to re-probe one CLI now, past the core's
+    // half-hour freshness. A failure keeps what shows.
     val refresh: (String) -> Unit = refresh@{ h ->
         if (h in refreshing || device.isEmpty()) return@refresh
         val label = models.firstOrNull { it.harness == h }?.harnessLabel ?: harnessLabel(h)
         refreshing = refreshing + h
+        refreshNotes = refreshNotes - h
         scope.launch {
             val result = runCatching { harnessModels(client, device, h, label, force = true) }
-            val fresh = result.getOrNull()
             refreshing = refreshing - h
-            if (fresh != null && fresh.models.isNotEmpty()) {
-                catalog = catalog.with(h, fresh.models, fresh.source, fresh.error)
-            } else if (h in catalog.stale) {
-                // Keep the list; say why the retry failed.
-                val why = fresh?.error ?: result.exceptionOrNull()?.message
-                if (why != null) catalog = catalog.copy(errors = catalog.errors + (h to why))
-            }
+            val (next, failure) = catalog.refreshed(h, result.getOrNull(), result.exceptionOrNull()?.message)
+            catalog = next
+            if (h in next.stale) return@launch // its retry row says why
+            val note = failure?.let { context.getString(R.string.model_list_refresh_failed, HostCatalog.reason(it)) }
+                ?: context.getString(R.string.model_list_refreshed)
+            refreshNotes = refreshNotes + (h to note)
+            kotlinx.coroutines.delay(REFRESH_NOTE_MS)
+            if (refreshNotes[h] == note) refreshNotes = refreshNotes - h
         }
     }
+    val ambiguous = remember(models) { ambiguousRows(models) }
     // Keep the pick valid for this host's catalog: same harness first.
     val current = models.firstOrNull { it.harness == harness && it.id == modelId }
         ?: models.firstOrNull { it.harness == harness }
@@ -323,7 +395,7 @@ fun NewSessionSheet(model: ZeronModel, onDismiss: () -> Unit) {
             add(Chip("host", hosts.firstOrNull { it.id == hostId }?.name ?: stringResource(R.string.choose_host)))
         }
         // Never the harness name in place of a model.
-        val modelTitle = current?.label ?: modelId?.let { modelLabel(harness, it) } ?: harnessLabel(harness)
+        val modelTitle = current?.titleAmong(ambiguous) ?: modelId?.let { modelLabel(harness, it) } ?: harnessLabel(harness)
         add(Chip("model", modelTitle, harness = harness))
         // One traits chip like desktop's: the effort plus any non-default option ("X-High · Fast").
         val efforts = current?.efforts.orEmpty()
@@ -512,7 +584,7 @@ fun NewSessionSheet(model: ZeronModel, onDismiss: () -> Unit) {
                             add(
                                 MenuEntry(
                                     list.first().harnessLabel,
-                                    subtitle = if (selected) current?.label else pluralStringResource(R.plurals.model_count, list.size, list.size),
+                                    subtitle = if (selected) current?.titleAmong(ambiguous) else pluralStringResource(R.plurals.model_count, list.size, list.size),
                                     checked = selected,
                                     submenu = true,
                                     icon = { _ -> BrandMark(h, colors, 16.dp) },
@@ -522,11 +594,16 @@ fun NewSessionSheet(model: ZeronModel, onDismiss: () -> Unit) {
                     } else {
                         val list = open.value
                         add(MenuEntry(list.first().harnessLabel, back = true) { modelHarness = null })
-                        catalog.stale[open.key]?.let { source ->
+                        val source = catalog.stale[open.key]
+                        if (source != null) {
                             add(staleRow(listOf(source), loading || open.key in refreshing, catalog.errors[open.key]) { refresh(open.key) })
+                        } else {
+                            add(refreshRow(open.key in refreshing, refreshNotes[open.key]) { refresh(open.key) })
                         }
                         list.forEach { m ->
-                            add(MenuEntry(m.label, checked = m.harness == harness && m.id == modelId) {
+                            // The provider only where it tells variants apart (same
+                            // name, or the same model under another provider).
+                            add(MenuEntry(m.label, subtitle = m.providerLine(ambiguous), checked = m.harness == harness && m.id == modelId) {
                                 harness = m.harness
                                 modelId = m.id
                                 effort = null
@@ -627,6 +704,22 @@ private fun staleRow(sources: Collection<CatalogSource>, reading: Boolean, error
     // The real reason (timed out, ListHarnesses failed…), not just "couldn't read".
     val subtitle = if (error != null && !reading) "$showing\n${HostCatalog.reason(error)}" else showing
     return MenuEntry(title, subtitle = subtitle, keepOpen = true, icon = { c -> Glyph(Glyphs.Refresh, 17.dp, c) }) { onRetry() }
+}
+
+/** How long a refresh's outcome stays under the refresh row. */
+private const val REFRESH_NOTE_MS = 6_000L
+
+/**
+ * 「刷新模型列表」 ("Refresh model list") at the top of a CLI's models when
+ * the list is one the computer gave (live or saved): re-reads it from the
+ * computer now. [note] is the last refresh's outcome (the real error on
+ * failure), shown briefly.
+ */
+@Composable
+private fun refreshRow(reading: Boolean, note: String?, onRefresh: () -> Unit): MenuEntry {
+    val title = stringResource(if (reading) R.string.model_list_reading else R.string.model_list_refresh)
+    val subtitle = if (reading) null else note ?: stringResource(R.string.model_list_refresh_hint)
+    return MenuEntry(title, subtitle = subtitle, keepOpen = true, icon = { c -> Glyph(Glyphs.Refresh, 17.dp, c) }) { onRefresh() }
 }
 
 /** The options to start the session with: only ones the model offers, picked away from its default. */

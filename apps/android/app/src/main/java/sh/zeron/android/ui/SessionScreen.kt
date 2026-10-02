@@ -682,8 +682,16 @@ private fun ChipMenu(
     }
     val pr = row?.pullRequest
     val (title, entries) = when (chip.id) {
-        "model" -> stringResource(R.string.model) to models.orEmpty().map { m ->
-            MenuEntry(m.label, subtitle = m.description, checked = m.id == row?.model) { setConfig { it.copy(model = m.id) } }
+        "model" -> stringResource(R.string.model) to models.orEmpty().let { list ->
+            // The description as before; a variant without one (pi-acp sends
+            // none) names its provider when another row shares its name or
+            // model, like New Session's picker.
+            val choices = list.map { ModelChoice.of(harness, harnessLabel(harness), it) }
+            val ambiguous = ambiguousRows(choices)
+            list.zip(choices).map { (m, choice) ->
+                val subtitle = m.description?.takeIf { it.isNotBlank() } ?: choice.providerLine(ambiguous)
+                MenuEntry(m.label, subtitle = subtitle, checked = m.id == row?.model) { setConfig { it.copy(model = m.id) } }
+            }
         }
         "effort" -> {
             val all = models.orEmpty()

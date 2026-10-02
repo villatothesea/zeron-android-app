@@ -159,6 +159,10 @@
     <string name="model_list_showing_builtin">Showing the built-in list</string>
     <string name="model_list_stale_short">Couldn\'t get the latest list</string>
     <string name="model_list_retry_for">%1$s · Tap to retry</string>
+    <string name="model_list_refresh">Refresh model list</string>
+    <string name="model_list_refresh_hint">Read it again from the computer</string>
+    <string name="model_list_refreshed">Updated from the computer</string>
+    <string name="model_list_refresh_failed">Couldn\'t refresh: %1$s</string>
     <string name="reasoning_effort">Reasoning effort</string>
     <string name="open_pull_request">Open Pull Request</string>
     <string name="copy_link">Copy Link</string>

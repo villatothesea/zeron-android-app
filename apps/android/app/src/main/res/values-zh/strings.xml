@@ -159,6 +159,10 @@
     <string name="model_list_showing_builtin">显示的是内置列表</string>
     <string name="model_list_stale_short">没能从电脑读取最新列表</string>
     <string name="model_list_retry_for">%1$s · 点按重试</string>
+    <string name="model_list_refresh">刷新模型列表</string>
+    <string name="model_list_refresh_hint">从电脑重新读取</string>
+    <string name="model_list_refreshed">已从电脑更新</string>
+    <string name="model_list_refresh_failed">刷新失败：%1$s</string>
     <string name="reasoning_effort">推理强度</string>
     <string name="open_pull_request">打开 Pull Request</string>
     <string name="copy_link">复制链接</string>
