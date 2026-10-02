@@ -322,7 +322,7 @@ impl DirectHost {
         self.push_log(message);
     }
 
-    /// A failure the user should be able to find in 连接详情 › 日志 (logged
+    /// A failure the user should be able to find in 连接详情 › 日志 (Connection Details › Log; logged
     /// at warn, not just debug).
     pub(crate) fn warn(&self, message: impl Into<String>) {
         let message = message.into();

@@ -574,7 +574,7 @@ impl ClientInner {
     }
 
     /// A host catalog read failed: warn, and on a direct link also put it in
-    /// the connection log the user can open (连接详情 › 日志).
+    /// the connection log the user can open (连接详情 › 日志 / Connection Details › Log).
     pub(crate) fn catalog_warning(&self, message: String) {
         match self.direct() {
             Some(direct) => direct.warn(message),
