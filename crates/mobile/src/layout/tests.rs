@@ -189,7 +189,7 @@ fn bench_layout_passes() {
             continuation_of: None,
             duration_ms: None,
         }));
-        w.input = TranscriptInput { entries: e, pending: vec![], working: true, working_since_ms: None, streaming: true };
+        w.input = TranscriptInput { entries: e, pending: vec![], working: true, working_since_ms: None, streaming: true, outcome: None };
         let t = Instant::now();
         w.pass();
         total += t.elapsed();
@@ -286,4 +286,53 @@ fn running_subagent_shows_a_spinner_after_its_spawn_resolves() {
     assert_eq!(spinners(&frame_for(SubagentStatus::Done)), 0, "finished subagent is quiet");
     let failed = frame_for(SubagentStatus::Failed);
     assert!(failed.display(0).unwrap().runs.iter().any(|r| r.color == display::ColorRole::Danger), "failed subagent is tinted danger");
+}
+
+/// The transcript's tail status row: while a turn runs, the working row is
+/// the only status (the composer pill no longer repeats it); once it ends,
+/// a done check / failed dot with the end time stays at the end.
+#[test]
+fn the_tail_row_shows_the_running_turn_then_how_it_ended() {
+    let tail = |input: TranscriptInput| {
+        let mut w = worker(390.0);
+        w.input = input;
+        let frame = w.pass();
+        let last = frame.display(frame.row_count() - 1).unwrap();
+        last.widgets.last().map(|w| w.kind.clone())
+    };
+    let done = zeron_client::TurnOutcome { failed: false, at_ms: 1_790_900_000_000 };
+    let failed = zeron_client::TurnOutcome { failed: true, at_ms: 1_790_900_000_000 };
+
+    // Running: the working row, never an outcome (even a stale one).
+    let mut running = transcript(2);
+    running.working = true;
+    running.outcome = Some(done);
+    assert!(matches!(tail(running), Some(display::WidgetKind::Working { .. })));
+
+    // Finished: the outcome and its time.
+    let mut finished = transcript(2);
+    finished.working = false;
+    finished.streaming = false;
+    finished.outcome = Some(done);
+    assert_eq!(
+        tail(finished.clone()),
+        Some(display::WidgetKind::TurnEnd { failed: false, at_ms: 1_790_900_000_000 })
+    );
+    finished.outcome = Some(failed);
+    assert_eq!(
+        tail(finished.clone()),
+        Some(display::WidgetKind::TurnEnd { failed: true, at_ms: 1_790_900_000_000 })
+    );
+
+    // No outcome (never ran, stopped, or the platform didn't opt in): no row.
+    finished.outcome = None;
+    assert!(!matches!(
+        tail(finished.clone()),
+        Some(display::WidgetKind::TurnEnd { .. } | display::WidgetKind::Working { .. })
+    ));
+
+    // A send of mine on its way: the next turn is coming, no stale outcome.
+    finished.outcome = Some(done);
+    finished.pending = vec![PendingUser { id: "p1".into(), text: "next".into() }];
+    assert!(!matches!(tail(finished), Some(display::WidgetKind::TurnEnd { .. })));
 }

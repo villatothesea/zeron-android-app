@@ -1050,6 +1050,8 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_zeron_mobile_checksum_method_transcriptview_set_debug_entries(
     ): Int
+    external fun uniffi_zeron_mobile_checksum_method_transcriptview_set_turn_end_marker(
+    ): Int
     external fun uniffi_zeron_mobile_checksum_method_transcriptview_set_viewport(
     ): Int
     external fun uniffi_zeron_mobile_checksum_method_transcriptview_toggle(
@@ -1351,6 +1353,8 @@ internal object UniffiLib {
     external fun uniffi_zeron_mobile_fn_method_transcriptview_frame(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): Long
     external fun uniffi_zeron_mobile_fn_method_transcriptview_set_debug_entries(`ptr`: Long,`entries`: RustBuffer.ByValue,`working`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_zeron_mobile_fn_method_transcriptview_set_turn_end_marker(`ptr`: Long,`on`: Byte,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
     external fun uniffi_zeron_mobile_fn_method_transcriptview_set_viewport(`ptr`: Long,`width`: Float,`textScale`: Float,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
@@ -1944,6 +1948,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_zeron_mobile_checksum_method_transcriptview_set_debug_entries() and 0xFFFF) != 54762) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_zeron_mobile_checksum_method_transcriptview_set_turn_end_marker() and 0xFFFF) != 39735) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_zeron_mobile_checksum_method_transcriptview_set_viewport() and 0xFFFF) != 43528) {
@@ -6678,6 +6685,13 @@ public interface TranscriptViewInterface {
      */
     fun `setDebugEntries`(`entries`: List<DebugEntry>, `working`: kotlin.Boolean)
     
+    /**
+     * Once no turn runs, end the transcript with how the last one ended
+     * (a done check / failed dot and the time; `WidgetKind::TurnEnd`).
+     * Off by default; call before `attach`.
+     */
+    fun `setTurnEndMarker`(`on`: kotlin.Boolean)
+    
     fun `setViewport`(`width`: kotlin.Float, `textScale`: kotlin.Float)
     
     /**
@@ -6866,6 +6880,24 @@ open class TranscriptView: Disposable, AutoCloseable, TranscriptViewInterface
         
         FfiConverterSequenceTypeDebugEntry.lower(`entries`),
         FfiConverterBoolean.lower(`working`),_status)
+}
+    }
+    
+    
+
+    
+    /**
+     * Once no turn runs, end the transcript with how the last one ended
+     * (a done check / failed dot and the time; `WidgetKind::TurnEnd`).
+     * Off by default; call before `attach`.
+     */override fun `setTurnEndMarker`(`on`: kotlin.Boolean)
+        = 
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_zeron_mobile_fn_method_transcriptview_set_turn_end_marker(
+        it,
+        
+        FfiConverterBoolean.lower(`on`),_status)
 }
     }
     
@@ -13209,6 +13241,10 @@ enum class RowKind {
     TOOLS,
     CHIP,
     IMAGE,
+    /**
+     * The transcript's tail status row: a running turn, or how the last
+     * one ended.
+     */
     WORKING;
 
     
@@ -14087,6 +14123,21 @@ sealed class WidgetKind {
     }
     
     /**
+     * How the last turn ended, at the transcript's end once none runs: a
+     * done check or a failed dot, then the time it ended (`at_ms`, epoch
+     * ms), which the painter labels itself so it never goes stale.
+     */
+    data class TurnEnd(
+        val `failed`: kotlin.Boolean, 
+        val `atMs`: kotlin.Long) : WidgetKind()
+        
+    {
+        
+
+        companion object
+    }
+    
+    /**
      * A small activity spinner (running tools).
      */
     object Spinner : WidgetKind()
@@ -14202,18 +14253,22 @@ public object FfiConverterTypeWidgetKind : FfiConverterRustBuffer<WidgetKind>{
                 FfiConverterOptionalLong.read(buf),
                 FfiConverterBoolean.read(buf),
                 )
-            6 -> WidgetKind.Spinner
-            7 -> WidgetKind.Detail(
+            6 -> WidgetKind.TurnEnd(
+                FfiConverterBoolean.read(buf),
+                FfiConverterLong.read(buf),
+                )
+            7 -> WidgetKind.Spinner
+            8 -> WidgetKind.Detail(
                 FfiConverterString.read(buf),
                 )
-            8 -> WidgetKind.Icon(
+            9 -> WidgetKind.Icon(
                 FfiConverterString.read(buf),
                 FfiConverterTypeColorRole.read(buf),
                 )
-            9 -> WidgetKind.Chevron(
+            10 -> WidgetKind.Chevron(
                 FfiConverterBoolean.read(buf),
                 )
-            10 -> WidgetKind.ToolRail(
+            11 -> WidgetKind.ToolRail(
                 FfiConverterFloat.read(buf),
                 FfiConverterFloat.read(buf),
                 FfiConverterFloat.read(buf),
@@ -14221,11 +14276,11 @@ public object FfiConverterTypeWidgetKind : FfiConverterRustBuffer<WidgetKind>{
                 FfiConverterSequenceFloat.read(buf),
                 FfiConverterSequenceFloat.read(buf),
                 )
-            11 -> WidgetKind.ToolToggle(
+            12 -> WidgetKind.ToolToggle(
                 FfiConverterULong.read(buf),
                 FfiConverterBoolean.read(buf),
                 )
-            12 -> WidgetKind.Shimmer
+            13 -> WidgetKind.Shimmer
             else -> throw RuntimeException("invalid enum value, something is very wrong!!")
         }
     }
@@ -14265,6 +14320,14 @@ public object FfiConverterTypeWidgetKind : FfiConverterRustBuffer<WidgetKind>{
                 4UL
                 + FfiConverterOptionalLong.allocationSize(value.`sinceMs`)
                 + FfiConverterBoolean.allocationSize(value.`streaming`)
+            )
+        }
+        is WidgetKind.TurnEnd -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterBoolean.allocationSize(value.`failed`)
+                + FfiConverterLong.allocationSize(value.`atMs`)
             )
         }
         is WidgetKind.Spinner -> {
@@ -14351,28 +14414,34 @@ public object FfiConverterTypeWidgetKind : FfiConverterRustBuffer<WidgetKind>{
                 FfiConverterBoolean.write(value.`streaming`, buf)
                 Unit
             }
-            is WidgetKind.Spinner -> {
+            is WidgetKind.TurnEnd -> {
                 buf.putInt(6)
+                FfiConverterBoolean.write(value.`failed`, buf)
+                FfiConverterLong.write(value.`atMs`, buf)
+                Unit
+            }
+            is WidgetKind.Spinner -> {
+                buf.putInt(7)
                 Unit
             }
             is WidgetKind.Detail -> {
-                buf.putInt(7)
+                buf.putInt(8)
                 FfiConverterString.write(value.`title`, buf)
                 Unit
             }
             is WidgetKind.Icon -> {
-                buf.putInt(8)
+                buf.putInt(9)
                 FfiConverterString.write(value.`name`, buf)
                 FfiConverterTypeColorRole.write(value.`color`, buf)
                 Unit
             }
             is WidgetKind.Chevron -> {
-                buf.putInt(9)
+                buf.putInt(10)
                 FfiConverterBoolean.write(value.`expanded`, buf)
                 Unit
             }
             is WidgetKind.ToolRail -> {
-                buf.putInt(10)
+                buf.putInt(11)
                 FfiConverterFloat.write(value.`trunkX`, buf)
                 FfiConverterFloat.write(value.`bend`, buf)
                 FfiConverterFloat.write(value.`branchEnd`, buf)
@@ -14382,13 +14451,13 @@ public object FfiConverterTypeWidgetKind : FfiConverterRustBuffer<WidgetKind>{
                 Unit
             }
             is WidgetKind.ToolToggle -> {
-                buf.putInt(11)
+                buf.putInt(12)
                 FfiConverterULong.write(value.`detail`, buf)
                 FfiConverterBoolean.write(value.`open`, buf)
                 Unit
             }
             is WidgetKind.Shimmer -> {
-                buf.putInt(12)
+                buf.putInt(13)
                 Unit
             }
         }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }

@@ -345,6 +345,9 @@ pub struct TranscriptView {
     shared: Arc<Shared>,
     /// Live session subscription (Rust→Rust; rows never cross FFI).
     watch: Mutex<Option<zeron_client::SnapshotWatch>>,
+    /// Show how the last turn ended at the transcript's end (opt-in per
+    /// platform; see [`TranscriptView::set_turn_end_marker`]).
+    turn_end: Arc<std::sync::atomic::AtomicBool>,
 }
 
 #[uniffi::export]
@@ -364,6 +367,7 @@ impl TranscriptView {
             tx: Mutex::new(tx),
             shared,
             watch: Mutex::new(None),
+            turn_end: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         })
     }
 
@@ -374,6 +378,7 @@ impl TranscriptView {
             return false;
         };
         let tx = Mutex::new(self.tx.lock().unwrap().clone());
+        let turn_end = self.turn_end.clone();
         let guard = handle.watch(move |snap| {
             let input = TranscriptInput {
                 entries: snap.transcript_messages(),
@@ -388,11 +393,23 @@ impl TranscriptView {
                 working: snap.working,
                 working_since_ms: snap.working_since_ms,
                 streaming: snap.streaming,
+                outcome: if turn_end.load(std::sync::atomic::Ordering::Relaxed) {
+                    snap.outcome
+                } else {
+                    None
+                },
             };
             let _ = tx.lock().unwrap().send(Msg::Input(input));
         });
         *self.watch.lock().unwrap() = Some(guard);
         true
+    }
+
+    /// Once no turn runs, end the transcript with how the last one ended
+    /// (a done check / failed dot and the time; `WidgetKind::TurnEnd`).
+    /// Off by default; call before `attach`.
+    pub fn set_turn_end_marker(&self, on: bool) {
+        self.turn_end.store(on, std::sync::atomic::Ordering::Relaxed);
     }
 
     pub fn set_viewport(&self, width: f32, text_scale: f32) {
@@ -468,6 +485,7 @@ pub(crate) fn debug_input(entries: Vec<DebugEntry>, working: bool) -> Transcript
         pending: Vec::new(),
         working,
         working_since_ms: None,
+        outcome: None,
         streaming: working,
     }
 }

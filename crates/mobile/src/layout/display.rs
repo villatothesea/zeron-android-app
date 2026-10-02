@@ -173,6 +173,10 @@ pub enum WidgetKind {
     /// Working indicator at the tail of a live turn. The painter ticks the
     /// elapsed label itself so time never forces a relayout.
     Working { since_ms: Option<i64>, streaming: bool },
+    /// How the last turn ended, at the transcript's end once none runs: a
+    /// done check or a failed dot, then the time it ended (`at_ms`, epoch
+    /// ms), which the painter labels itself so it never goes stale.
+    TurnEnd { failed: bool, at_ms: i64 },
     /// A small activity spinner (running tools).
     Spinner,
     /// Tap target revealing the full text in `payload` (truncated tool lines).

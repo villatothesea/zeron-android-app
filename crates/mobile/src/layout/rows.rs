@@ -30,6 +30,8 @@ pub enum RowKind {
     Tools,
     Chip,
     Image,
+    /// The transcript's tail status row: a running turn, or how the last
+    /// one ended.
     Working,
 }
 
@@ -49,6 +51,9 @@ pub struct TranscriptInput {
     pub working: bool,
     pub working_since_ms: Option<i64>,
     pub streaming: bool,
+    /// How the last turn ended (the tail done/failed row once none runs);
+    /// `None` shows no such row.
+    pub outcome: Option<zeron_client::TurnOutcome>,
 }
 
 pub(crate) fn row_key(id: &str) -> u64 {
@@ -89,6 +94,7 @@ pub(crate) enum Content {
     Chip(Chip),
     Image { reference: String },
     Working { since_ms: Option<i64>, streaming: bool },
+    TurnEnd { failed: bool, at_ms: i64 },
 }
 
 /// A width-independent row: identity, top gap class and prepared content.
@@ -139,6 +145,7 @@ pub(crate) mod geom {
     pub const CHIP_LINE: f32 = 32.0;
     pub const IMAGE: f32 = 260.0;
     pub const WORKING: f32 = 36.0;
+    pub const TURN_END: f32 = 28.0;
 }
 
 impl Gap {
@@ -176,6 +183,7 @@ pub(crate) struct RowBuilder {
     entries: HashMap<String, EntryState>,
     pending: HashMap<String, (String, Arc<RowCore>)>,
     working: Option<Arc<RowCore>>,
+    turn_end: Option<Arc<RowCore>>,
     pub expanded: HashSet<u64>,
     pub collapsed: HashSet<u64>,
     /// Per-tool inline detail overrides (row detail key → open).
@@ -279,6 +287,25 @@ impl RowBuilder {
                 }));
             }
             let core = self.working.clone().expect("set above");
+            out.push(Placed { core, gap: Gap::Reply });
+        } else if let Some(outcome) = input.outcome.filter(|_| !out.is_empty() && input.pending.is_empty()) {
+            let stale = self.turn_end.as_ref().is_none_or(|w| {
+                !matches!(&w.content, Content::TurnEnd { failed, at_ms } if *failed == outcome.failed && *at_ms == outcome.at_ms)
+            });
+            if stale {
+                self.turn_end = Some(Arc::new(RowCore {
+                    key: row_key("#turn-end"),
+                    version: next_version(),
+                    kind: RowKind::Working,
+                    entry_id: Arc::from(""),
+                    content: Content::TurnEnd {
+                        failed: outcome.failed,
+                        at_ms: outcome.at_ms,
+                    },
+                    copy_text: String::new(),
+                }));
+            }
+            let core = self.turn_end.clone().expect("set above");
             out.push(Placed { core, gap: Gap::Reply });
         }
         out
@@ -620,6 +647,20 @@ pub(crate) fn place_row(core: &RowCore, gap: Gap, px: Px, width: f32, mut out: O
             }
             side
         }
+        Content::TurnEnd { failed, at_ms } => {
+            let h = px.v(TURN_END);
+            if let Some(out) = out {
+                out.widget(
+                    WidgetKind::TurnEnd {
+                        failed: *failed,
+                        at_ms: *at_ms,
+                    },
+                    (x, top, cw, h),
+                    None,
+                );
+            }
+            h
+        }
         Content::Working { since_ms, streaming } => {
             let h = px.v(WORKING);
             if let Some(out) = out {
@@ -746,6 +787,6 @@ pub(crate) fn content_heap_bytes(content: &Content) -> usize {
         Content::Tools(t) => super::tools::heap_bytes(t),
         Content::Chip(c) => c.text.p.heap_bytes(),
         Content::Image { reference } => reference.len(),
-        Content::Working { .. } => 0,
+        Content::Working { .. } | Content::TurnEnd { .. } => 0,
     }
 }

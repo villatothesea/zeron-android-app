@@ -54,7 +54,7 @@ pub use session::{
     AppendHint, BusyPolicy, ComposerState, Entry, HostCapabilities, HostInfo, InputRequest,
     LiveStatus, LocalEcho, OutgoingAttachment, PendingKind, PendingSend, QueueEditAction,
     QueueEditFinish, QueueEditLease, QueueEditStart, QueueGate, QueueItem, RoomState, SendOutcome,
-    SendRequest, SessionHandle, SessionSnapshot, SnapshotDelta, SnapshotWatch,
+    SendRequest, SessionHandle, SessionSnapshot, SnapshotDelta, SnapshotWatch, TurnOutcome,
 };
 pub use workspace::{
     DeviceView, FrontPage, ProjectRef, ProjectView, PullRequestGroups, SearchField, SearchHit,

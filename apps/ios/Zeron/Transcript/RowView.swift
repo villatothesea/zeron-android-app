@@ -204,6 +204,11 @@ final class RowView: UIView {
                 view = StatusGlyph(.spinner)
             case let .working(sinceMs, streaming):
                 view = WorkingIndicatorView(since: sinceMs.map { Date(timeIntervalSince1970: Double($0) / 1000) }, streaming: streaming)
+            case .turnEnd:
+                // The done/failed end-of-transcript row is opt-in
+                // (`TranscriptView.setTurnEndMarker`, Android only so far);
+                // iOS doesn't turn it on, so this never arrives.
+                view = UIView()
             case let .detail(title):
                 let b = UIControl()
                 b.accessibilityLabel = "\(title) details"

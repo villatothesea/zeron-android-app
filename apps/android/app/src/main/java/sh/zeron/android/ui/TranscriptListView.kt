@@ -609,6 +609,28 @@ class TranscriptListView(context: Context) : View(context) {
                 }
                 animate = true
             }
+            is WidgetKind.TurnEnd -> {
+                // How the last turn ended: the home rows' glyph (StatusMark's
+                // check / dot, same geometry and colours), its word, then when
+                // it ended in the rows' relative-time format, fainter — the
+                // working row's layout, so one reads as the other's successor.
+                val box = 14f
+                drawStatusMark(canvas, w.x, w.y + (w.h - box) / 2f, box, kind.failed, colors)
+                val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    typeface = faces[FaceRole.SANS_MEDIUM] ?: faces[FaceRole.SANS]
+                    textSize = 13.5f
+                    color = colors.secondary.toArgb()
+                }
+                val word = context.getString(if (kind.failed) sh.zeron.android.R.string.status_failed else sh.zeron.android.R.string.status_done)
+                val x = w.x + 22f
+                val baseline = w.y + w.h / 2f - (paint.ascent() + paint.descent()) / 2f
+                canvas.drawText(word, x, baseline, paint)
+                paint.color = colors.tertiary.toArgb()
+                val time = RelativeTime.label(kind.atMs, System.currentTimeMillis(), resources)
+                canvas.drawText("  $time", x + paint.measureText(word), baseline, paint)
+                // The label ages by the minute: repaint now and then (no relayout).
+                postInvalidateDelayed(30_000)
+            }
             is WidgetKind.Detail -> Unit
             is WidgetKind.Icon -> {
                 val px = max(w.w, w.h) * density
@@ -680,6 +702,29 @@ class TranscriptListView(context: Context) : View(context) {
             val cy = oy + row * (d + gap) + d / 2f
             canvas.drawCircle(cx, cy, d / 2f, paint)
         }
+    }
+
+    /**
+     * [sh.zeron.android.design.StatusMark]'s done check / failed dot on a
+     * canvas, in a `size`-square box at (x, y): the same geometry, and the
+     * home rows' `done` / `failed` colours.
+     */
+    private fun drawStatusMark(canvas: Canvas, x: Float, y: Float, size: Float, failed: Boolean, colors: ZeronColors) {
+        val cx = x + size / 2f
+        val cy = y + size / 2f
+        if (failed) {
+            canvas.drawCircle(cx, cy, size * 0.29f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = colors.failed.toArgb() })
+            return
+        }
+        val s = size / 16f * 1.05f
+        val ox = cx - 8f * s
+        val oy = cy - 8f * s
+        val path = Path().apply {
+            moveTo(ox + 3.5f * s, oy + 8.5f * s)
+            lineTo(ox + 6.5f * s, oy + 11.5f * s)
+            lineTo(ox + 12.5f * s, oy + 4.5f * s)
+        }
+        canvas.drawPath(path, stroke(colors.done.toArgb(), 1.6f * (size / 12f)))
     }
 
     private fun stroke(color: Int, width: Float = 1.4f) = Paint(Paint.ANTI_ALIAS_FLAG).apply {

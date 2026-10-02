@@ -80,6 +80,15 @@ impl SnapshotDelta {
     }
 }
 
+/// How a finished turn ended and when.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TurnOutcome {
+    pub failed: bool,
+    /// When it ended (epoch ms): the last assistant segment's start plus its
+    /// stamped duration, else the chat's last activity (the row's time).
+    pub at_ms: i64,
+}
+
 /// The transcript at one revision. Cheap to clone (`Arc`s all the way down).
 #[derive(Debug, Clone, Default)]
 pub struct SessionSnapshot {
@@ -100,6 +109,11 @@ pub struct SessionSnapshot {
     pub working: bool,
     /// Run start of the live turn, when the host reported one.
     pub working_since_ms: Option<i64>,
+    /// How the last turn ended, while none runs (the transcript's end
+    /// marker): the same outcome the session row's glyph shows
+    /// (`SessionRow::last_outcome`). `None` while working, for a chat that
+    /// never ran, and for a turn that was stopped.
+    pub outcome: Option<TurnOutcome>,
     /// This device's unadopted sends, oldest first. Their echo entries are
     /// `entries[transcript_len..]` (same order, same ids).
     pub pending: Vec<PendingSend>,

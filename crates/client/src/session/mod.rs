@@ -29,7 +29,7 @@ use zeron_proto::{
 pub use snapshot::{
     AppendHint, ComposerState, Entry, HostCapabilities, HostInfo, InputRequest, LiveStatus,
     LocalEcho, PendingKind, PendingSend, QueueGate, QueueItem, RoomState, SessionSnapshot,
-    SnapshotDelta,
+    SnapshotDelta, TurnOutcome,
 };
 use transcript::{Dirty, Tracker};
 
@@ -407,16 +407,13 @@ impl SessionCore {
         let dirty = std::mem::take(&mut *lock(&self.dirty));
         let now = now_ms();
         let degraded = client.chat_delivery_degraded(&self.chat_id);
-        let (indicator_working, working_since_ms) = client
-            .workspace
-            .snapshot()
-            .session(&self.chat_id)
-            .map_or((false, None), |row| {
-                (
-                    row.host_indicator == ChatIndicator::Working,
-                    row.working_since_ms,
-                )
-            });
+        let row = client.workspace.snapshot().session(&self.chat_id).cloned();
+        let (indicator_working, working_since_ms) = row.as_ref().map_or((false, None), |row| {
+            (
+                row.host_indicator == ChatIndicator::Working,
+                row.working_since_ms,
+            )
+        });
         let mut transcript_event = None;
         let send_before;
         let send_after;
@@ -442,12 +439,26 @@ impl SessionCore {
                 .last()
                 .is_some_and(|e| e.is_streaming());
             let sending = st.pending.iter().any(|p| p.state == SendState::Sending);
+            let working = indicator_working || streaming || sending;
             let live = LiveFlags {
-                working: indicator_working || streaming || sending,
+                working,
                 working_since_ms,
+                outcome: if working {
+                    None
+                } else {
+                    row.as_deref().and_then(|row| {
+                        turn_outcome(
+                            row.last_outcome,
+                            row.last_activity_ms,
+                            st.tracker.entries(),
+                            now,
+                        )
+                    })
+                },
             };
             let live_changed = previous.working != live.working
                 || previous.working_since_ms != live.working_since_ms
+                || previous.outcome != live.outcome
                 || previous.hydrated != st.hydrated;
             if change.is_some()
                 || echoes_changed
@@ -813,6 +824,136 @@ fn derive_pending(st: &mut CoreState, device_id: &str, degraded: bool, now: i64)
 struct LiveFlags {
     working: bool,
     working_since_ms: Option<i64>,
+    outcome: Option<TurnOutcome>,
+}
+
+/// [`SessionSnapshot::outcome`] from the session row's `last_outcome` (the
+/// outcome its glyph shows on the home list) and the transcript (when the
+/// turn ended; else the row's `last_activity_ms`).
+pub(crate) fn turn_outcome(
+    last_outcome: ChatIndicator,
+    last_activity_ms: i64,
+    entries: &[Arc<Entry>],
+    now: i64,
+) -> Option<TurnOutcome> {
+    let failed = match last_outcome {
+        ChatIndicator::Completed => false,
+        ChatIndicator::Errored => true,
+        _ => return None,
+    };
+    let last = entries
+        .iter()
+        .rev()
+        .map(|e| &e.message)
+        .find(|m| m.role == zeron_doc::MessageRole::Assistant);
+    // A turn the user stopped neither completed nor failed.
+    if !failed && last.is_some_and(|m| m.status == Some(zeron_doc::MessageStatus::Aborted)) {
+        return None;
+    }
+    let ended = last
+        .filter(|m| m.created_at > 0)
+        .and_then(|m| m.duration_ms.map(|d| m.created_at.saturating_add(d.max(0))));
+    let at_ms = ended.unwrap_or(last_activity_ms).min(now);
+    Some(TurnOutcome { failed, at_ms })
+}
+
+#[cfg(test)]
+mod turn_outcome_tests {
+    use super::*;
+    use zeron_doc::{MessageRole, MessageStatus};
+
+    fn entry(
+        role: MessageRole,
+        status: Option<MessageStatus>,
+        at: i64,
+        took: Option<i64>,
+    ) -> Arc<Entry> {
+        Arc::new(Entry {
+            id: format!("e{at}"),
+            rev: 1,
+            message: Arc::new(SessionMessageEntry {
+                id: format!("e{at}"),
+                role,
+                parts: Vec::new(),
+                created_at: at,
+                device_id: "pc".into(),
+                status,
+                continuation_of: None,
+                duration_ms: took,
+            }),
+            echo: None,
+            append: None,
+        })
+    }
+
+    #[test]
+    fn a_finished_turn_ends_the_transcript_with_its_outcome_and_end_time() {
+        let now = 10_000_000;
+        let turn = vec![
+            entry(MessageRole::User, None, 1_000_000, None),
+            entry(
+                MessageRole::Assistant,
+                Some(MessageStatus::Complete),
+                1_000_500,
+                Some(143_000),
+            ),
+        ];
+        // Ended = the assistant segment's start + its stamped duration.
+        assert_eq!(
+            turn_outcome(ChatIndicator::Completed, 1_000_000, &turn, now),
+            Some(TurnOutcome {
+                failed: false,
+                at_ms: 1_143_500
+            })
+        );
+        assert_eq!(
+            turn_outcome(ChatIndicator::Errored, 1_000_000, &turn, now),
+            Some(TurnOutcome {
+                failed: true,
+                at_ms: 1_143_500
+            })
+        );
+        // No duration stamped (older docs): the row's time, as on the home list.
+        let unstamped = vec![entry(
+            MessageRole::Assistant,
+            Some(MessageStatus::Complete),
+            1_000_500,
+            None,
+        )];
+        assert_eq!(
+            turn_outcome(ChatIndicator::Completed, 1_200_000, &unstamped, now),
+            Some(TurnOutcome {
+                failed: false,
+                at_ms: 1_200_000
+            })
+        );
+        // Running, waiting, never ran: no outcome. A stopped turn: no check.
+        for live in [
+            ChatIndicator::Working,
+            ChatIndicator::AwaitingInput,
+            ChatIndicator::Idle,
+        ] {
+            assert_eq!(turn_outcome(live, 1_000_000, &turn, now), None);
+        }
+        let stopped = vec![entry(
+            MessageRole::Assistant,
+            Some(MessageStatus::Aborted),
+            1_000_500,
+            Some(5_000),
+        )];
+        assert_eq!(
+            turn_outcome(ChatIndicator::Completed, 1_000_000, &stopped, now),
+            None
+        );
+        // Never in the future.
+        assert_eq!(
+            turn_outcome(ChatIndicator::Completed, now + 60_000, &[], now),
+            Some(TurnOutcome {
+                failed: false,
+                at_ms: now
+            })
+        );
+    }
 }
 
 fn build_snapshot(
@@ -845,6 +986,7 @@ fn build_snapshot(
         streaming,
         working: live.working,
         working_since_ms: live.working_since_ms,
+        outcome: live.outcome,
         pending: st.pending.clone(),
         context_usage: st.context_usage,
         hydrated: st.hydrated,

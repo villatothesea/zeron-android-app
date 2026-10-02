@@ -173,6 +173,9 @@ fun SessionScreen(model: ZeronModel, chatId: String) {
     val relay = remember { FrameRelay() }
     val engine = remember(chatId) {
         TranscriptView(text, relay).also {
+            // The transcript ends with how the last turn ended (done / failed
+            // and when) once none runs.
+            it.setTurnEndMarker(true)
             it.attach(client, chatId)
             handle.setViewAttached(true)
         }
@@ -731,9 +734,8 @@ private fun StatusPill(
 ) {
     var now by remember { mutableStateOf(System.currentTimeMillis()) }
     val retryAt = chrome.room.retryAtMs.takeIf { !chrome.room.connected }
-    val working = chrome.live.turnRunning
-    LaunchedEffect(retryAt, working) {
-        while (retryAt != null || working) {
+    LaunchedEffect(retryAt) {
+        while (retryAt != null) {
             now = System.currentTimeMillis()
             kotlinx.coroutines.delay(1000)
         }
@@ -748,11 +750,8 @@ private fun StatusPill(
         connectivity?.state == uniffi.zeron_core.ConnectivityState.OFFLINE -> colors.tertiary to stringResource(R.string.pill_offline)
         retryAt != null -> colors.tertiary to stringResource(R.string.pill_reconnecting, ((retryAt - now) / 1000).coerceAtLeast(1).toInt())
         chrome.queueError != null -> colors.danger to chrome.queueError!!
-        working -> {
-            val word = stringResource(if (chrome.live.streaming) R.string.status_writing else R.string.status_working)
-            val secs = chrome.live.workingSinceMs?.let { ((now - it) / 1000).coerceAtLeast(0) } ?: 0L
-            colors.working to if (secs > 0) "$word · ${ElapsedFormat.format(secs, LocalContext.current.resources)}" else "$word…"
-        }
+        // A running turn has no pill: the transcript's own tail row (the
+        // dot-matrix and elapsed time) already says so; the pill repeated it.
         else -> return
     }
     StatusPillView(dot, text, colors, onTap)
