@@ -157,6 +157,13 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
     /** Bottom sheet over the home screen: the quick switcher or the failure reason. */
     var connectionSheet by mutableStateOf<ConnectionSheet?>(null)
 
+    /**
+     * The chip jumped straight into Settings > Accounts & Computers > the
+     * computer page: one Back unwinds the whole shortcut back home.
+     * 快捷入口进来，一次返回直接回主页。
+     */
+    private var chipShortcut = false
+
     /** Screenshots only: a fixed chip state instead of the live one. */
     internal var previewConnection by mutableStateOf<ConnectionState.View?>(null)
 
@@ -384,6 +391,17 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun back(): Boolean {
+        if (chipShortcut) {
+            chipShortcut = false
+            if (editMachine != null || showMachines || tab != Tab.Sessions) {
+                editMachine = null
+                showMachines = false
+                settingsStack.clear()
+                sessionStack.clear()
+                tab = Tab.Sessions
+                return true
+            }
+        }
         if (showUpdate) {
             showUpdate = false
             return true
@@ -582,6 +600,7 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
         tab = Tab.Settings
         showMachines = true
         editMachine = machines.firstOrNull { it.id == id }
+        chipShortcut = editMachine != null
     }
 
     /** Chip long-press (and "切换电脑" ("Switch Computer") on the computer page): the quick switcher over home. */

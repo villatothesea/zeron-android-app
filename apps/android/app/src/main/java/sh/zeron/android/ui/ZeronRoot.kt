@@ -183,7 +183,9 @@ private fun AppContent(model: ZeronModel, colors: ZeronColors) {
         MachinesScreen(model)
     }
     model.editMachine?.let { machine ->
-        BackHandler { model.editMachine = null }
+        // Route through model.back() so the chip shortcut can unwind the
+        // whole path in one step; otherwise this just clears the editor.
+        BackHandler { model.back() }
         androidx.compose.runtime.key(machine.id) { MachineEditScreen(model, machine) }
     }
     if (model.showLinkDetails) {
