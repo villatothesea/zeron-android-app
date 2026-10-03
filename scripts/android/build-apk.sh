@@ -41,7 +41,9 @@ if [[ -z "$NDK" && -d "$SDK/ndk" ]]; then
 fi
 STRIP=""
 if [[ -n "$NDK" ]]; then
-  STRIP="$(find "$NDK/toolchains/llvm/prebuilt" -name llvm-strip \( -type f -o -type l \) 2>/dev/null | head -1 || true)"
+  # Windows builds ship llvm-strip.exe; a bare -name match misses it and the
+  # debug-info-heavy .so ships inside the release APK (45MB instead of 18).
+  STRIP="$(find "$NDK/toolchains/llvm/prebuilt" -name 'llvm-strip*' \( -type f -o -type l \) 2>/dev/null | head -1 || true)"
 fi
 for abi in $ABIS; do
   src="$ROOT/target/android-core/jniLibs/$abi/libzeron_mobile.so"
@@ -63,7 +65,9 @@ if [[ -f "$KOTLIN_SRC" ]]; then
   python3 "$ROOT/scripts/android/patch-uniffi-kotlin.py" "$ROOT/apps/android/app/src/main/java/uniffi/zeron_core/zeron_core.kt"
 fi
 
-printf 'sdk.dir=%s\n' "$SDK" > "$ROOT/apps/android/local.properties"
+# Properties treats '\' as an escape; a Windows path breaks lintVital's SDK
+# lookup ("filename, directory name, or volume label syntax is incorrect").
+printf 'sdk.dir=%s\n' "${SDK//\\//}" > "$ROOT/apps/android/local.properties"
 cd "$ROOT/apps/android"
 if [[ ! -x ./gradlew ]]; then
   if command -v gradle >/dev/null; then

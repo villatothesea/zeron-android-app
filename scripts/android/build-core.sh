@@ -33,7 +33,12 @@ HOST_PROFILE_DIR="$ROOT/target/mobile"
 # and a stale copy silently drops new FFI items. Incremental, so cheap.
 cargo build --locked -p zeron-mobile --lib --profile mobile
 cargo build --locked -p zeron-mobile --bin uniffi-bindgen --features bindgen --profile mobile
-HOST_LIB="$HOST_PROFILE_DIR/libzeron_mobile.$([[ "$(uname)" == Darwin ]] && echo dylib || echo so)"
+# Windows hosts produce zeron_mobile.dll (no lib prefix), not libzeron_mobile.so.
+case "$(uname)" in
+  Darwin) HOST_LIB="$HOST_PROFILE_DIR/libzeron_mobile.dylib" ;;
+  MINGW*|MSYS*|CYGWIN*) HOST_LIB="$HOST_PROFILE_DIR/zeron_mobile.dll" ;;
+  *) HOST_LIB="$HOST_PROFILE_DIR/libzeron_mobile.so" ;;
+esac
 "$HOST_PROFILE_DIR/uniffi-bindgen" generate --library "$HOST_LIB" --language kotlin \
   --no-format --out-dir "$OUT/kotlin"
 echo "kotlin bindings: $OUT/kotlin"
