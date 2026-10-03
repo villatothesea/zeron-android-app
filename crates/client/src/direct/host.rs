@@ -1112,6 +1112,17 @@ impl DirectHost {
         }
     }
 
+    /// The chunked-transfer RPC surface as a transport-agnostic call so
+    /// `attachments::upload_chunks`/`read_chunks` run unchanged over the
+    /// tunnel (the engine whitelists those methods on the link too).
+    pub(crate) fn rpc_call(self: &Arc<Self>) -> crate::attachments::RpcCall {
+        let host = self.clone();
+        std::sync::Arc::new(move |method, params| {
+            let host = host.clone();
+            Box::pin(async move { host.call(method, params).await })
+        })
+    }
+
     /// Fire-and-forget `Mutate` (the local optimistic write already landed).
     pub(crate) fn mutate(self: &Arc<Self>, op: serde_json::Value) {
         let host = self.clone();

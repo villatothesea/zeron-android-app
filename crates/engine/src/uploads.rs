@@ -275,6 +275,14 @@ impl Uploads {
         })
     }
 
+    /// Has any chunk for `upload_id` landed? The staging dir exists from the
+    /// first `UploadChunk` until commit sweeps it, so this is the drain's
+    /// "bytes demonstrably on their way" signal — `pending://` refs without
+    /// it get the short head-of-line wait, not the full one.
+    pub fn transfer_started(&self, upload_id: &str) -> bool {
+        self.staging_dir(upload_id).is_ok_and(|dir| dir.is_dir())
+    }
+
     // ── internals ───────────────────────────────────────────────────────────
 
     fn staging_dir(&self, upload_id: &str) -> Result<PathBuf, EngineError> {

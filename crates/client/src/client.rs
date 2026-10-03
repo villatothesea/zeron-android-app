@@ -90,6 +90,10 @@ pub(crate) struct ClientInner {
     pub(crate) workspace: WorkspaceStore,
     pub(crate) tokens: TokenProvider,
     pub(crate) attachment_cache: AttachmentCache,
+    /// Staged attachment bytes waiting to reach the host — durable under the
+    /// data dir and retried across restarts on every real backend (the Live
+    /// escorts and the direct link carry the same chunk protocol).
+    pub(crate) escorts: crate::live::escort::Escorts,
     backend: OnceLock<Backend>,
     sessions: Mutex<HashMap<String, Arc<SessionCore>>>,
     pub(crate) cancel: CancellationToken,
@@ -518,7 +522,7 @@ impl ClientInner {
                 let upload_id = crate::new_id();
                 let name = attachments::upload_file_name(&attachment.name);
                 let reference = attachments::pending_ref(&upload_id, &name);
-                if let Some(live) = self.live() {
+                if !self.is_demo() {
                     let meta = crate::live::escort::StashMeta {
                         upload_id: upload_id.clone(),
                         chat_id: chat_id.to_owned(),
@@ -526,7 +530,7 @@ impl ClientInner {
                         name: name.clone(),
                         created_at_ms: now_ms(),
                     };
-                    live.escorts
+                    self.escorts
                         .stash(&meta, &attachment.data)
                         .map_err(|e| ClientError::Storage(e.to_string()))?;
                 }
@@ -546,10 +550,13 @@ impl ClientInner {
                 // A send streams its transcript until adopted, on screen or not.
                 direct.session_opened(core);
                 direct.on_command(&core.chat_id);
-            }
-            Backend::Live(live) => {
                 if has_attachments {
-                    live.escorts.respawn_chat(self, &core.chat_id);
+                    self.escorts.respawn_chat(self, &core.chat_id);
+                }
+            }
+            Backend::Live(_) => {
+                if has_attachments {
+                    self.escorts.respawn_chat(self, &core.chat_id);
                 }
                 if let Some(host) = self.workspace.chat(&core.chat_id).map(|c| c.device_id) {
                     self.nudge_host(&host, &core.chat_id);
@@ -699,6 +706,7 @@ impl Client {
             events: events.clone(),
             tokens,
             attachment_cache: AttachmentCache::new(ATTACHMENT_CACHE_BYTES),
+            escorts: crate::live::escort::Escorts::new(&config.data_dir),
             backend: OnceLock::new(),
             sessions: Mutex::new(HashMap::new()),
             cancel: CancellationToken::new(),
@@ -747,6 +755,7 @@ impl Client {
             }
             Backend::Direct(direct) => {
                 direct.start(inner.cancel.clone());
+                inner.escorts.respawn(&inner);
                 inner.recompute_connectivity();
             }
         }
@@ -1808,9 +1817,22 @@ impl Client {
                     .put(device_id, &path, Arc::new(data));
                 Ok(path)
             }
-            Backend::Direct(_) => Err(ClientError::Unsupported(
-                "attachments over a direct SSH link are not supported yet".into(),
-            )),
+            Backend::Direct(direct) => {
+                let upload_id = crate::new_id();
+                let file_name = attachments::upload_file_name(name);
+                let path = attachments::upload_chunks(
+                    direct.rpc_call(),
+                    &upload_id,
+                    &file_name,
+                    &data,
+                    progress,
+                )
+                .await?;
+                self.inner
+                    .attachment_cache
+                    .put(device_id, &path, Arc::new(data));
+                Ok(path)
+            }
         }
     }
 
@@ -1823,10 +1845,8 @@ impl Client {
         let bytes = match self.inner.backend() {
             Backend::Demo(demo) => demo.read_attachment(path)?,
             Backend::Live(live) => Arc::new(live.relay.read_attachment(device_id, path).await?),
-            Backend::Direct(_) => {
-                return Err(ClientError::Unsupported(
-                    "attachments over a direct SSH link are not supported yet".into(),
-                ));
+            Backend::Direct(direct) => {
+                Arc::new(attachments::read_chunks(direct.rpc_call(), path).await?)
             }
         };
         self.inner

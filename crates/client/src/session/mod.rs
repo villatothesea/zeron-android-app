@@ -456,6 +456,9 @@ impl SessionCore {
         let dirty = std::mem::take(&mut *lock(&self.dirty));
         let now = now_ms();
         let degraded = client.chat_delivery_degraded(&self.chat_id);
+        // A staged attachment whose bytes are still moving (transfer or
+        // escort retry window) holds the undelivered-grace clock.
+        let uploading = !client.escorts.pending_for(&self.chat_id).is_empty();
         let row = client.workspace.snapshot().session(&self.chat_id).cloned();
         let host_indicator = row
             .as_ref()
@@ -483,7 +486,8 @@ impl SessionCore {
                 .iter()
                 .map(|p| (p.message_id.clone(), p.kind))
                 .collect();
-            let echoes_changed = derive_pending(&mut st, &client.config.device_id, degraded, now);
+            let echoes_changed =
+                derive_pending(&mut st, &client.config.device_id, degraded, uploading, now);
             send_after = oldest_state(&st.pending);
             let previous = self.snapshot();
             let streaming = st
@@ -798,7 +802,13 @@ fn open_input(entries: &[Arc<Entry>]) -> Option<InputRequest> {
 
 /// Own run/steer commands whose message hasn't landed = pending echoes.
 /// Returns whether the echo set/states changed.
-fn derive_pending(st: &mut CoreState, device_id: &str, degraded: bool, now: i64) -> bool {
+fn derive_pending(
+    st: &mut CoreState,
+    device_id: &str,
+    degraded: bool,
+    uploading: bool,
+    now: i64,
+) -> bool {
     struct Attempt {
         text: String,
         kind: PendingKind,
@@ -858,7 +868,13 @@ fn derive_pending(st: &mut CoreState, device_id: &str, degraded: bool, now: i64)
             .unwrap_or(attempt.first_issued);
         let parsed = attachments::parse_user_message(&attempt.text);
         next.push(PendingSend {
-            state: send_state(started, degraded, attempt.dead && !attempt.live, now),
+            state: send_state(
+                started,
+                degraded,
+                attempt.dead && !attempt.live,
+                uploading,
+                now,
+            ),
             message_id,
             text: attempt.text.clone(),
             visible_text: parsed.text,
