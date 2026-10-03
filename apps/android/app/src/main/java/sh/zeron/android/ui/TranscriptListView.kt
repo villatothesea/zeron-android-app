@@ -247,8 +247,6 @@ class TranscriptListView(context: Context) : View(context) {
         for (row in frame.rowsIn(0f, frame.totalHeight() + 1f)) {
             if (row.kind != uniffi.zeron_core.RowKind.USER) continue
             val text = (frame.messageText(row.index) ?: frame.display(row.index)?.copyText).orEmpty()
-            // One message can span rows (a long one's disclosure): keep the first.
-            if (marks.isNotEmpty() && marks.last().text == text && text.isNotEmpty()) continue
             marks += UserMark(row.key, row.y, text)
         }
         if (marks != userMarks) {

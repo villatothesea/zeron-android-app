@@ -25,10 +25,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameMillis
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -109,6 +111,14 @@ fun MessageNavigator(
     val buckets = remember(marks.size) { MessageNav.buckets(marks.size) }
     val activeBucket = buckets.indexOfFirst { active in it }
     val openLabel = stringResource(R.string.msg_nav_open)
+    val cardScroll = rememberScrollState()
+    // Opening the card parks it on the newest entry: the list is
+    // oldest-first and the last row is what you usually came for.
+    LaunchedEffect(open, buckets.size) {
+        if (!open) return@LaunchedEffect
+        withFrameMillis { }
+        cardScroll.scrollTo(cardScroll.maxValue)
+    }
     Box(modifier.fillMaxSize()) {
         if (open) {
             // Tap anywhere else to put it away.
@@ -128,7 +138,7 @@ fun MessageNavigator(
                         .width(252.dp)
                         .heightIn(max = 420.dp)
                         .glassSurface(colors, 14.dp)
-                        .verticalScroll(rememberScrollState())
+                        .verticalScroll(cardScroll)
                         .padding(vertical = 6.dp),
                 ) {
                     Text(
@@ -141,8 +151,9 @@ fun MessageNavigator(
                     )
                     buckets.forEachIndexed { b, range ->
                         // The bucket's representative: the message being read
-                        // when it falls inside, else the range's first.
-                        val rep = if (active in range) active else range.first
+                        // when it falls inside, else the range's newest (so
+                        // the card's last row is your last message).
+                        val rep = if (active in range) active else range.last
                         val mark = marks[rep]
                         val isActive = b == activeBucket
                         Row(
