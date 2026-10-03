@@ -24,9 +24,9 @@ import uniffi.zeron_core.fileMentionLink
  * backticks, which the agent can read just the same.
  */
 object PcFileRefs {
-    fun reference(cwd: String?, path: String, link: (String, Boolean) -> String = ::fileMentionLink): String {
+    fun reference(cwd: String?, path: String, link: (String, Boolean) -> String = ::fileMentionLink, isDir: Boolean = false): String {
         val rel = usableCwd(cwd)?.let { HostPaths.relativeTo(it, path) }
-        if (rel != null && !rel.contains('\\')) return link(rel, false)
+        if (rel != null && !rel.contains('\\')) return link(rel, isDir)
         return if (path.contains('`')) "`` $path ``" else "`$path`"
     }
 

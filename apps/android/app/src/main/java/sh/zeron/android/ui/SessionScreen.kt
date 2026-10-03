@@ -244,6 +244,7 @@ fun SessionScreen(model: ZeronModel, chatId: String) {
     var chipMenu by remember { mutableStateOf<Pair<Chip, Rect>?>(null) }
     var attachMenu by remember { mutableStateOf<Rect?>(null) }
     var pcFiles by remember { mutableStateOf(false) }
+    var browseFiles by remember { mutableStateOf(false) }
     var headerPx by remember { mutableIntStateOf(0) }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
@@ -541,6 +542,10 @@ fun SessionScreen(model: ZeronModel, chatId: String) {
                             model.showToast(context.getString(R.string.transcript_copied))
                         }
                     },
+                    MenuEntry(stringResource(R.string.browse_files), icon = { c -> Glyph(Glyphs.Folder, 17.dp, c) }) {
+                        focusManager.clearFocus()
+                        browseFiles = true
+                    },
                     MenuEntry(stringResource(R.string.usage), icon = { c -> GaugeGlyph(c, Modifier.size(17.dp)) }) { focusManager.clearFocus(); usageOpen = true },
                     MenuEntry(stringResource(R.string.archive), destructive = true, icon = { c -> Glyph(Glyphs.Archive, 17.dp, c) }) {
                         model.archive(chatId)
@@ -602,6 +607,20 @@ fun SessionScreen(model: ZeronModel, chatId: String) {
                 draft = PcFileRefs.insert(draft, paths.map { PcFileRefs.reference(cwd, it) })
                 pcFiles = false
             }
+        }
+        if (browseFiles) {
+            val cwd = row?.cwd
+            WorkspaceFilesScreen(
+                model,
+                deviceId = row?.deviceId ?: chrome.host.deviceId,
+                cwd = cwd,
+                onClose = { browseFiles = false },
+                onPreview = { path -> filePreview = "zeron-file:" + android.net.Uri.encode(path.replace('\\', '/'), "/") },
+                onMention = { path, dir ->
+                    draft = PcFileRefs.insert(draft, listOf(PcFileRefs.reference(cwd, path, isDir = dir)))
+                    browseFiles = false
+                },
+            )
         }
         filePreview?.let { url ->
             FilePreview(

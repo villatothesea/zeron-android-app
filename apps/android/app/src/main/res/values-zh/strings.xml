@@ -680,4 +680,10 @@
     <string name="file_read_failed">没能从电脑读取文件</string>
     <string name="file_binary">这是二进制文件（%1$s），无法预览。</string>
     <string name="file_truncated">文件较大，只显示了开头部分。</string>
+    <string name="browse_files">文件</string>
+    <string name="file_preview_open">预览</string>
+    <string name="mention">提及</string>
+    <string name="copy_path">复制路径</string>
+    <string name="copy_rel_path">复制相对路径</string>
+    <string name="folder_load_retry">无法读取该文件夹，点按重试。</string>
 </resources>
