@@ -182,7 +182,7 @@ class TranscriptListView(context: Context) : View(context) {
         val content = next.totalHeight() * density
         val viewport = (height - bottomInsetPx - topInsetPx).coerceAtLeast(1)
         val maxScroll = max(0f, content - viewport)
-        if (following) {
+        if (following && !tracking) {
             scroll = maxScroll
         } else {
             // Older history lands above the visible rows: keep the first
@@ -197,6 +197,10 @@ class TranscriptListView(context: Context) : View(context) {
                     val y = next.placement(index)?.y ?: continue
                     val before = scroll
                     scroll = y * density + (scroll - row.y * density)
+                    // Content moved under a held touch: the view is not at
+                    // the bottom any more, so don't snap back on release.
+                    // 内容在按着的手指下挪动了：松手后不要再吸回底部。
+                    if (scroll != before) following = false
                     // A fling in flight still aims at old coordinates: restart
                     // it from the corrected spot, keeping its speed.
                     // 惯性滑动还在旧坐标系里跑：从新位置以原速度续上。
@@ -289,7 +293,7 @@ class TranscriptListView(context: Context) : View(context) {
         val content = (frame?.totalHeight() ?: 0f) * density
         val viewport = (height - bottomInsetPx - topInsetPx).coerceAtLeast(1)
         val maxScroll = max(0f, content - viewport)
-        if (following) scroll = maxScroll
+        if (following && !tracking) scroll = maxScroll
         scroll = scroll.coerceIn(0f, maxScroll)
         onDistanceFromBottom(maxScroll - scroll)
         invalidate()
@@ -977,7 +981,7 @@ class TranscriptListView(context: Context) : View(context) {
         if (scroller.computeScrollOffset()) {
             scroll = scroller.currY.toFloat().coerceIn(0f, maxScrollPx().toFloat())
             val maxScroll = maxScrollPx().toFloat()
-            following = maxScroll - scroll < 48f * density
+            following = maxScroll - scroll < 24f * density
             onDistanceFromBottom(maxScroll - scroll)
             onScroll(scroll)
             reportActiveMark()
@@ -990,7 +994,10 @@ class TranscriptListView(context: Context) : View(context) {
     private fun scrollBy(dy: Float) {
         val maxScroll = maxScrollPx().toFloat()
         scroll = (scroll + dy).coerceIn(0f, maxScroll)
-        following = maxScroll - scroll < 80f * density
+        // Re-follow only when the drag lands right at the bottom edge: a
+        // generous threshold made small scrolls-up snap back on the next frame.
+        // 只有拖到边才恢复跟随：阈值太宽，小幅上滑会在下一帧被吸回去。
+        following = maxScroll - scroll < 24f * density
         onDistanceFromBottom(maxScroll - scroll)
         onScroll(scroll)
         reportActiveMark()
