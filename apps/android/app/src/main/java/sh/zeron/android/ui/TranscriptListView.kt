@@ -182,8 +182,35 @@ class TranscriptListView(context: Context) : View(context) {
         val content = next.totalHeight() * density
         val viewport = (height - bottomInsetPx - topInsetPx).coerceAtLeast(1)
         val maxScroll = max(0f, content - viewport)
-        if (following) scroll = maxScroll
+        if (following) {
+            scroll = maxScroll
+        } else {
+            // Older history lands above the visible rows: keep the first
+            // visible row put so a prepend doesn't fling the view up.
+            // 历史从上方插入时锚住首个可见行，避免视口猛跳。
+            val prev = frame
+            if (prev != null) {
+                val topY = scroll / density
+                val bottomY = topY + viewport / density
+                for (row in prev.rowsIn(topY, bottomY)) {
+                    val index = next.indexOf(row.key) ?: continue
+                    val y = next.placement(index)?.y ?: continue
+                    val before = scroll
+                    scroll = y * density + (scroll - row.y * density)
+                    // A fling in flight still aims at old coordinates: restart
+                    // it from the corrected spot, keeping its speed.
+                    // 惯性滑动还在旧坐标系里跑：从新位置以原速度续上。
+                    if (!scroller.isFinished && scroll != before) {
+                        val v = scroller.currVelocity
+                        scroller.forceFinished(true)
+                        scroller.fling(0, scroll.toInt(), 0, v.toInt(), 0, 0, 0, maxScroll.toInt(), 0, height / 4)
+                    }
+                    break
+                }
+            }
+        }
         scroll = scroll.coerceIn(0f, maxScroll)
+        savedScroll = scroll
         frame = next
         refreshUserMarks(next)
         onDistanceFromBottom(maxScroll - scroll)
