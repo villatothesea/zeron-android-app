@@ -313,7 +313,7 @@ fun MachineEditScreen(model: ZeronModel, initial: Machine) {
 
     Column(Modifier.fillMaxSize().background(colors.background).statusBarsPadding().navigationBarsPadding().imePadding()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-            BackButton(colors, onClick = { model.editMachine = null })
+            BackButton(colors, onClick = { model.back() })
             Text(stringResource(if (existing) R.string.edit_computer else R.string.add_computer), color = colors.text, fontFamily = ZeronType.Sans, fontWeight = FontWeight.SemiBold, fontSize = 17.sp, modifier = Modifier.weight(1f), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
             Text(
                 stringResource(R.string.save),

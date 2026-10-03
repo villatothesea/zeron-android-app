@@ -111,7 +111,18 @@ class ConnectChipTest {
         compose.onNodeWithTag("computer-status").assertExists()
         compose.onNodeWithText(app.getString(R.string.conn_diag_away_tailscale_off)).assertExists()
         compose.onNodeWithTag("tailscale-action").assertExists()
-        // Back walks up: the computers list, then Settings.
+        // The chip is a shortcut path: one Back collapses all of it home.
+        assertTrue(model.back())
+        assertEquals(ZeronModel.Tab.Sessions, model.tab)
+        assertNull(model.editMachine)
+        assertTrue(!model.showMachines)
+
+        // The slow path (Settings > computers > editor) still unwinds a
+        // level at a time: Back lands on the computers list.
+        model.tab = ZeronModel.Tab.Settings
+        model.showMachines = true
+        model.editMachine = villa
+        settle()
         assertTrue(model.back())
         assertNull(model.editMachine)
         assertTrue(model.showMachines)
