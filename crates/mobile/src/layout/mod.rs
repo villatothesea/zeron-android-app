@@ -536,9 +536,17 @@ pub(crate) struct Worker {
     input: TranscriptInput,
     width: f32,
     revision: u64,
+    /// First paint after attach renders only the newest entries; the rest
+    /// follow in the very next pass (`followup`), behind the first frame.
+    opened: bool,
+    followup: bool,
     shared: Arc<Shared>,
     listener: Option<Arc<dyn LayoutListener>>,
 }
+
+/// Parts kept for the first frame of a cold open (a couple of screens;
+/// everything above lands in the immediate second pass).
+const OPENING_PARTS: usize = 48;
 
 impl Worker {
     fn new(text: &TextSystem, shared: Arc<Shared>, listener: Arc<dyn LayoutListener>) -> Self {
@@ -557,6 +565,8 @@ impl Worker {
             input: TranscriptInput::default(),
             width: 0.0,
             revision: 0,
+            opened: false,
+            followup: false,
             shared,
             listener: Some(listener),
         }
@@ -609,6 +619,11 @@ impl Worker {
             }
             if dirty && self.width > 0.0 && self.typo.has_faces() {
                 self.pass();
+                // A first frame that showed only the newest entries is
+                // followed at once by the whole transcript.
+                while self.followup {
+                    self.pass();
+                }
                 // The width cache never evicts, and a streaming block that
                 // falls back to the platform (CJK, emoji) or can't break (a
                 // long hash) adds a whole-prefix entry per update. Past the
@@ -632,14 +647,47 @@ impl Worker {
             })
     }
 
+    /// What the next pass lays out. A cold open keeps only the newest
+    /// ~[`OPENING_PARTS`] parts (marked `followup` so the caller re-runs at
+    /// once): preparing a transcript's every row before the first frame
+    /// held a big chat's paint for seconds after its data had arrived.
+    /// The dropped prefix is honest about it — the "loading earlier" head
+    /// row is what that row exists for.
+    fn opening_input(&mut self) -> (TranscriptInput, bool) {
+        if self.opened || self.followup {
+            return (self.input.clone(), false);
+        }
+        let mut parts = 0usize;
+        let mut drop = 0usize;
+        for (i, entry) in self.input.entries.iter().enumerate().rev() {
+            parts += entry.parts.len();
+            if parts >= OPENING_PARTS {
+                drop = i;
+                break;
+            }
+        }
+        if drop == 0 {
+            return (self.input.clone(), false);
+        }
+        let mut input = self.input.clone();
+        input.entries.drain(..drop);
+        input.history_pending = input.history_pending.or(Some(0));
+        (input, true)
+    }
+
     pub(crate) fn pass(&mut self) -> Arc<LayoutFrame> {
         let started = Instant::now();
+        let (input, deferred) = self.opening_input();
+        // An empty pass (attach fires an empty snapshot before the mirror
+        // delivers) must not count as "opened": the real transcript still
+        // gets its segmented first paint.
+        let had_entries = !input.entries.is_empty();
         let placed: Vec<Placed> = {
             let mut ctx = Ctx {
                 typo: &mut self.typo,
                 cache: &mut self.cache,
             };
-            self.builder.build(&mut ctx, &self.input)
+            self.builder.build(&mut ctx, &input)
         };
         let px = Px(self.typo.scale);
         let mut rows = Vec::with_capacity(placed.len());
@@ -685,6 +733,8 @@ impl Worker {
         if let Some(l) = &self.listener {
             l.frame_ready(self.revision);
         }
+        self.opened = self.opened || (!deferred && had_entries);
+        self.followup = deferred;
         frame
     }
 }

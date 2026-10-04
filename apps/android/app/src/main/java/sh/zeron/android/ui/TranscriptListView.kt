@@ -157,6 +157,10 @@ class TranscriptListView(context: Context) : View(context) {
 
     private val framePending = java.util.concurrent.atomic.AtomicBoolean(false)
 
+    // Diagnostics: when the view was created (open latency breakdown).
+    private val createdAt = android.os.SystemClock.uptimeMillis()
+    private var firstFrameLogged = false
+
     /**
      * Called from any thread when the engine has a new frame. A streaming turn
      * can publish many frames between two screen refreshes; only the newest
@@ -179,6 +183,14 @@ class TranscriptListView(context: Context) : View(context) {
             frame = next
             invalidate()
             return
+        }
+        if (!firstFrameLogged && next.rowCount() > 0u) {
+            firstFrameLogged = true
+            android.util.Log.i(
+                "ZeronTranscript",
+                "first frame: rows=${next.rowCount()} build=${next.buildMicros() / 1000u}ms at ${android.os.SystemClock.uptimeMillis() - createdAt}ms after view create",
+            )
+            sh.zeron.android.core.AndroidMeasurer.report()
         }
         syncStyles(next)
         val content = next.totalHeight() * density

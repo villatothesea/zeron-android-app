@@ -125,6 +125,29 @@ fn transcript_one(text: &str) -> TranscriptInput {
     debug_input(vec![DebugEntry { id: "a".into(), user: false, text: text.into(), streaming: false }], false)
 }
 
+/// First paint on a cold open isn't gated on the whole transcript: the
+/// first pass shows only the newest entries headed by the "loading
+/// earlier" row, the followup pass adds the rest. An empty attach pass
+/// (the watch fires before the mirror delivers) must not spend the
+/// segment on nothing.
+#[test]
+fn cold_open_paints_the_newest_first() {
+    let mut w = worker(390.0);
+    w.pass(); // empty attach pass
+    w.input = transcript(30);
+    let first = w.pass();
+    assert!(w.followup, "a big cold input defers its prefix");
+    let head = first.display(0).and_then(|d| d.widgets.first().map(|w| w.kind.clone()));
+    assert!(matches!(head, Some(display::WidgetKind::HistoryPending { .. })));
+    let second = w.pass();
+    assert!(!w.followup);
+    assert!(second.row_count() > first.row_count());
+    // Steady state after that: every pass renders the whole input.
+    let third = w.pass();
+    assert_eq!(third.row_count(), second.row_count());
+    assert!(!w.followup);
+}
+
 #[test]
 fn stable_prefix_rows_are_reused_while_streaming() {
     let mut w = worker(390.0);

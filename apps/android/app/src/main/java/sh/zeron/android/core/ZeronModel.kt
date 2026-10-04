@@ -1708,15 +1708,40 @@ class AndroidMeasurer(private val faces: Map<FaceRole, Typeface>) : PlatformMeas
     private val paints = ThreadLocal.withInitial { Paint(Paint.ANTI_ALIAS_FLAG or Paint.LINEAR_TEXT_FLAG) }
     private val breaks = ThreadLocal.withInitial { android.icu.text.BreakIterator.getCharacterInstance() }
 
-    override fun measure(face: FaceRole, size: Float, ligatures: Boolean, text: String): Float {
-        val paint = paint(face, size, ligatures)
-        if (!sh.zeron.android.design.FontChain.isMono(face) || !sh.zeron.android.design.FontChain.hasWide(text)) {
-            return paint.measureText(text)
+    companion object {
+        val calls = java.util.concurrent.atomic.AtomicLong()
+        val nanos = java.util.concurrent.atomic.AtomicLong()
+        fun report() {
+            val c = calls.get()
+            if (c > 0) android.util.Log.i("ZeronTranscript", "measurer: $c calls, ${nanos.get() / 1_000_000}ms total")
         }
-        return measureRun(face, size, ligatures, text).sum()
+
+        // Every fallback call is a JNA round-trip; repeated runs (labels,
+        // timestamps, reused text) and re-layouts hit this instead.
+        private data class MKey(val face: FaceRole, val size: Float, val ligatures: Boolean, val text: String, val run: Boolean)
+        private val memo = android.util.LruCache<MKey, Any>(4096)
+    }
+
+    override fun measure(face: FaceRole, size: Float, ligatures: Boolean, text: String): Float {
+        val key = MKey(face, size, ligatures, text, false)
+        memo.get(key)?.let { return it as Float }
+        val t = System.nanoTime()
+        val paint = paint(face, size, ligatures)
+        val r = if (!sh.zeron.android.design.FontChain.isMono(face) || !sh.zeron.android.design.FontChain.hasWide(text)) {
+            paint.measureText(text)
+        } else {
+            measureRun(face, size, ligatures, text).sum()
+        }
+        calls.incrementAndGet(); nanos.addAndGet(System.nanoTime() - t)
+        memo.put(key, r)
+        return r
     }
 
     override fun measureRun(face: FaceRole, size: Float, ligatures: Boolean, text: String): List<Float> {
+        val key = MKey(face, size, ligatures, text, true)
+        @Suppress("UNCHECKED_CAST")
+        (memo.get(key) as? List<Float>)?.let { return it }
+        val t = System.nanoTime()
         val paint = paint(face, size, ligatures)
         val mono = sh.zeron.android.design.FontChain.isMono(face)
         val cell = if (mono) sh.zeron.android.design.FontChain.cellWidth(paint) else 0f
@@ -1746,6 +1771,8 @@ class AndroidMeasurer(private val faces: Map<FaceRole, Typeface>) : PlatformMeas
             start = end
             end = it.next()
         }
+        calls.incrementAndGet(); nanos.addAndGet(System.nanoTime() - t)
+        memo.put(key, out)
         return out
     }
 

@@ -1460,6 +1460,13 @@ impl DirectHost {
             }
             drop(mirrors);
             self.restart_mirror(core, &link);
+        } else {
+            // The link-up loop starts this mirror once connected (the
+            // `wants_mirror` sweep) — that wait is part of a cold open.
+            self.note(format!(
+                "transcript {} waits for the link",
+                short_id(&core.chat_id)
+            ));
         }
     }
 
@@ -1473,8 +1480,9 @@ impl DirectHost {
         let weak = Arc::downgrade(core);
         let link = link.clone();
         let chat_id = core.chat_id.clone();
+        let host = self.clone();
         crate::runtime::shared().spawn(async move {
-            mirror_transcript(link, weak, chat_id, token).await;
+            mirror_transcript(host, link, weak, chat_id, token).await;
         });
     }
 
@@ -1607,11 +1615,15 @@ fn finishing_history(core: &SessionCore) -> bool {
 /// the core is evicted, or the mirror is replaced (or, off screen, once
 /// what it was kept for is done: see [`finishing_history`]).
 async fn mirror_transcript(
+    host: Arc<DirectHost>,
     link: Arc<Link>,
     core: Weak<SessionCore>,
     chat_id: String,
     token: CancellationToken,
 ) {
+    let opened_ms = now_ms();
+    let chat = short_id(&chat_id);
+    let elapsed = |from: i64| (now_ms() - from).max(0) as f64 / 1000.0;
     // What the shadow doc holds, entry by entry (index = list position).
     // Seeded from the doc: after a reconnect it already holds the transcript,
     // and starting from empty would append every entry a second time.
@@ -1619,6 +1631,7 @@ async fn mirror_transcript(
         Some(core) => core.doc().read_entries().unwrap_or_default(),
         None => return,
     };
+    let seeded = !written.is_empty();
     // This transcript's own channel (see `Link::transcript_spare`); dropped
     // (closing the channel) when the mirror ends, or swapped for a fresh one
     // when it falls behind (see `lag_check`).
@@ -1626,6 +1639,17 @@ async fn mirror_transcript(
         _ = token.cancelled() => return,
         own = link.transcript_channel() => own,
     };
+    host.note(format!(
+        "transcript {chat}: {} in {:.1}s",
+        if own.is_some() {
+            "own channel"
+        } else {
+            "sharing the feed"
+        },
+        elapsed(opened_ms)
+    ));
+    let mut tail_logged = seeded;
+    let mut history_logged = false;
     loop {
         let rpc = own.as_ref().map_or(&link.rpc, |own| &own.rpc);
         // Bytes in on this channel (its own only), for the history's progress.
@@ -1637,11 +1661,18 @@ async fn mirror_transcript(
         // (`historyPending: true`), then the complete reset, then deltas.
         // Engines without it ignore the flag and open with the reset.
         let params = serde_json::json!({ "chatId": chat_id, "openingTail": true });
+        let subscribe_ms = now_ms();
         let mut sub = match rpc
             .subscribe_scoped(zeron_rpc::methods::WATCH_DOC_MESSAGES, params)
             .await
         {
-            Ok(sub) => sub,
+            Ok(sub) => {
+                host.note(format!(
+                    "transcript {chat}: subscribed in {:.1}s",
+                    elapsed(subscribe_ms)
+                ));
+                sub
+            }
             Err(zeron_rpc::RpcError::Closed) | Err(zeron_rpc::RpcError::Transport(_)) => {
                 // The transcript channel died: redial rather than go blank.
                 link.cancel.cancel();
@@ -1772,6 +1803,14 @@ async fn mirror_transcript(
                 // head says so until then.
                 core.set_history_pending(true);
                 core.schedule_refresh();
+                if !tail_logged {
+                    tail_logged = true;
+                    host.note(format!(
+                        "transcript {chat}: newest {} rows in {:.1}s",
+                        written.len(),
+                        elapsed(opened_ms)
+                    ));
+                }
                 history_from = received
                     .as_ref()
                     .map(|r| r.load(std::sync::atomic::Ordering::Relaxed));
@@ -1829,6 +1868,14 @@ async fn mirror_transcript(
             history_from = None;
             core.set_history_pending(false);
             core.schedule_refresh();
+            if !history_logged {
+                history_logged = true;
+                host.note(format!(
+                    "transcript {chat}: full history ({} rows) in {:.1}s",
+                    written.len(),
+                    elapsed(opened_ms)
+                ));
+            }
             if !wants_mirror(&core) {
                 // Kept streaming off screen only to finish the history.
                 token.cancel();
