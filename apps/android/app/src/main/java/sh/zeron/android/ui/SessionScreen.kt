@@ -185,6 +185,7 @@ fun SessionScreen(model: ZeronModel, chatId: String) {
         }
     }
     val images = remember { HashMap<String, Bitmap>() }
+    val imageFailures = remember { HashSet<String>() }
     var view by remember { mutableStateOf<TranscriptListView?>(null) }
     // Only whether the jump-to-bottom button shows, not the raw distance: a
     // state write per scrolled pixel recomposed the whole chat screen.
@@ -249,7 +250,21 @@ fun SessionScreen(model: ZeronModel, chatId: String) {
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
         val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: return@rememberLauncherForActivityResult
-        val name = uri.lastPathSegment?.substringAfterLast('/') ?: "image.jpg"
+        val mime = context.contentResolver.getType(uri)
+        // Gallery URIs often expose only a MediaStore id as the last segment
+        // (no extension); the host jails attachment reads by file extension,
+        // so an extensionless upload can never be viewed back.
+        // 相册 URI 的 lastPathSegment 常只是媒体库数字 ID（无扩展名），
+        // 主机按扩展名放行附件读取，无扩展名的图发出去也永远显示不出来。
+        var name = runCatching {
+            context.contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)
+                ?.use { c -> if (c.moveToFirst()) c.getString(0) else null }
+        }.getOrNull()?.substringAfterLast('/')?.takeIf { it.isNotBlank() }
+            ?: uri.lastPathSegment?.substringAfterLast('/')
+        if (name?.substringAfterLast('.', "").isNullOrEmpty()) {
+            val ext = mime?.let { android.webkit.MimeTypeMap.getSingleton().getExtensionFromMimeType(it) } ?: "jpg"
+            name = "${name ?: "image"}.$ext"
+        }
         val preview = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
         staged = staged + Staged(name, bytes, preview)
     }
@@ -311,10 +326,19 @@ fun SessionScreen(model: ZeronModel, chatId: String) {
                 host.topInsetPx = headerPx + headerGapPx
                 host.imageFor = { images[it] }
                 host.requestImage = req@{ ref ->
-                    if (images.containsKey(ref) || ref.startsWith("pending:")) return@req
+                    // pending:// refs resolve from the local attachment cache,
+                    // so the photo shows in the echo while it still uploads;
+                    // failures are marked so a bad ref isn't re-fetched per frame.
+                    // pending:// 引用走本地附件缓存，回声期间就能显示图；
+                    // 失败的引用做标记，避免每帧重复拉取。
+                    if (images.containsKey(ref) || ref in imageFailures) return@req
                     scope.launch {
-                        val bytes = runCatching { client.readAttachment(chrome.host.deviceId, ref) }.getOrNull() ?: return@launch
-                        val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return@launch
+                        val bytes = runCatching { client.readAttachment(chrome.host.deviceId, ref) }.getOrNull()
+                        val bmp = bytes?.let { BitmapFactory.decodeByteArray(it, 0, it.size) }
+                        if (bmp == null) {
+                            imageFailures += ref
+                            return@launch
+                        }
                         images[ref] = bmp
                         host.postInvalidate()
                     }
