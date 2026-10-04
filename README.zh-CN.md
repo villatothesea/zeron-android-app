@@ -5,10 +5,10 @@
 *[English](README.md) | 简体中文*
 
 <p>
-  <img src="docs/screenshots/android-parity/android-sessions.png" width="200" alt="会话列表">
-  <img src="docs/screenshots/android-parity/android-transcript.png" width="200" alt="带工具调用的会话">
-  <img src="docs/screenshots/android-parity/android-cjk-transcript.png" width="200" alt="中文会话">
-  <img src="docs/screenshots/android-parity/android-chip-model.png" width="200" alt="模型选择菜单">
+  <img src="docs/screenshots/app/home.png" width="200" alt="首页">
+  <img src="docs/screenshots/app/session.png" width="200" alt="带工具调用的会话">
+  <img src="docs/screenshots/app/home-zh.png" width="200" alt="中文首页">
+  <img src="docs/screenshots/app/new-session-models.png" width="200" alt="新会话的模型菜单">
 </p>
 
 Zeron 通过电脑上的一个小引擎来管理编码 agent（Claude Code、Codex、Cursor 等）。原仓库有桌面端和 iOS 版，没有安卓版，这个仓库补上了安卓版。
@@ -18,8 +18,8 @@ app 用 Jetpack Compose 编写，和 iOS 版链接同一个 Rust 移动端核心
 ## 当前进度
 
 - 离线演示工作区：可用。
-- 通过 SSH 直连你自己的 Zeron 引擎（不需要 Cloudflare 中转，也不需要云账号）：round5 起可用。手机登录电脑上的 OpenSSH 服务，再通过隧道连到本机 `127.0.0.1:27654` 的引擎；首次连接时需核对主机指纹。Windows 配置步骤（PowerShell）：[docs/ssh-direct.md](docs/ssh-direct.md)。该模式暂不支持附件和共享消息队列（agent 忙时发送的消息会插入当前轮次）；置顶和分组只保存在手机上。
-- 从本仓库的 GitHub Releases 在 app 内更新：round5 起可用（设置 → 检查更新，另有每天一次的静默检查），无需 token。round5 起所有版本使用同一个签名密钥。如果装过 round4，需要先卸载一次、手动安装最新的 APK，之后即可在 app 内直接覆盖更新。
+- 通过 SSH 直连你自己的 Zeron 引擎（不需要 Cloudflare 中转，也不需要云账号）：round5 起可用。手机登录电脑上的 OpenSSH 服务，再通过隧道连到本机 `127.0.0.1:27654` 的引擎；首次连接时需核对主机指纹。Windows 配置步骤（PowerShell）：[docs/ssh-direct.md](docs/ssh-direct.md)。消息可以带图片和文件附件（要求电脑上的 Zeron ≥ 0.2.12，太旧时 app 会提示）。共享消息队列按引擎能力决定：不支持它的旧版本上，会话忙时发送的消息会作为插话（steer）发给当前轮次。置顶和分组在手机上做的编辑只保存在手机；电脑自己的置顶会镜像显示过来（不写回电脑）。
+- 从本仓库的 GitHub Releases 在 app 内更新：round5 起可用（设置 → 检查更新，另有启动时和打开期间的静默检查，约每 30 分钟一次），无需 token。round5 起所有版本使用同一个签名密钥。如果装过 round4，需要先卸载一次、手动安装最新的 APK，之后即可在 app 内直接覆盖更新。
 
 ## 把手机连到电脑
 
@@ -139,15 +139,14 @@ $env:USERNAME
 | 字段 | 填写 |
 | --- | --- |
 | 名称 | 随意，例如 `家里的电脑` |
-| 主机 | `<电脑IP>`（A4 查到的 IPv4 地址） |
-| SSH 端口 | `22` |
+| 地址 | 在 **地址** 一栏添加 `<电脑IP>`（A4 查到的 IPv4 地址）。一台电脑可以存多个地址（比如局域网 IP 和 Tailscale IP），app 会按当前网络自动选择、连不上就换下一个；SSH 端口不是 22 时写成 `地址:2222` |
 | Zeron 端口 | `27654`（默认值，不用改） |
 | 用户名 | `<Windows用户名>` |
 | 登录方式 | **本机密钥**（推荐，对应 A3）/ 导入密钥 / 密码（Windows 登录密码，微软账户用微软账户密码） |
 
 然后：
 
-1. 点 **测试**。
+1. 点 **测试**（它会逐个尝试已保存的地址）。
 2. 第一次连接会弹出 **信任这台电脑吗？**，显示 `SHA256:...` 指纹。可在电脑上核对：
    ```powershell
    ssh-keygen -lf C:\ProgramData\ssh\ssh_host_ed25519_key.pub
@@ -168,7 +167,7 @@ $env:USERNAME
    tailscale ip -4
    ```
    得到形如 `100.x.y.z` 的地址。
-4. **手机上添加电脑**：同 A5，只把 **主机** 填成 `100.x.y.z`，其他字段一样（SSH 端口 `22`，Zeron 端口 `27654`，同样的用户名和密钥）。建议另建一条，例如名称填 `家里的电脑（Tailscale）`，和局域网那条分开。首次连接同样核对指纹后点 **信任**。
+4. **手机上添加 Tailscale 地址**：点 **设置 → 账户与电脑**，编辑刚才那台电脑，在 **地址** 一栏里把 `100.x.y.z` 加为第二个地址——之后 app 会按当前网络自动选择：在家里的 Wi-Fi 上走局域网，在外面走 Tailscale，不用再建第二台电脑。（想分开管理的话，也可以再单独添加一台电脑。）主机密钥已经信任过，不用重新核对。
 
 注意：
 

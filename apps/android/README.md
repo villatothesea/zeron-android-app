@@ -71,6 +71,8 @@ adb shell am start -n sh.zeron.android/.MainActivity \
 cargo build --locked -p zeron-mobile --lib --profile mobile   # -> target/mobile/libzeron_mobile.so
 ```
 
+On Windows that command produces `target/mobile/zeron_mobile.dll`; copy it to `libzeron_mobile.so` in the same folder — that is the file name the test gate looks up.
+
 Then from `apps/android`:
 
 ```bash

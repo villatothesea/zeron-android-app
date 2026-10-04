@@ -1,5 +1,7 @@
 # Android / iOS parity
 
+> The `android-*.png` raw frames in this folder predate the current UI (round4-era captures). For current screenshots see [docs/screenshots/app](../app).
+
 Both sides are 1206×2622 (3×). The iOS frames are the iPhone references already in this repo (dark). The Android frames are the debug demo build on an Android 15 (API 35, google_apis x86_64) emulator with the display at 1206×2622 and 480 dpi, in dark mode, on the demo workspace. Round 4 frames came from a software-rendered (TCG, no KVM) emulator.
 
 | Pair | iOS | Android state |

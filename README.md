@@ -5,10 +5,10 @@ An unofficial Android client for [Zeron](https://github.com/zeronsh/zeron), rebu
 *English | [简体中文](README.zh-CN.md)*
 
 <p>
-  <img src="docs/screenshots/android-parity/android-sessions.png" width="200" alt="Sessions list">
-  <img src="docs/screenshots/android-parity/android-transcript.png" width="200" alt="Session with tool activity">
-  <img src="docs/screenshots/android-parity/android-cjk-transcript.png" width="200" alt="Chinese transcript">
-  <img src="docs/screenshots/android-parity/android-chip-model.png" width="200" alt="Model chip menu">
+  <img src="docs/screenshots/app/home.png" width="200" alt="Home">
+  <img src="docs/screenshots/app/session.png" width="200" alt="Session transcript with tool activity">
+  <img src="docs/screenshots/app/home-zh.png" width="200" alt="Home in Chinese">
+  <img src="docs/screenshots/app/new-session-models.png" width="200" alt="New Session model menu">
 </p>
 
 Zeron controls coding agents (Claude Code, Codex, Cursor and others) through a small engine running on your computer. Upstream ships a desktop app and an iOS app, but no Android app. This repository adds one.
@@ -18,8 +18,8 @@ The app is written in Jetpack Compose and links the same Rust mobile core as the
 ## Status
 
 - Offline demo workspace: works.
-- Direct connection to your own Zeron engine over SSH (no Cloudflare relay or cloud account needed): works since round5. The phone logs in to your computer's OpenSSH server and tunnels to the engine on `127.0.0.1:27654`; you confirm the host-key fingerprint on first connect. Windows setup (Simplified Chinese, PowerShell): [docs/ssh-direct.md](docs/ssh-direct.md). Not yet supported in this mode: attachments and the shared message queue (a message sent while the agent is busy steers the current turn instead); pins and sections are kept on the phone only.
-- In-app updates from this repository's GitHub Releases: works since round5 (Settings → Check for Updates, plus a quiet daily check). No token needed. Releases from round5 on are signed with one stable key. If you installed round4, uninstall it once and install the latest APK manually; after that, updates install in place.
+- Direct connection to your own Zeron engine over SSH (no Cloudflare relay or cloud account needed): works since round5. The phone logs in to your computer's OpenSSH server and tunnels to the engine on `127.0.0.1:27654`; you confirm the host-key fingerprint on first connect. Windows setup (Simplified Chinese, PowerShell): [docs/ssh-direct.md](docs/ssh-direct.md). Photos and files attach to a message (the desktop needs Zeron 0.2.12 or newer — the app warns when it's older). The shared message queue follows the engine's capabilities; on hosts without it, a message sent while the agent is busy steers the current turn instead. Pins and sections made on the phone stay on the phone; the desktop's own pins are mirrored onto it.
+- In-app updates from this repository's GitHub Releases: works since round5 (Settings → Check for Updates, plus a quiet check on launch and every 30 minutes while the app is open). No token needed. Releases from round5 on are signed with one stable key. If you installed round4, uninstall it once and install the latest APK manually; after that, updates install in place.
 
 ## Connecting your phone to your computer
 
@@ -49,7 +49,7 @@ The app connects to the **computer running Zeron desktop**. Keep Zeron open ther
    ```
    For a standard account, append it to `$env:USERPROFILE\.ssh\authorized_keys` instead.
 4. **Find the IP and user name**: `ipconfig` (the **IPv4 Address** of the active adapter, `<PC-IP>`, e.g. `192.168.x.x`) and `$env:USERNAME` (`<Windows-user>`, not your Microsoft account email).
-5. **Add the computer in the app**: **Settings → Accounts & Computers → Add a computer**. Host `<PC-IP>`, SSH port `22`, Zeron port `27654`, User `<Windows-user>`, Sign in with **This phone's key**. Tap **Test**, compare the fingerprint with `ssh-keygen -lf C:\ProgramData\ssh\ssh_host_ed25519_key.pub` on the PC, tap **Trust**, then **Save & Connect**.
+5. **Add the computer in the app**: **Settings → Accounts & Computers → Add a computer**. Under **Addresses**, add `<PC-IP>` — a computer can hold several addresses (LAN IP, Tailscale IP…) and the app picks one for the network you're on; a non-22 SSH port goes as `address:2222`. Zeron port `27654`, User `<Windows-user>`, Sign in with **This phone's key**. Tap **Test** (it tries every saved address), compare the fingerprint with `ssh-keygen -lf C:\ProgramData\ssh\ssh_host_ed25519_key.pub` on the PC, tap **Trust**, then **Save & Connect**.
 
 ### B. Remote (Tailscale)
 
@@ -57,7 +57,7 @@ Do A first, then:
 
 1. Install [Tailscale](https://tailscale.com/download) on the PC and the phone and sign in to **the same account** on both.
 2. Get the PC's Tailscale address: `tailscale ip -4` (a `100.x.y.z` address).
-3. In the app, add another computer with Host `100.x.y.z`; everything else as in A5.
+3. In the app, open the computer you added in A and add `100.x.y.z` as a second **address** — the app picks the LAN address on your home Wi-Fi and the Tailscale one elsewhere automatically. (A separate computer entry works too, but one entry with both addresses is simpler.)
 
 - **Android allows one VPN at a time.** Tailscale is a VPN, so turn off Clash, v2rayNG and similar proxy apps on the phone while you use it.
 - **Clash TUN mode on the PC** also captures Tailscale traffic. Add this rule at the top of your rules:
