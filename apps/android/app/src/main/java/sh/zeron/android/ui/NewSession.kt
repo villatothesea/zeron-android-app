@@ -4,6 +4,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.res.pluralStringResource
 import sh.zeron.android.design.BackButton
+import sh.zeron.android.design.consumeBlankTaps
 import sh.zeron.android.R
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -417,6 +418,7 @@ fun NewSessionSheet(model: ZeronModel, onDismiss: () -> Unit) {
             Modifier
                 .fillMaxSize()
                 .background(colors.background)
+                .consumeBlankTaps()
                 .statusBarsPadding()
                 .windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars))
                 .padding(horizontal = 12.dp),

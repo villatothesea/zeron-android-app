@@ -50,6 +50,7 @@ import sh.zeron.android.core.ZeronModel
 import sh.zeron.android.design.AnchoredMenu
 import sh.zeron.android.design.AssetIcon
 import sh.zeron.android.design.BackButton
+import sh.zeron.android.design.consumeBlankTaps
 import sh.zeron.android.design.Glyph
 import sh.zeron.android.design.Glyphs
 import sh.zeron.android.design.LocalZeronColors
@@ -128,7 +129,7 @@ internal fun WorkspaceFilesScreen(
         }
     }
     root?.let { emit(it, 0) }
-    Column(Modifier.fillMaxSize().background(colors.background).statusBarsPadding().navigationBarsPadding()) {
+    Column(Modifier.fillMaxSize().background(colors.background).consumeBlankTaps().statusBarsPadding().navigationBarsPadding()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             BackButton(colors, onClick = onClose)
             Text(

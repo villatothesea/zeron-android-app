@@ -41,6 +41,9 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.vector.PathParser
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
@@ -49,6 +52,20 @@ import com.caverock.androidsvg.SVG
 import kotlin.math.abs
 import kotlin.math.roundToInt
 import androidx.compose.ui.graphics.asAndroidPath
+
+/**
+ * A full-screen surface drawn *over* interactive content must eat taps in its
+ * blank areas — `background` paints but handles no input, so an uncovered tap
+ * falls through to whatever is underneath (a session row under the New
+ * Session sheet opened that session). Consume the down event outright so
+ * nothing below can start a press.
+ */
+fun Modifier.consumeBlankTaps(): Modifier =
+    pointerInput(Unit) {
+        awaitEachGesture {
+            awaitFirstDown().consume()
+        }
+    }
 
 @Composable
 fun StatusMark(kind: MarkKind, colors: ZeronColors, modifier: Modifier = Modifier.size(12.dp)) {

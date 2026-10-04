@@ -1,6 +1,7 @@
 package sh.zeron.android.ui
 
 import sh.zeron.android.design.BackButton
+import sh.zeron.android.design.consumeBlankTaps
 import sh.zeron.android.R
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -79,7 +80,7 @@ fun MachinesScreen(model: ZeronModel) {
     val context = LocalContext.current
     LaunchedEffect(model.machines) { model.probeMachines() }
     val phoneKey = remember { model.phonePublicKey() }
-    Column(Modifier.fillMaxSize().background(colors.background).statusBarsPadding().navigationBarsPadding()) {
+    Column(Modifier.fillMaxSize().background(colors.background).consumeBlankTaps().statusBarsPadding().navigationBarsPadding()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             BackButton(colors, onClick = { model.back(); if (model.phase !is ZeronModel.Phase.Ready) model.showMachines = false })
             Spacer(Modifier.width(10.dp))
@@ -311,7 +312,7 @@ fun MachineEditScreen(model: ZeronModel, initial: Machine) {
         if (connect) model.connectMachine(m) else model.probeMachines()
     }
 
-    Column(Modifier.fillMaxSize().background(colors.background).statusBarsPadding().navigationBarsPadding().imePadding()) {
+    Column(Modifier.fillMaxSize().background(colors.background).consumeBlankTaps().statusBarsPadding().navigationBarsPadding().imePadding()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             BackButton(colors, onClick = { model.back() })
             Text(stringResource(if (existing) R.string.edit_computer else R.string.add_computer), color = colors.text, fontFamily = ZeronType.Sans, fontWeight = FontWeight.SemiBold, fontSize = 17.sp, modifier = Modifier.weight(1f), textAlign = androidx.compose.ui.text.style.TextAlign.Center)

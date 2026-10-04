@@ -1,6 +1,7 @@
 package sh.zeron.android.ui
 
 import sh.zeron.android.design.BackButton
+import sh.zeron.android.design.consumeBlankTaps
 import sh.zeron.android.R
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -131,7 +132,7 @@ internal fun LinkDetailsScreen(model: ZeronModel) {
     val context = LocalContext.current
     val status = model.directStatus
     val fmt = remember { java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()) }
-    Column(Modifier.fillMaxSize().background(colors.background).statusBarsPadding().navigationBarsPadding()) {
+    Column(Modifier.fillMaxSize().background(colors.background).consumeBlankTaps().statusBarsPadding().navigationBarsPadding()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             BackButton(colors, onClick = { model.showLinkDetails = false })
             Text(stringResource(R.string.connection_details), color = colors.text, fontFamily = ZeronType.Sans, fontWeight = FontWeight.SemiBold, fontSize = 17.sp, modifier = Modifier.weight(1f), textAlign = androidx.compose.ui.text.style.TextAlign.Center)

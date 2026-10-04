@@ -41,6 +41,7 @@ import sh.zeron.android.R
 import sh.zeron.android.core.CrashLog
 import sh.zeron.android.core.ZeronModel
 import sh.zeron.android.design.BackButton
+import sh.zeron.android.design.consumeBlankTaps
 import sh.zeron.android.design.LocalZeronColors
 import sh.zeron.android.design.ZeronType
 import java.text.SimpleDateFormat
@@ -112,7 +113,7 @@ internal fun CrashLogsScreen(model: ZeronModel) {
     val context = LocalContext.current
     var confirmClear by remember { mutableStateOf(false) }
     val logs = model.crashLogs
-    Column(Modifier.fillMaxSize().background(colors.background).statusBarsPadding().navigationBarsPadding()) {
+    Column(Modifier.fillMaxSize().background(colors.background).consumeBlankTaps().statusBarsPadding().navigationBarsPadding()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             BackButton(colors, onClick = { model.showCrashLogs = false })
             Text(stringResource(R.string.crash_logs), color = colors.text, fontFamily = ZeronType.Sans, fontWeight = FontWeight.SemiBold, fontSize = 17.sp, modifier = Modifier.weight(1f), textAlign = TextAlign.Center)

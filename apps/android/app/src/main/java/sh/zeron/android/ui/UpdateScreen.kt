@@ -1,6 +1,7 @@
 package sh.zeron.android.ui
 
 import sh.zeron.android.design.BackButton
+import sh.zeron.android.design.consumeBlankTaps
 import sh.zeron.android.R
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -55,7 +56,7 @@ fun UpdateScreen(model: ZeronModel) {
     var token by remember { mutableStateOf("") }
     var mirror by remember { mutableStateOf(model.updater.mirror.orEmpty()) }
     val hasToken = remember(advanced) { !model.updater.token.isNullOrBlank() }
-    Column(Modifier.fillMaxSize().background(colors.background).statusBarsPadding().navigationBarsPadding().imePadding()) {
+    Column(Modifier.fillMaxSize().background(colors.background).consumeBlankTaps().statusBarsPadding().navigationBarsPadding().imePadding()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             BackButton(colors, onClick = { model.showUpdate = false })
             Spacer(Modifier.width(10.dp))

@@ -47,6 +47,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import sh.zeron.android.R
 import sh.zeron.android.design.BackButton
+import sh.zeron.android.design.consumeBlankTaps
 import sh.zeron.android.design.Glyph
 import sh.zeron.android.design.Glyphs
 import sh.zeron.android.design.LocalZeronColors
@@ -118,7 +119,7 @@ internal fun FilePreview(
     val title = FilePreviews.title(url)
     val text = (state as? FilePreviewState.Text)?.file?.text
     Column(
-        Modifier.fillMaxSize().background(colors.background).statusBarsPadding().navigationBarsPadding().testTag("file-preview"),
+        Modifier.fillMaxSize().background(colors.background).consumeBlankTaps().statusBarsPadding().navigationBarsPadding().testTag("file-preview"),
     ) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             BackButton(colors, onClick = onClose)
