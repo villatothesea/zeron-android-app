@@ -81,6 +81,17 @@ object MessageNav {
         return if (i < 0) 0 else i
     }
 
+    /**
+     * The bucket's representative mark on the card: the active tick when it
+     * falls inside, else the bucket's newest. The last bucket always shows
+     * the newest — the card's last row is your last message, even while you
+     * are still reading an older one in that bucket.
+     */
+    fun representative(buckets: List<IntRange>, bucket: Int, active: Int): Int {
+        val range = buckets[bucket]
+        return if (bucket != buckets.lastIndex && active in range) active else range.last
+    }
+
     /** rail.rs `truncate_preview`: whitespace runs collapse, then a char cap with an ellipsis. */
     fun preview(text: String, max: Int = PREVIEW_CHARS): String {
         val flat = text.trim().replace(Regex("\\s+"), " ")
@@ -150,10 +161,7 @@ fun MessageNavigator(
                         modifier = Modifier.padding(horizontal = 14.dp, vertical = 4.dp),
                     )
                     buckets.forEachIndexed { b, range ->
-                        // The bucket's representative: the message being read
-                        // when it falls inside, else the range's newest (so
-                        // the card's last row is your last message).
-                        val rep = if (active in range) active else range.last
+                        val rep = MessageNav.representative(buckets, b, active)
                         val mark = marks[rep]
                         val isActive = b == activeBucket
                         Row(
