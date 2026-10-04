@@ -600,7 +600,9 @@ class ZeronModel(app: Application) : AndroidViewModel(app) {
         tab = Tab.Settings
         showMachines = true
         editMachine = machines.firstOrNull { it.id == id }
-        chipShortcut = editMachine != null
+        // One back tap returns home wherever the chip led — a computer's
+        // page, or the computers list for Demo/Cloud.
+        chipShortcut = true
     }
 
     /** Chip long-press (and "切换电脑" ("Switch Computer") on the computer page): the quick switcher over home. */

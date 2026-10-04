@@ -154,6 +154,10 @@ class ConnectChipTest {
         settle()
         assertTrue(model.showMachines)
         assertNull(model.editMachine)
+        // The chip is still a shortcut: one Back lands home, not on Settings.
+        assertTrue(model.back())
+        assertEquals(ZeronModel.Tab.Sessions, model.tab)
+        assertTrue(!model.showMachines)
         reset(model)
         scenario.close()
     }
