@@ -307,6 +307,14 @@ impl ClientInner {
     /// chat's CreateChat row — to reach the edge first, so the host never
     /// wakes for a chat it can't see yet.
     pub(crate) fn nudge_host(self: &Arc<Self>, host: &str, chat_id: &str) {
+        // Direct has no edge to POST to: "wake the chat" is a local command
+        // drain — e.g. an attachment escort just landed the bytes a held
+        // command was waiting on.
+        if let Some(direct) = self.direct() {
+            let _ = host; // one machine per link
+            direct.on_command(chat_id);
+            return;
+        }
         let Some(live) = self.live() else { return };
         let url = crate::live::urls::nudge(&live.edge, host);
         let inner = Arc::downgrade(self);

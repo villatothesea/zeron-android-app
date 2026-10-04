@@ -142,6 +142,9 @@ async fn run(
         if now_ms() - meta.created_at_ms > ESCORT_MAX_MS {
             tracing::warn!(upload = %upload_id, chat = %meta.chat_id, "attachment escort expired");
             inner.escorts.remove(upload_id);
+            // Release commands held on these bytes so the host can reject
+            // them — a terminal state beats sitting Pending forever.
+            inner.nudge_host(&meta.host_device_id, &meta.chat_id);
             return;
         }
         let core = inner.session_core(&meta.chat_id);

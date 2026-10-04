@@ -227,6 +227,34 @@ pub fn parse_pending_ref(reference: &str) -> Option<(&str, &str)> {
     (!id.is_empty() && !name.is_empty()).then_some((id, name))
 }
 
+/// Upload ids a command still needs landed — `Run` lists refs in
+/// `attachments`, `Steer` embeds `- pending://…` lines (mirrors the
+/// engine's `command_transfers`/`pending_refs_in`).
+pub(crate) fn command_pending_uploads(
+    entry: &zeron_doc::SessionCommandEntry,
+) -> Vec<String> {
+    let refs: Vec<String> = match &entry.payload {
+        zeron_doc::SessionCommandPayload::Run { request, .. } => request
+            .attachments
+            .iter()
+            .filter(|p| p.starts_with(PENDING_REF_PREFIX))
+            .cloned()
+            .collect(),
+        zeron_doc::SessionCommandPayload::Steer { prompt, .. } => prompt
+            .lines()
+            .filter_map(|line| {
+                let path = line.trim_start().strip_prefix("- ")?.trim();
+                path.starts_with(PENDING_REF_PREFIX)
+                    .then(|| path.to_string())
+            })
+            .collect(),
+        _ => Vec::new(),
+    };
+    refs.iter()
+        .filter_map(|r| parse_pending_ref(r).map(|(id, _)| id.to_owned()))
+        .collect()
+}
+
 /// Source labels for one Appshot capture (observed text never surfaces).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AppshotLabel {
@@ -435,6 +463,47 @@ mod tests {
         let only = with_attachments("", &paths[..1]);
         assert_eq!(parse_user_message(&only).text, "");
         assert_eq!(queue_visible_text(&only, &paths[..1]), ATTACHMENT_ONLY_TEXT);
+    }
+
+    #[test]
+    fn command_pending_uploads_reads_run_and_steer_refs() {
+        use zeron_doc::{SessionCommandEntry, SessionCommandPayload, SessionCommandStatus};
+        let entry = |payload| SessionCommandEntry {
+            id: "c".into(),
+            payload,
+            issued_by: "me".into(),
+            issued_at: 0,
+            based_on: None,
+            expires_at: None,
+            status: SessionCommandStatus::Pending,
+            resolution: None,
+        };
+        let run = entry(SessionCommandPayload::Run {
+            request: zeron_proto::RunRequest {
+                prompt: "p".into(),
+                harness: None,
+                model: None,
+                reasoning: None,
+                model_options: Default::default(),
+                cwd: "~".into(),
+                sandbox: zeron_proto::SandboxLevel::WorkspaceWrite,
+                auto_approve: true,
+                resume: None,
+                attachments: vec!["/abs/a.png".into(), pending_ref("u1", "b.png")],
+                worktree: None,
+                mcp: None,
+            },
+            message_id: "m".into(),
+        });
+        assert_eq!(command_pending_uploads(&run), ["u1"]);
+        let steer = entry(SessionCommandPayload::Steer {
+            prompt: "go\n- pending://u2/c.png\n- /abs/d.png".into(),
+            message_id: None,
+        });
+        assert_eq!(command_pending_uploads(&steer), ["u2"]);
+        assert!(
+            command_pending_uploads(&entry(SessionCommandPayload::Interrupt {})).is_empty()
+        );
     }
 
     #[test]

@@ -107,6 +107,9 @@ enum Mode {
     /// never says the new turn runs (as when its heartbeat is still on its
     /// way over another channel).
     AdoptsBeforeStatus,
+    /// Like Real, but RelayCommand is recorded and accepted — for the
+    /// attachment-ordering test.
+    Attachments,
 }
 
 /// [`Mode::AdoptsBeforeStatus`]'s chat: idle on the engine, last message set
@@ -216,7 +219,19 @@ impl RpcService for Engine {
                 "encoding": "utf8", "truncated": false
             })));
         }
-        if method == "RelayCommand" && self.0 == Mode::AdoptsBeforeStatus {
+        if method == "UploadChunk" {
+            lock(&self.1).push(serde_json::json!({ "uploadChunk": params["seq"] }));
+            return Ok(RpcReply::Value(serde_json::json!({ "ok": true })));
+        }
+        if method == "UploadCommit" {
+            lock(&self.1).push(serde_json::json!({ "committed": params["uploadId"] }));
+            return Ok(RpcReply::Value(
+                serde_json::json!({ "path": "C:\\host\\uploads\\p.png" }),
+            ));
+        }
+        if method == "RelayCommand"
+            && matches!(self.0, Mode::AdoptsBeforeStatus | Mode::Attachments)
+        {
             let id = params["entry"]["payload"]["messageId"].clone();
             lock(&self.1).push(serde_json::json!({ "relayed": id }));
             return Ok(RpcReply::Value(
@@ -2074,5 +2089,53 @@ async fn a_chat_left_before_its_history_arrived_keeps_loading_it() {
     tokio::time::sleep(Duration::from_millis(500)).await;
     assert_eq!(ids(&handle), ["m1", "m2", "m3"]);
     assert!(!handle.snapshot().history_pending);
+    client.shutdown();
+}
+
+/// Regression (round5-17, real report): a Direct send whose attachment
+/// bytes are still uploading forwarded its RelayCommand at once — the host
+/// refused ("attachments not landed yet") and the refusal marked the
+/// command Rejected, so every first image send showed 未送达 and only a
+/// manual retry (bytes landed by then) went through. The drain now holds
+/// commands until their escort commits, then re-runs.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_photo_send_forwards_only_after_its_upload_commits() {
+    let dir = tempfile::tempdir().unwrap();
+    let (client, seen, _device) =
+        live_client("attachments.test", Mode::Attachments, dir.path()).await;
+    wait_for(&client, "the idle chat", |c| {
+        c.workspace().session(IDLE_CHAT).is_some()
+    })
+    .await;
+    let handle = client.open_session(IDLE_CHAT).unwrap();
+    handle.set_view_attached(true);
+    let crate::SendOutcome::Started { .. } = handle
+        .send(crate::SendRequest {
+            text: "look".into(),
+            attachments: vec![crate::OutgoingAttachment {
+                name: "p.png".into(),
+                mime_type: "image/png".into(),
+                data: vec![7u8; 128],
+            }],
+            ..Default::default()
+        })
+        .unwrap()
+    else {
+        panic!("an idle chat starts a turn");
+    };
+    wait_for(&client, "the relayed command", |_| {
+        lock(&seen).iter().any(|v| v.get("relayed").is_some())
+    })
+    .await;
+    let calls = lock(&seen).clone();
+    let committed = calls
+        .iter()
+        .position(|v| v.get("committed").is_some())
+        .expect("the upload committed");
+    let relayed = calls
+        .iter()
+        .position(|v| v.get("relayed").is_some())
+        .expect("the command relayed");
+    assert!(committed < relayed, "commit before relay: {calls:?}");
     client.shutdown();
 }

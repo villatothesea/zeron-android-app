@@ -1499,6 +1499,15 @@ impl DirectHost {
             return;
         };
         let device_id = client.config.device_id.clone();
+        // Upload ids whose bytes are still on the wire (staged, mid-transfer,
+        // or in an escort retry window). Forwarding a command that names one
+        // gets refused by the host — and the refusal marks it Rejected — so
+        // hold it here until its escort commits instead.
+        let in_flight: HashSet<String> = client
+            .escorts
+            .pending_for(chat_id)
+            .into_iter()
+            .collect();
         drop(client);
         let now = now_ms();
         let pending: Vec<_> = core
@@ -1513,6 +1522,15 @@ impl DirectHost {
             })
             .collect();
         for command in pending {
+            // Bytes still in flight: hold this command — and everything after
+            // it, so sends stay ordered — until its escort commits; the
+            // escort's nudge re-runs this drain.
+            if crate::attachments::command_pending_uploads(&command)
+                .iter()
+                .any(|id| in_flight.contains(id))
+            {
+                break;
+            }
             let params = serde_json::json!({ "chatId": chat_id, "entry": command });
             // RelayCommand is idempotent on the command id: retry freely.
             let mut outcome = None;
