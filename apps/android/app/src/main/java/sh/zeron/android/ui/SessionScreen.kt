@@ -325,6 +325,7 @@ fun SessionScreen(model: ZeronModel, chatId: String) {
                 host.topFadePx = headerGapPx
                 host.topInsetPx = headerPx + headerGapPx
                 host.imageFor = { images[it] }
+                host.onImageMiss = { model.showToast(context.getString(R.string.image_unavailable)) }
                 host.requestImage = req@{ ref ->
                     // pending:// refs resolve from the local attachment cache,
                     // so the photo shows in the echo while it still uploads;
@@ -451,6 +452,7 @@ fun SessionScreen(model: ZeronModel, chatId: String) {
                     } else null,
                     images = staged,
                     onRemoveImage = { staged = staged.filterNot { s -> s === it } },
+                    onImageTap = { bmp -> lightbox = bmp },
                     onAttach = { attachMenu = it },
                     onSend = send@{ mode ->
                         val body = draft.trim()
@@ -979,6 +981,8 @@ internal fun ComposerBar(
     onChip: (Chip, Rect) -> Unit = { _, _ -> },
     images: List<Staged>,
     onRemoveImage: (Staged) -> Unit,
+    /** Tap a staged thumbnail to preview it full-screen. */
+    onImageTap: (Bitmap) -> Unit = {},
     /** The + button, with its bounds (root px) to anchor a menu. */
     onAttach: (Rect) -> Unit = {},
     onSend: (Delivery) -> Unit,
@@ -1039,11 +1043,11 @@ internal fun ComposerBar(
                             Image(
                                 staged.preview.asImageBitmap(),
                                 contentDescription = staged.name,
-                                modifier = Modifier.size(56.dp).clip(RoundedCornerShape(10.dp)),
+                                modifier = Modifier.size(56.dp).clip(RoundedCornerShape(10.dp)).clickable { onImageTap(staged.preview) },
                                 contentScale = ContentScale.Crop,
                             )
                         }
-                        Text("×", color = Color.White, modifier = Modifier.align(Alignment.TopEnd).clickable { onRemoveImage(staged) }.padding(2.dp))
+                        Text("×", color = Color.White, modifier = Modifier.align(Alignment.TopEnd).clickable { onRemoveImage(staged) }.padding(6.dp))
                     }
                 }
             }

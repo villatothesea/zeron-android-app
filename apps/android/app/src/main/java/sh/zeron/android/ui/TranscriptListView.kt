@@ -62,6 +62,8 @@ class TranscriptListView(context: Context) : View(context) {
     var onTap: () -> Unit = {}
     var imageFor: (String) -> Bitmap? = { null }
     var requestImage: (String) -> Unit = {}
+    /** A thumbnail was tapped before its bytes arrived (still gray). */
+    var onImageMiss: () -> Unit = {}
     var onDistanceFromBottom: (Float) -> Unit = {}
     /** The user's own messages in transcript order, re-sent when they change (the message navigator). */
     var onUserMarks: (List<UserMark>) -> Unit = {}
@@ -1046,7 +1048,7 @@ class TranscriptListView(context: Context) : View(context) {
                         return
                     }
                     is WidgetKind.Image -> {
-                        imageFor(kind.reference)?.let(onImage)
+                        imageFor(kind.reference)?.let(onImage) ?: onImageMiss()
                         return
                     }
                     else -> Unit
