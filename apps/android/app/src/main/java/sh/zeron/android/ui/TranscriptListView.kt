@@ -196,7 +196,13 @@ class TranscriptListView(context: Context) : View(context) {
         val content = next.totalHeight() * density
         val viewport = (height - bottomInsetPx - topInsetPx).coerceAtLeast(1)
         val maxScroll = max(0f, content - viewport)
-        if (following && !tracking) {
+        // A finger merely resting on the transcript (tracking but not past
+        // the drag slop) is not a scroll: while content is still loading
+        // there is nothing to anchor to, so the first real frame must land
+        // at the bottom, not freeze the view at the top under the touch.
+        // 手指只是按着（未拖过阈值）不算滚动：加载中的帧没有可锚定的行，
+        // 否则会卡在顶部第一条消息上。
+        if (following && !dragging) {
             scroll = maxScroll
         } else {
             // Older history lands above the visible rows: keep the first
@@ -305,7 +311,7 @@ class TranscriptListView(context: Context) : View(context) {
         val content = (frame?.totalHeight() ?: 0f) * density
         val viewport = (height - bottomInsetPx - topInsetPx).coerceAtLeast(1)
         val maxScroll = max(0f, content - viewport)
-        if (following && !tracking) scroll = maxScroll
+        if (following && !dragging) scroll = maxScroll
         scroll = scroll.coerceIn(0f, maxScroll)
         onDistanceFromBottom(maxScroll - scroll)
         invalidate()
@@ -967,6 +973,16 @@ class TranscriptListView(context: Context) : View(context) {
                 if (!flinging) setScrolling(false)
                 tracking = false
                 dragging = false
+                // Repairs any state where the view still follows but drifted
+                // off the bottom while the touch held (e.g. a frame landed
+                // between DOWN and its anchor rows existing).
+                // 修复按住期间跟随中却偏离底部的残留状态。
+                if (!flinging && following) {
+                    scroll = maxScrollPx().toFloat()
+                    onDistanceFromBottom(0f)
+                    onScroll(scroll)
+                    invalidate()
+                }
                 dragScroller = null
                 velocity?.recycle()
                 velocity = null

@@ -28,7 +28,10 @@ import sh.zeron.android.core.ZeronModel
 import sh.zeron.android.screenshots.FakeAndroidKeyStore
 import sh.zeron.android.screenshots.Screenshots
 import uniffi.zeron_core.BusyPolicy
+import uniffi.zeron_core.DebugEntry
+import uniffi.zeron_core.LayoutListener
 import uniffi.zeron_core.SendRequest
+import uniffi.zeron_core.TranscriptView
 
 /**
  * Session transcript controls: a code block's copy button copies the code
@@ -139,6 +142,57 @@ class TranscriptControlsTest {
         val view = transcript()!!
         assertEquals("reading your first message", 0, view.activeUserMark)
         assertTrue("away from the bottom", view.distanceFromBottomPx() > 0f)
+        scenario.close()
+    }
+
+    /**
+     * Regression: entering a session showed the FIRST message whenever a
+     * finger happened to rest on the still-empty transcript while the rows
+     * streamed in — a held touch (tracking, not yet a drag) froze the empty
+     * frame's scroll of 0, and with no later frame to correct it the view
+     * stayed pinned at the top. A finger that never passed the drag slop is
+     * not a scroll: frames must keep landing at the bottom.
+     */
+    @Test
+    fun heldTouchDuringLoadStillLandsAtBottom() {
+        launch("chat-zh")
+        var view: TranscriptListView? = null
+        scenario.onActivity { activity ->
+            view = TranscriptListView(activity).also { v ->
+                v.engine = TranscriptView(model.text!!, object : LayoutListener {
+                    override fun frameReady(revision: ULong) {}
+                })
+            }
+            (activity.window.decorView as ViewGroup).addView(
+                view,
+                activity.resources.displayMetrics.widthPixels,
+                activity.resources.displayMetrics.heightPixels,
+            )
+        }
+        settle(800)
+        // Frame one is the empty attach snapshot; the rows are still coming.
+        scenario.onActivity { view!!.onFrame() }
+        val t = SystemClock.uptimeMillis()
+        scenario.onActivity {
+            view!!.dispatchTouchEvent(MotionEvent.obtain(t, t, MotionEvent.ACTION_DOWN, 500f, 1200f, 0))
+        }
+        scenario.onActivity {
+            view!!.engine!!.setDebugEntries(
+                (1..24).map { i ->
+                    DebugEntry("m$i", i % 3 == 0, "第 $i 条消息的正文，用来把 transcript 撑得比屏幕高。\n\n`row-$i`", false)
+                },
+                false,
+            )
+        }
+        settle(1000)
+        scenario.onActivity { view!!.onFrame() }
+        // Still holding: the fresh rows must already sit at the bottom.
+        assertEquals("a held touch must not pin the first message", 0f, view!!.distanceFromBottomPx(), 1f)
+        scenario.onActivity {
+            view!!.dispatchTouchEvent(MotionEvent.obtain(t, t + 400, MotionEvent.ACTION_UP, 500f, 1200f, 0))
+        }
+        settle(300)
+        assertEquals("released at the bottom", 0f, view!!.distanceFromBottomPx(), 1f)
         scenario.close()
     }
 
