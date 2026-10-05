@@ -36,7 +36,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -79,17 +78,6 @@ object MessageNav {
         if (ys.isEmpty()) return -1
         val i = ys.indexOfLast { it <= top }
         return if (i < 0) 0 else i
-    }
-
-    /**
-     * The bucket's representative mark on the card: the active tick when it
-     * falls inside, else the bucket's newest. The last bucket always shows
-     * the newest — the card's last row is your last message, even while you
-     * are still reading an older one in that bucket.
-     */
-    fun representative(buckets: List<IntRange>, bucket: Int, active: Int): Int {
-        val range = buckets[bucket]
-        return if (bucket != buckets.lastIndex && active in range) active else range.last
     }
 
     /** rail.rs `truncate_preview`: whitespace runs collapse, then a char cap with an ellipsis. */
@@ -160,10 +148,11 @@ fun MessageNavigator(
                         fontSize = 12.sp,
                         modifier = Modifier.padding(horizontal = 14.dp, vertical = 4.dp),
                     )
-                    buckets.forEachIndexed { b, range ->
-                        val rep = MessageNav.representative(buckets, b, active)
-                        val mark = marks[rep]
-                        val isActive = b == activeBucket
+                    // One row per message: the strip buckets marks for
+                    // space, but the card scrolls — folding them under
+                    // "+N more" made most messages unreachable here.
+                    marks.forEachIndexed { i, mark ->
+                        val isActive = i == active
                         Row(
                             Modifier
                                 .fillMaxWidth()
@@ -188,15 +177,6 @@ fun MessageNavigator(
                                 overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.weight(1f),
                             )
-                            if (range.count() > 1) {
-                                Spacer(Modifier.width(6.dp))
-                                Text(
-                                    pluralStringResource(R.plurals.msg_nav_more, range.count() - 1, range.count() - 1),
-                                    color = colors.tertiary,
-                                    fontFamily = ZeronType.Sans,
-                                    fontSize = 12.sp,
-                                )
-                            }
                         }
                     }
                 }

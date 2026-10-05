@@ -663,9 +663,6 @@
     <string name="msg_nav_title">你的消息</string>
     <string name="msg_nav_attachment">附件</string>
     <string name="image_unavailable">这张图片在电脑上读不出来</string>
-    <plurals name="msg_nav_more">
-        <item quantity="other">另 %d 条</item>
-    </plurals>
     <!-- 输入框附件：手机图片或电脑上的文件 -->
     <string name="attach_phone_photos">手机图片</string>
     <string name="attach_pc_files">电脑文件</string>

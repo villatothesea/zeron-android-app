@@ -41,18 +41,6 @@ class MessageNavTest {
     }
 
     @Test
-    fun representativeTracksActiveExceptInTheLastBucket() {
-        val b = MessageNav.buckets(100)
-        // Reading inside a middle bucket shows the message being read.
-        assertEquals(45, MessageNav.representative(b, 5, 45))
-        // Reading elsewhere shows the bucket's newest.
-        assertEquals(b[5].last, MessageNav.representative(b, 5, 0))
-        // The last bucket always shows the newest message: the card's last
-        // row is your last message even while you read an older one in it.
-        assertEquals(99, MessageNav.representative(b, b.lastIndex, 95))
-    }
-
-    @Test
     fun previewsAreOneLineAndCapped() {
         assertEquals("fix the build and ship", MessageNav.preview("  fix the\n\nbuild   and ship "))
         val long = "字".repeat(200)

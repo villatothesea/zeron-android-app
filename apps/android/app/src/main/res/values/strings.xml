@@ -671,10 +671,6 @@
     <string name="msg_nav_title">Your messages</string>
     <string name="msg_nav_attachment">Attachment</string>
     <string name="image_unavailable">This image isn’t readable on the host</string>
-    <plurals name="msg_nav_more">
-        <item quantity="one">+%d more</item>
-        <item quantity="other">+%d more</item>
-    </plurals>
     <!-- Composer attach: phone photos or files on the computer -->
     <string name="attach_phone_photos">Phone photos</string>
     <string name="attach_pc_files">Computer files</string>
