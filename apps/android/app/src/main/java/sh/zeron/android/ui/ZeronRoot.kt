@@ -239,6 +239,13 @@ private fun Shell(model: ZeronModel, colors: ZeronColors) {
     val inSession = top is ZeronModel.Route.Session && model.tab == ZeronModel.Tab.Sessions
     val frontPage = model.tab == ZeronModel.Tab.Sessions && !inSession && top !is ZeronModel.Route.Folder
     val page = if (frontPage) colors.shell else colors.background
+    // Wide screens (unfolded foldable, tablet) split like the iPad shell:
+    // sessions column on the left, detail column with the open session or the
+    // new-session page, and an optional right column the session can fill.
+    val splitView = model.tab == ZeronModel.Tab.Sessions &&
+        androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp >= 840
+    val sidePanel = remember { SidePanelState() }
+    if (!splitView && sidePanel.content != null) SideEffect { sidePanel.content = null }
     BackHandler(enabled = model.showNewSession || model.showSignIn || stack.isNotEmpty() || model.tab != ZeronModel.Tab.Sessions) {
         if (model.showNewSession || model.showSignIn || stack.isNotEmpty()) model.back()
         else model.tab = ZeronModel.Tab.Sessions
@@ -259,7 +266,36 @@ private fun Shell(model: ZeronModel, colors: ZeronColors) {
                 )
             }
         }
-        when {
+        if (splitView) {
+            androidx.compose.runtime.CompositionLocalProvider(LocalSidePanel provides sidePanel) {
+            Row(Modifier.fillMaxSize()) {
+                // With a file tree parked on the right the sessions column
+                // folds away so the transcript keeps a readable width.
+                if (sidePanel.content == null) {
+                    Column(Modifier.width(320.dp).fillMaxHeight()) {
+                        val folder = stack.lastOrNull { it is ZeronModel.Route.Folder } as? ZeronModel.Route.Folder
+                        if (folder != null) FolderScreen(model, colors, folder)
+                        else SessionsScreen(model, colors, onPrompt = { prompt = it })
+                    }
+                    Box(Modifier.width(1.dp).fillMaxHeight().background(colors.hairline))
+                }
+                Box(Modifier.weight(1f).fillMaxHeight()) {
+                    // A folder pushed over the list leaves the session in place,
+                    // matching the iPad sidebar/detail split.
+                    val session = stack.lastOrNull { it is ZeronModel.Route.Session } as? ZeronModel.Route.Session
+                    if (session != null && !model.showNewSession) {
+                        androidx.compose.runtime.key(session.id) { SessionScreen(model, session.id) }
+                    } else {
+                        NewSessionSheet(model, onDismiss = { model.showNewSession = false }, embedded = true, autofocus = model.showNewSession)
+                    }
+                }
+                sidePanel.content?.let { panel ->
+                    Box(Modifier.width(1.dp).fillMaxHeight().background(colors.hairline))
+                    Box(Modifier.width(340.dp).fillMaxHeight()) { panel() }
+                }
+            }
+            }
+        } else when {
             inSession -> {
                 val id = (top as ZeronModel.Route.Session).id
                 // A launch intent can swap chats without leaving composition; key the
@@ -272,7 +308,7 @@ private fun Shell(model: ZeronModel, colors: ZeronColors) {
             else -> SessionsScreen(model, colors, onPrompt = { prompt = it })
         }
         if (frontPage && !model.showNewSession) ConnectionSheetHost(model, colors)
-        if (model.showNewSession) {
+        if (model.showNewSession && !splitView) {
             Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.35f))) {
                 NewSessionSheet(model, onDismiss = { model.showNewSession = false })
             }

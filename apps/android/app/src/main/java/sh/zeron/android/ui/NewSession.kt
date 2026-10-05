@@ -276,7 +276,7 @@ private suspend fun hostModels(client: CoreClient, device: String): HostCatalog 
  * projects, the model (grouped by harness) and the reasoning effort.
  */
 @Composable
-fun NewSessionSheet(model: ZeronModel, onDismiss: () -> Unit) {
+fun NewSessionSheet(model: ZeronModel, onDismiss: () -> Unit, embedded: Boolean = false, autofocus: Boolean = true) {
     val colors = LocalZeronColors.current
     val context = LocalContext.current
     val client = model.client ?: return
@@ -424,7 +424,7 @@ fun NewSessionSheet(model: ZeronModel, onDismiss: () -> Unit) {
                 .padding(horizontal = 12.dp),
         ) {
             Row(Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                BackButton(colors, onClick = onDismiss)
+                if (embedded) Spacer(Modifier.width(44.dp)) else BackButton(colors, onClick = onDismiss)
                 Text(stringResource(R.string.new_session), color = colors.text, fontFamily = ZeronType.Sans, fontWeight = FontWeight.SemiBold, fontSize = 17.sp, modifier = Modifier.weight(1f), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
                 Spacer(Modifier.width(44.dp))
             }
@@ -449,7 +449,7 @@ fun NewSessionSheet(model: ZeronModel, onDismiss: () -> Unit) {
                         placeholder = stringResource(R.string.new_session_placeholder),
                         running = false,
                         canSteer = false,
-                        focused = true,
+                        focused = autofocus,
                         onFocus = {},
                         chips = chips,
                         onChip = { chip, rect ->

@@ -29,3 +29,16 @@ class RowMenuHost {
 
 val LocalRowMenus = staticCompositionLocalOf { RowMenuHost() }
 val LocalSwipe = staticCompositionLocalOf { SwipeCoordinator() }
+
+/**
+ * The right-hand column of the wide (foldable/tablet) shell. A session can
+ * park a composable here — today the workspace file browser — and the shell
+ * draws it beside the transcript instead of letting it cover the screen.
+ * Null on the compact shell, where callers fall back to full-screen overlays.
+ */
+@Stable
+class SidePanelState {
+    var content by mutableStateOf<(@androidx.compose.runtime.Composable () -> Unit)?>(null)
+}
+
+val LocalSidePanel = staticCompositionLocalOf<SidePanelState?> { null }

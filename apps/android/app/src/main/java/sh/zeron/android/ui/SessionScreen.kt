@@ -46,6 +46,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -246,6 +247,12 @@ fun SessionScreen(model: ZeronModel, chatId: String) {
     var attachMenu by remember { mutableStateOf<Rect?>(null) }
     var pcFiles by remember { mutableStateOf(false) }
     var browseFiles by remember { mutableStateOf(false) }
+    // Wide shell's right column: the workspace browser parks there instead of
+    // covering the screen. Compact shells leave the local null.
+    val sidePanel = LocalSidePanel.current
+    DisposableEffect(sidePanel) {
+        onDispose { sidePanel?.content = null }
+    }
     var headerPx by remember { mutableIntStateOf(0) }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
@@ -636,17 +643,27 @@ fun SessionScreen(model: ZeronModel, chatId: String) {
         }
         if (browseFiles) {
             val cwd = row?.cwd
-            WorkspaceFilesScreen(
-                model,
-                deviceId = row?.deviceId ?: chrome.host.deviceId,
-                cwd = cwd,
-                onClose = { browseFiles = false },
-                onPreview = { path -> filePreview = "zeron-file:" + android.net.Uri.encode(path.replace('\\', '/'), "/") },
-                onMention = { path, dir ->
-                    draft = PcFileRefs.insert(draft, listOf(PcFileRefs.reference(cwd, path, isDir = dir)))
-                    browseFiles = false
-                },
-            )
+            val browser: @Composable () -> Unit = {
+                WorkspaceFilesScreen(
+                    model,
+                    deviceId = row?.deviceId ?: chrome.host.deviceId,
+                    cwd = cwd,
+                    onClose = { browseFiles = false },
+                    onPreview = { path -> filePreview = "zeron-file:" + android.net.Uri.encode(path.replace('\\', '/'), "/") },
+                    onMention = { path, dir ->
+                        draft = PcFileRefs.insert(draft, listOf(PcFileRefs.reference(cwd, path, isDir = dir)))
+                        browseFiles = false
+                    },
+                )
+            }
+            // Wide shell: park the browser in the right column; compact: cover.
+            if (sidePanel != null) {
+                SideEffect { sidePanel.content = browser }
+            } else {
+                browser()
+            }
+        } else if (sidePanel?.content != null) {
+            SideEffect { sidePanel.content = null }
         }
         filePreview?.let { url ->
             FilePreview(

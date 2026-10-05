@@ -31,7 +31,7 @@
         android:theme="@style/Theme.Zeron">
         <activity
             android:name=".MainActivity"
-            android:configChanges="uiMode|locale|layoutDirection"
+            android:configChanges="uiMode|locale|layoutDirection|screenSize|smallestScreenSize|screenLayout|orientation"
             android:exported="true"
             android:launchMode="singleTask"
             android:windowSoftInputMode="adjustResize">
