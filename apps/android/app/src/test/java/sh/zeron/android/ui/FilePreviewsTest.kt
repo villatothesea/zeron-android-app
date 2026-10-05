@@ -28,9 +28,14 @@ class FilePreviewsTest {
     @Test
     fun statesFromTheRead() {
         val md = WorkspaceFile("docs/a.md", "# A", 3uL, false)
-        assertEquals(FilePreviewState.Text(md, markdown = true), FilePreviews.loaded(md))
+        assertEquals(FilePreviewState.Text(md, markdown = true), FilePreviews.loaded(md, "zeron-file:docs/a.md"))
+        // The link's own name is the fallback when the resolved path loses
+        // the extension (a renamed temp path, a bare `pending:` ref…).
+        val resolved = WorkspaceFile("blob-9f2c", "# A", 3uL, false)
+        assertEquals(FilePreviewState.Text(resolved, markdown = true), FilePreviews.loaded(resolved, "zeron-file:docs/a.md"))
+        assertEquals(FilePreviewState.Text(resolved, markdown = false), FilePreviews.loaded(resolved, "zeron-file:docs/a.txt"))
         val bin = WorkspaceFile("logo.png", null, 2048uL, false)
-        assertEquals(FilePreviewState.Binary(bin), FilePreviews.loaded(bin))
+        assertEquals(FilePreviewState.Binary(bin), FilePreviews.loaded(bin, "zeron-file:logo.png"))
         assertEquals(
             FilePreviewState.Failed(outside = true, message = null),
             FilePreviews.failed(CoreException.InvalidArgument("outside")),

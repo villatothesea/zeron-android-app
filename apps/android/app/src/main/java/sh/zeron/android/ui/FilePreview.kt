@@ -80,8 +80,11 @@ internal object FilePreviews {
 
     fun isMarkdown(path: String): Boolean = title(path).substringAfterLast('.', "").lowercase() in markdownExt
 
-    fun loaded(file: WorkspaceFile): FilePreviewState =
-        if (file.text == null) FilePreviewState.Binary(file) else FilePreviewState.Text(file, isMarkdown(file.path))
+    /** The engine's resolved `file.path` is the primary signal; fall back to
+     *  the link's own name so an odd path can't hide a `.md` preview. */
+    fun loaded(file: WorkspaceFile, url: String): FilePreviewState =
+        if (file.text == null) FilePreviewState.Binary(file)
+        else FilePreviewState.Text(file, isMarkdown(file.path) || isMarkdown(url))
 
     fun failed(t: Throwable): FilePreviewState = when (t) {
         is CoreException.InvalidArgument -> FilePreviewState.Failed(outside = true, message = null)
@@ -110,7 +113,7 @@ internal fun FilePreview(
     LaunchedEffect(url, attempt) {
         state = FilePreviewState.Loading
         state = try {
-            FilePreviews.loaded(load())
+            FilePreviews.loaded(load(), url)
         } catch (t: Throwable) {
             if (t is kotlinx.coroutines.CancellationException) throw t
             FilePreviews.failed(t)
