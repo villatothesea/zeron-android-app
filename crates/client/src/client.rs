@@ -1258,7 +1258,10 @@ impl Client {
         }
         let (doc, cursor, hydrated) = match self.inner.backend() {
             Backend::Demo(demo) => (demo.session_doc(chat_id)?, 0, true),
-            Backend::Direct(direct) => (direct.session_doc(chat_id)?, 0, false),
+            Backend::Direct(direct) => {
+                let (doc, hydrated) = direct.session_doc(chat_id)?;
+                (doc, 0, hydrated)
+            }
             Backend::Live(live) => {
                 let local = crate::live::room::load_local(&live.store, chat_id);
                 (local.doc, local.cursor, local.had_content)

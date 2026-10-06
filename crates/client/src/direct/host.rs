@@ -184,6 +184,10 @@ pub(crate) struct DirectHost {
     engine_device: Mutex<Option<String>>,
     /// Transcript mirrors: chat → (core it feeds, stop token).
     mirrors: Mutex<HashMap<String, (Weak<SessionCore>, CancellationToken)>>,
+    /// Phone-side transcript snapshots the mirrors keep current; opening a
+    /// chat hydrates from them (instant paint) while the engine's tail and
+    /// reset settle the newest rows on top.
+    shadow_store: Option<zeron_sync::DocsStore>,
     drains: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
     local_rows: Mutex<HashMap<String, i64>>,
     /// Session freshness re-stamped on the phone's clock.
@@ -212,6 +216,11 @@ impl DirectHost {
             endpoints: endpoints.iter().map(fresh_stat).collect(),
             ..DirectStatus::default()
         };
+        let shadow_store = zeron_sync::DocsStore::open(client.config.data_dir.join("transcripts"))
+            .map_err(|err| {
+                tracing::warn!(error = %err, "transcript snapshot store unavailable")
+            })
+            .ok();
         Arc::new(Self {
             target,
             endpoints: Mutex::new(endpoints),
@@ -222,6 +231,7 @@ impl DirectHost {
             status: Mutex::new(status),
             engine_device: Mutex::new(None),
             mirrors: Mutex::new(HashMap::new()),
+            shadow_store,
             drains: Mutex::new(HashMap::new()),
             local_rows: Mutex::new(HashMap::new()),
             session_clock: Mutex::new(Default::default()),
@@ -1400,10 +1410,49 @@ impl DirectHost {
 
     // ── transcripts ────────────────────────────────────────────────────────
 
-    /// Direct sessions start from an empty shadow doc; the engine's reset
-    /// fills it.
-    pub(crate) fn session_doc(&self, chat_id: &str) -> Result<SessionDoc> {
-        SessionDoc::init(chat_id).map_err(doc_err)
+    /// Direct sessions hydrate from the phone's last mirrored snapshot —
+    /// a reopened chat shows its history at once, and the engine's tail
+    /// splices the newest rows on top (`splice_tail`) before the complete
+    /// reset settles it. Only a chat never mirrored (or an unreadable
+    /// snapshot) starts empty.
+    pub(crate) fn session_doc(&self, chat_id: &str) -> Result<(SessionDoc, bool)> {
+        if let Some(store) = &self.shadow_store {
+            match store.load_snapshot(chat_id) {
+                Ok(Some(bytes)) => {
+                    let raw = loro::LoroDoc::new();
+                    match raw.import(&bytes) {
+                        Ok(_) => {
+                            let doc = SessionDoc::from_doc(raw);
+                            let rows = doc.read_entries().map(|e| e.len()).unwrap_or(0);
+                            self.note(format!(
+                                "transcript {}: {} cached rows",
+                                short_id(chat_id),
+                                rows
+                            ));
+                            return Ok((doc, true));
+                        }
+                        Err(err) => tracing::warn!(error = %err, chat = %chat_id,
+                            "transcript snapshot unreadable; starting fresh"),
+                    }
+                }
+                Ok(None) => {}
+                Err(err) => tracing::warn!(error = %err, chat = %chat_id,
+                    "transcript snapshot read failed"),
+            }
+        }
+        Ok((SessionDoc::init(chat_id).map_err(doc_err)?, false))
+    }
+
+    /// Persist the shadow transcript so a later open paints its cached
+    /// history instantly (see [`Self::session_doc`]).
+    fn save_shadow(&self, core: &SessionCore) {
+        let Some(store) = &self.shadow_store else { return };
+        let Ok(bytes) = core.write(|doc| doc.export_snapshot()) else {
+            return;
+        };
+        if let Err(err) = store.save_snapshot(&core.chat_id, &bytes) {
+            tracing::warn!(error = %err, chat = %core.chat_id, "transcript snapshot save failed");
+        }
     }
 
     /// Over a direct link only the transcript on screen (or one with a send
@@ -1650,6 +1699,11 @@ async fn mirror_transcript(
     ));
     let mut tail_logged = seeded;
     let mut history_logged = false;
+    // Persist what the mirror writes so the next open paints it instantly.
+    let mut shadow = ShadowSaver::new(host.clone(), core.clone());
+    let mut save_tick = tokio::time::interval(SHADOW_SAVE_EVERY);
+    save_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    save_tick.tick().await; // the interval's first tick is immediate
     loop {
         let rpc = own.as_ref().map_or(&link.rpc, |own| &own.rpc);
         // Bytes in on this channel (its own only), for the history's progress.
@@ -1720,6 +1774,10 @@ async fn mirror_transcript(
                         None => continue,
                     }
                 }
+                _ = save_tick.tick(), if shadow.dirty => {
+                    shadow.flush_now();
+                    continue;
+                }
                 _ = progress.tick(), if history_from.is_some() => {
                     // How much of the complete history has come in so far.
                     if let (Some(from), Some(received), Some(core)) =
@@ -1766,6 +1824,7 @@ async fn mirror_transcript(
                         let _ = core.write(|doc| doc.truncate_messages(0));
                     }
                     core.schedule_refresh();
+                    shadow.mark();
                 }
                 history_from = received
                     .as_ref()
@@ -1811,6 +1870,7 @@ async fn mirror_transcript(
                         elapsed(opened_ms)
                     ));
                 }
+                shadow.mark();
                 history_from = received
                     .as_ref()
                     .map(|r| r.load(std::sync::atomic::Ordering::Relaxed));
@@ -1868,8 +1928,12 @@ async fn mirror_transcript(
             history_from = None;
             core.set_history_pending(false);
             core.schedule_refresh();
+            shadow.mark();
             if !history_logged {
                 history_logged = true;
+                // The complete history just landed: keep the snapshot for
+                // the next open without waiting out the save tick.
+                shadow.flush_now();
                 host.note(format!(
                     "transcript {chat}: full history ({} rows) in {:.1}s",
                     written.len(),
@@ -1902,6 +1966,51 @@ async fn mirror_transcript(
 
 /// How often the complete history's download progress is published.
 const HISTORY_PROGRESS_EVERY: Duration = Duration::from_secs(1);
+
+/// How often a dirty shadow transcript goes to disk while its mirror runs
+/// (the complete history flushes on arrival; the saver's drop flushes the
+/// rest when the mirror ends).
+const SHADOW_SAVE_EVERY: Duration = Duration::from_secs(30);
+
+/// Tracks transcript writes a mirror still owes the snapshot store. Marks
+/// on every doc write; flushes on the save tick, when the complete history
+/// lands, and on drop (the mirror ending — link down, chat left, core
+/// evicted).
+struct ShadowSaver {
+    host: Arc<DirectHost>,
+    core: Weak<SessionCore>,
+    dirty: bool,
+}
+
+impl ShadowSaver {
+    fn new(host: Arc<DirectHost>, core: Weak<SessionCore>) -> Self {
+        Self {
+            host,
+            core,
+            dirty: false,
+        }
+    }
+
+    fn mark(&mut self) {
+        self.dirty = true;
+    }
+
+    fn flush_now(&mut self) {
+        if !self.dirty {
+            return;
+        }
+        self.dirty = false;
+        if let Some(core) = self.core.upgrade() {
+            self.host.save_shadow(&core);
+        }
+    }
+}
+
+impl Drop for ShadowSaver {
+    fn drop(&mut self) {
+        self.flush_now();
+    }
+}
 
 /// At most this many queued transcript frames go into one doc write (the
 /// rest wait for the next round, so the mirror still yields to its checks).

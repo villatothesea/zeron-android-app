@@ -1472,6 +1472,49 @@ async fn the_newest_rows_show_first_then_the_whole_transcript() {
     client.shutdown();
 }
 
+/// A session mirrored once persists its transcript; reopening it on a
+/// fresh client paints the cached rows before the engine has answered —
+/// even when the engine never comes up.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_reopened_session_paints_its_cached_transcript() {
+    let dir = tempfile::tempdir().unwrap();
+    let (client, _seen, _engine) =
+        live_client("shadow-cache.test", Mode::OpeningTail, dir.path()).await;
+    wait_for(&client, "chats", |c| {
+        !c.workspace().sessions.is_empty()
+    })
+    .await;
+    let chat = client.workspace().sessions.keys().next().unwrap().clone();
+    let handle = client.open_session(&chat).unwrap();
+    handle.set_view_attached(true);
+    // The complete history lands and the mirror flushes it to disk.
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while handle.snapshot().history_pending
+        || handle.snapshot().transcript_messages().len() < 3
+    {
+        assert!(std::time::Instant::now() < deadline, "history not in");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    client.shutdown();
+
+    // The engine stays down: opening still shows the cached transcript.
+    let client = direct_client("shadow-cache.test", dir.path());
+    wait_for(&client, "registry", |c| {
+        !c.workspace().sessions.is_empty()
+    })
+    .await;
+    let handle = client.open_session(&chat).unwrap();
+    let ids: Vec<String> = handle
+        .snapshot()
+        .transcript_messages()
+        .iter()
+        .map(|m| m.id.clone())
+        .collect();
+    assert_eq!(ids, ["m1", "m2", "m3"], "cached rows on open");
+    assert!(handle.snapshot().hydrated, "no loading state");
+    client.shutdown();
+}
+
 // ── saved catalogs (New Session opens on the saved list) ───────────────────
 
 fn refresh_every(host: &str, every: Duration) {
