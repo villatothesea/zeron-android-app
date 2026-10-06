@@ -1,6 +1,7 @@
 package sh.zeron.android.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -18,11 +19,15 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLinkStyles
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -90,6 +95,7 @@ fun MarkdownText(markdown: String, colors: ZeronColors, modifier: Modifier = Mod
                         .padding(10.dp),
                 )
                 Block.Rule -> HorizontalDivider(color = colors.hairline, modifier = Modifier.padding(vertical = 4.dp))
+                is Block.Table -> MarkdownTable(block, colors)
             }
         }
     }
@@ -102,6 +108,63 @@ private sealed interface Block {
     data class Quote(val text: String) : Block
     data class Code(val text: String) : Block
     data object Rule : Block
+    data class Table(val header: List<String>, val aligns: List<TextAlign>, val rows: List<List<String>>) : Block
+}
+
+/** Pipe table: hairline frame, tinted header row, per-row separators; scrolls sideways when wider than the screen. */
+@Composable
+private fun MarkdownTable(t: Block.Table, colors: ZeronColors) {
+    val measurer = rememberTextMeasurer()
+    val density = LocalDensity.current
+    val bodyStyle = TextStyle(fontFamily = ZeronType.Sans, fontSize = 13.sp, lineHeight = 17.sp)
+    val headStyle = bodyStyle.copy(fontWeight = FontWeight.SemiBold)
+    val padX = 10.dp
+    val padY = 7.dp
+    val maxCol = 240.dp
+    val cols = t.header.size
+    // Uniform column widths: widest single-line cell, capped so long cells wrap.
+    val colWidths = remember(t, density) {
+        (0 until cols).map { c ->
+            val texts = listOfNotNull(t.header.getOrNull(c)?.let { it to headStyle }) + t.rows.map { (it.getOrElse(c) { "" }) to bodyStyle }
+            val natural = texts.maxOf { (s, st) -> measurer.measure(AnnotatedString(s), style = st, maxLines = 1).size.width }
+            with(density) { natural.toDp() }.coerceAtMost(maxCol)
+        }
+    }
+    val radius = RoundedCornerShape(10.dp)
+    Box(
+        Modifier
+            .clip(radius)
+            .border(1.dp, colors.hairline, radius)
+            .horizontalScroll(rememberScrollState()),
+    ) {
+        Column {
+            Row(Modifier.background(colors.codeBackground)) {
+                t.header.forEachIndexed { c, cell ->
+                    Text(
+                        inline(cell, colors),
+                        style = headStyle,
+                        color = colors.text,
+                        textAlign = t.aligns.getOrElse(c) { TextAlign.Left },
+                        modifier = Modifier.width(colWidths[c] + padX * 2).padding(horizontal = padX, vertical = padY),
+                    )
+                }
+            }
+            t.rows.forEach { row ->
+                HorizontalDivider(color = colors.hairline)
+                Row {
+                    (0 until cols).forEach { c ->
+                        Text(
+                            inline(row.getOrElse(c) { "" }, colors),
+                            style = bodyStyle,
+                            color = colors.text,
+                            textAlign = t.aligns.getOrElse(c) { TextAlign.Left },
+                            modifier = Modifier.width(colWidths[c] + padX * 2).padding(horizontal = padX, vertical = padY),
+                        )
+                    }
+                }
+            }
+        }
+    }
 }
 
 private val headingRe = Regex("^(#{1,6})\\s+(.*?)\\s*#*\\s*$")
@@ -109,6 +172,30 @@ private val bulletRe = Regex("^(\\s*)[-*+]\\s+(.*)$")
 private val numberRe = Regex("^(\\s*)(\\d{1,3})[.)]\\s+(.*)$")
 private val taskRe = Regex("^\\[([ xX])]\\s+(.*)$")
 private val ruleRe = Regex("^\\s{0,3}([-*_])(\\s*\\1){2,}\\s*$")
+private val tableDelimRe = Regex("^\\s*\\|?\\s*:?-+:?\\s*(\\|\\s*:?-+:?\\s*)+\\|?\\s*$")
+
+/** Splits a pipe-table line into cells; a leading/trailing pipe is optional, `\|` stays literal. */
+private fun splitTableRow(line: String): List<String> {
+    var s = line.trim()
+    if (s.startsWith("|")) s = s.drop(1)
+    if (s.endsWith("|") && !s.endsWith("\\|")) s = s.dropLast(1)
+    val cells = ArrayList<String>()
+    val cur = StringBuilder()
+    var i = 0
+    while (i < s.length) {
+        if (s[i] == '\\' && i + 1 < s.length && s[i + 1] == '|') { cur.append('|'); i += 2 }
+        else if (s[i] == '|') { cells.add(cur.toString().trim()); cur.clear(); i++ }
+        else { cur.append(s[i]); i++ }
+    }
+    cells.add(cur.toString().trim())
+    return cells
+}
+
+private fun tableAlign(cell: String) = when {
+    cell.startsWith(":") && cell.endsWith(":") -> TextAlign.Center
+    cell.endsWith(":") -> TextAlign.Right
+    else -> TextAlign.Left
+}
 
 private fun parseBlocks(source: String): List<Block> {
     val out = ArrayList<Block>()
@@ -151,6 +238,21 @@ private fun parseBlocks(source: String): List<Block> {
                 out.add(Block.Item(m.groupValues[1].replace("\t", "  ").length / 2, m.groupValues[2].toInt(), null, m.groupValues[3]))
             }
             trimmed.startsWith(">") -> { flush(); out.add(Block.Quote(trimmed.trimStart('>').trim())) }
+            trimmed.contains('|') && i + 1 < lines.size && tableDelimRe.matches(lines[i + 1]) -> {
+                flush()
+                val header = splitTableRow(line)
+                val aligns = splitTableRow(lines[i + 1]).map(::tableAlign)
+                val cols = header.size
+                val rows = ArrayList<List<String>>()
+                i += 2
+                while (i < lines.size && lines[i].isNotBlank() && lines[i].contains('|')) {
+                    val cells = splitTableRow(lines[i])
+                    rows.add(List(cols) { cells.getOrElse(it) { "" } })
+                    i++
+                }
+                i--
+                out.add(Block.Table(header, aligns, rows))
+            }
             else -> {
                 // A continuation line of the previous list item joins it.
                 val last = out.lastOrNull()
